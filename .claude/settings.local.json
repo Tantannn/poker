@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 40)",
+      "PowerShell(npm run *)",
+      "PowerShell(npx eslint src/components/Feedback.tsx src/components/Hud.tsx src/components/OpponentPanel.tsx src/components/RangeChartModal.tsx src/hooks/useGame.ts src/analysis/grade.ts src/strategy/handClass.ts src/engine/board.ts src/ai/profiles.ts 2>&1 | Select-Object -First 30)",
+      "PowerShell(Get-Content *)"
+    ]
+  }
+}
