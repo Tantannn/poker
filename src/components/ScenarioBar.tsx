@@ -6,6 +6,7 @@ type G = ReturnType<typeof useGame>;
 
 const POSITIONS: HeroPositionPref[] = ['random', 'UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
 const SPEEDS: Speed[] = ['1x', '2x', 'instant'];
+const STACKS = [50, 100, 200];
 
 export function ScenarioBar({ g }: { g: G }) {
   const [open, setOpen] = useState(false);
@@ -36,6 +37,24 @@ export function ScenarioBar({ g }: { g: G }) {
             </button>
           ))}
         </div>
+        <span className="sc-label sc-speed-label">Stack:</span>
+        <div className="sc-btns">
+          {STACKS.map((s) => (
+            <button
+              key={s}
+              className={g.stackDepth === s ? 'active' : ''}
+              onClick={() => g.applyStackDepth(s)}
+              disabled={handInProgress}
+              title={handInProgress ? 'Applies after this hand' : ''}
+            >
+              {s}bb
+            </button>
+          ))}
+        </div>
+        <label className="sc-check" title="When you fold, watch the bots finish the hand instead of skipping to the result">
+          <input type="checkbox" checked={g.watchAfterFold} onChange={(e) => g.setWatchAfterFold(e.target.checked)} />
+          Watch after fold
+        </label>
         <button className="sc-config-toggle" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide opponents' : 'Configure opponents'}
         </button>

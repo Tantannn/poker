@@ -5,7 +5,15 @@
 import { useState } from 'react';
 import type { NodeStrategy } from '../strategy';
 import type { RngInfo } from '../hooks/useGame';
+import { BIG_BLIND } from '../hooks/useGame';
 import { RangeChartModal } from './RangeChartModal';
+
+// quality tier of an option vs the best line, by EV loss (bb)
+function tierOf(evLoss: number): { cls: string; tag: string } {
+  if (evLoss <= 0.04) return { cls: 'tier-best', tag: 'best' };
+  if (evLoss <= 0.4) return { cls: 'tier-ok', tag: 'inaccuracy' };
+  return { cls: 'tier-bad', tag: 'mistake' };
+}
 
 interface Props {
   strategy: NodeStrategy | null;
@@ -62,6 +70,8 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
             {strategy.options.map((o) => {
               const isPrescribed = rng?.prescribed === o.id;
               const isBest = o.id === strategy.bestId;
+              const evLoss = Math.max(0, strategy.bestEv - o.ev);
+              const tier = isBest ? { cls: 'tier-best', tag: 'best' } : tierOf(evLoss);
               return (
                 <div key={o.id} className="strat-rowwrap">
                   <div className={`strat-row ${isPrescribed ? 'prescribed' : ''}`}>
@@ -69,7 +79,8 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                       <div className={`strat-bar kind-${o.kind ?? 'fold'}`} style={{ width: `${o.freq * 100}%` }} />
                       <span className="strat-label">
                         {o.label}
-                        {isBest && <span className="best-tag">best</span>}
+                        <span className={`tier-tag ${tier.cls}`}>{tier.tag}</span>
+                        {o.id === 'allin' && <span className="risk-tag" title="High-variance: stacking off is hard to recover from in real play">⚠ risky</span>}
                       </span>
                       <span className="strat-freq">{(o.freq * 100).toFixed(0)}%</span>
                     </div>
@@ -78,6 +89,12 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                       {o.ev.toFixed(2)} bb
                     </div>
                   </div>
+                  {o.amount != null && (
+                    <div className="strat-amt">
+                      {o.id === 'call' ? 'call' : o.id === 'raise' ? 'raise to' : 'bet to'} <b>{o.amount}</b>
+                      {' '}({(o.amount / BIG_BLIND).toFixed(1)}bb){o.sizePct != null ? ` · ${o.sizePct}% pot` : ''}
+                    </div>
+                  )}
                   {explain && (o.why || o.math) && (
                     <div className="strat-explain">
                       {o.why && <div className="se-why">{o.why}</div>}

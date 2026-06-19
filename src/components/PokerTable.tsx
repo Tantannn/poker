@@ -6,7 +6,9 @@ import { Seat } from './Seat';
 import { PlayingCard } from './PlayingCard';
 import { Controls } from './Controls';
 import { Hud } from './Hud';
+import { ScoreCard } from './ScoreCard';
 import { StrategyPanel } from './StrategyPanel';
+import { SituationPanel } from './SituationPanel';
 import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
 import { ScenarioBar } from './ScenarioBar';
@@ -26,6 +28,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   const started = game.handNumber > 0;
   const [infoEnabled, setInfoEnabled] = useState(true);
   const [oppEnabled, setOppEnabled] = useState(true);
+  const [supportsHidden, setSupportsHidden] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -69,7 +72,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                 ))}
               </div>
               {reveal && game.winners.length > 0 && <div className="winner-banner">{game.message}</div>}
-              <div className="street-tag">{started ? game.street.toUpperCase() : 'Press Deal'}</div>
+              <StreetBreadcrumb street={game.street} started={started} />
             </div>
 
             {game.players.map((p) => (
@@ -79,7 +82,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                 position={positionLabel(p.id, game.buttonIndex, NUM_PLAYERS)}
                 isButton={p.id === game.buttonIndex && started}
                 isToAct={game.toAct === p.id && !handOver}
-                reveal={reveal}
+                reveal={reveal && (!supportsHidden || !p.folded)}
                 isWinner={winnerIds.has(p.id)}
                 profileName={p.isHero ? undefined : getProfile(p.profileId).tag}
                 slot={p.id}
@@ -94,10 +97,33 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               {handOver && (
                 <div className="hand-result">
                   {game.message} <span className={resultDeltaClass(g)}>{deltaText(g)}</span>
+                  {g.history[0] && (() => {
+                    const last = g.history[0];
+                    const tagged = g.journal.some((e) => e.handNumber === last.handNumber);
+                    return (
+                      <button
+                        className={`tag-btn ${tagged ? 'on' : ''}`}
+                        onClick={() => g.toggleTag(last)}
+                        title="Mark this hand for later review in Hand Review"
+                      >
+                        {tagged ? '★ Tagged for review' : '☆ Tag for review'}
+                      </button>
+                    );
+                  })()}
                 </div>
               )}
-              <button className="btn btn-deal" onClick={g.deal}>
-                {started ? 'Next Hand' : 'Deal Hand'} <kbd>Space</kbd>
+              <div className="deal-btns">
+                <button className="btn btn-deal" onClick={g.deal}>
+                  {started ? 'Next Hand' : 'Deal Hand'} <kbd>Space</kbd>
+                </button>
+                {started && (
+                  <button className="btn btn-repeat" onClick={g.repeatHand} title="Replay the same hole cards & board">
+                    ↺ Repeat Hand
+                  </button>
+                )}
+              </div>
+              <button className="link-btn reset-game" onClick={g.resetGame}>
+                ⟲ Reset game (fresh 100bb stacks)
               </button>
             </div>
           ) : isHeroTurn ? (
@@ -110,38 +136,97 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               onAction={g.heroAct}
               onSkip={g.skipHand}
             />
+          ) : hero.folded && !handOver ? (
+            <div className="waiting folded-wait">
+              <span>You folded — watching the hand play out…</span>
+              <button className="link-btn" onClick={g.finishHand}>Skip to end →</button>
+            </div>
           ) : (
             <div className="waiting">Opponents acting…</div>
           )}
-          <Feedback fb={feedback} />
+          {!supportsHidden && <Feedback fb={feedback} />}
         </div>
       </div>
 
       <div className="hud-col">
-        <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} />
-        <StrategyPanel
-          strategy={strategy}
-          rng={rng}
-          enabled={infoEnabled}
-          loading={hudLoading}
-          onToggle={() => setInfoEnabled((v) => !v)}
-        />
-        <OpponentPanel
-          villain={villain}
-          enabled={oppEnabled}
-          loading={hudLoading}
-          onToggle={() => setOppEnabled((v) => !v)}
-        />
-        <div className="mini-tips">
-          <h4>How feedback works</h4>
+        <ScoreCard stats={g.stats} onReset={g.doResetStats} />
+
+        <button
+          className={`guides-master ${supportsHidden ? 'off' : 'on'}`}
+          onClick={() => {
+            const next = !supportsHidden;
+            setSupportsHidden(next);
+            // pure play = real table: watch the hand run out after a fold so you
+            // see how it would've gone (winners show down).
+            if (next) g.setWatchAfterFold(true);
+          }}
+          title="Hide every decision aid for a real-table feel — decide blind, then watch it play out"
+        >
+          {supportsHidden ? '👁 Show all guides' : '🙈 Hide all guides (pure play)'}
+        </button>
+
+        {supportsHidden ? (
+          <div className="guides-hidden-note">
+            Pure-play mode — HUD, solver, situation &amp; opponent reads hidden. Decide blind like a real table.
+            Hands play out to showdown (even after you fold) and only players who reach showdown reveal their
+            cards. Your moves are still graded; the session score stays live above.
+          </div>
+        ) : (
+          <>
+            <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} />
+            <SituationPanel board={game.board} heroCards={hero.holeCards} street={game.street} active={isHeroTurn} villain={villain} />
+            <StrategyPanel
+              strategy={strategy}
+              rng={rng}
+              enabled={infoEnabled}
+              loading={hudLoading}
+              onToggle={() => setInfoEnabled((v) => !v)}
+            />
+            <OpponentPanel
+              villain={villain}
+              enabled={oppEnabled}
+              loading={hudLoading}
+              onToggle={() => setOppEnabled((v) => !v)}
+            />
+            <details className="mini-tips">
+          <summary>ℹ️ Reading the panels &amp; bet types</summary>
+          <h4>Reading the panels</h4>
           <ul>
-            <li><b>Equity vs range</b> = win% against villain's whole realistic range (Monte-Carlo).</li>
-            <li><b>Solver strategy</b> = per-action frequency &amp; EV from the heuristic model.</li>
-            <li><b>RNG roll</b> tells you which branch of a mixed strategy to take.</li>
-            <li>Each action is scored by <b>EV loss</b> (bb) vs the best line — tracked in Analytics.</li>
+            <li><b>🧭 Situation</b> reads the spot in words — position, board texture, your hand class — before you act.</li>
+            <li><b>📊 HUD</b> = equity vs villain's range, pot odds &amp; outs. Hit <b>ⓘ Explain</b> for the math.</li>
+            <li><b>🧠 Solver</b> = per-action frequency &amp; EV; <b>ⓘ Explain</b> shows the reason + EV calc, <b>📊 Chart</b> the range.</li>
+            <li><b>🎭 Opponent</b> = archetype tendencies, IP/OOP read, and how to exploit them.</li>
+            <li><b>RNG roll</b> picks which branch of a mixed strategy to take; each action is scored by <b>EV loss</b> (bb).</li>
           </ul>
-        </div>
+          <h4>Bet types (in the Explain text)</h4>
+          <ul>
+            <li><b>Value</b> (≥62% eq) — ahead, bet to get called by worse.</li>
+            <li><b>Thin value</b> (50–62%) — slight favourite; bet smaller.</li>
+            <li><b>Semi-bluff</b> (a draw) — fold equity now + outs to improve.</li>
+            <li><b>Pure bluff</b> (drawing thin) — only wins if villain folds; needs blockers &amp; a story. On the river the Explain text shows the <b>value:bluff ratio</b> for each size.</li>
+          </ul>
+            </details>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+const STREETS = ['preflop', 'flop', 'turn', 'river'] as const;
+
+function StreetBreadcrumb({ street, started }: { street: string; started: boolean }) {
+  // map showdown/complete back onto "river" for the indicator
+  const active = street === 'preflop' || street === 'flop' || street === 'turn' ? street : 'river';
+  const activeIdx = STREETS.indexOf(active as (typeof STREETS)[number]);
+  if (!started) return <div className="street-tag">Press Deal</div>;
+  return (
+    <div className="street-breadcrumb">
+      {STREETS.map((s, i) => (
+        <span key={s} className={`sb-step ${i === activeIdx ? 'on' : ''} ${i < activeIdx ? 'done' : ''}`}>
+          {s.toUpperCase()}
+        </span>
+      ))}
     </div>
   );
 }

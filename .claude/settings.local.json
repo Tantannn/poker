@@ -4,7 +4,14 @@
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 40)",
       "PowerShell(npm run *)",
       "PowerShell(npx eslint src/components/Feedback.tsx src/components/Hud.tsx src/components/OpponentPanel.tsx src/components/RangeChartModal.tsx src/hooks/useGame.ts src/analysis/grade.ts src/strategy/handClass.ts src/engine/board.ts src/ai/profiles.ts 2>&1 | Select-Object -First 30)",
-      "PowerShell(Get-Content *)"
+      "PowerShell(Get-Content *)",
+      "PowerShell(npx eslint src/sound.ts src/store/stats.ts src/components/ScoreCard.tsx src/components/PokerTable.tsx src/hooks/useGame.ts 2>&1 | Select-Object -First 30)",
+      "Bash(node *)",
+      "PowerShell(npx eslint src 2>&1 | Select-String \"problem|error|warning\" | Select-Object -Last 5; echo \"exit: $LASTEXITCODE\")",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 40)",
+      "PowerShell(npm install *)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 30)",
+      "PowerShell(node -p \"require\\('antd/package.json'\\).version\")"
     ]
   }
 }

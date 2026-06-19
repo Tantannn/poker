@@ -33,6 +33,13 @@ import {
   resetStats,
   saveStats,
 } from '../store/stats';
+import { playAction, playDeal, playResult } from '../sound';
+import type { JournalEntry } from '../store/journal';
+import { addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway } from '../store/journal';
+import type { HistoryHand, DecisionSnapshot } from '../store/history';
+import { loadHistory, saveHistory } from '../store/history';
+
+export type { HistoryHand } from '../store/history';
 
 export const BIG_BLIND = 2;
 export const SMALL_BLIND = 1;
@@ -70,16 +77,8 @@ export interface VillainInfo {
   tag: string;
   wasAggressor: boolean;
   rangeNote: string;
-}
-
-export interface HistoryHand {
-  handNumber: number;
-  heroCards: Card[];
-  board: Card[];
-  log: { text: string }[];
-  result: string;
-  deltaBB: number;
-  showdown: { name: string; cards: Card[]; folded: boolean }[];
+  /** is the hero in position (acts after this villain) postflop? */
+  heroInPosition: boolean;
 }
 
 const POS_TO_BUTTON: Record<Exclude<HeroPositionPref, 'random'>, number> = {
@@ -101,29 +100,52 @@ export function useGame(initialProfiles: string[]) {
   const [strategy, setStrategy] = useState<NodeStrategy | null>(null);
   const [rng, setRng] = useState<RngInfo | null>(null);
   const [villain, setVillain] = useState<VillainInfo | null>(null);
-  const [hudLoading, setHudLoading] = useState(false);
-  const [history, setHistory] = useState<HistoryHand[]>([]);
+  const [history, setHistory] = useState<HistoryHand[]>(() => loadHistory());
   const [stats, setStats] = useState<SessionStats>(() => loadStats());
+  const [journal, setJournal] = useState<JournalEntry[]>(() => loadJournal());
   const [scenario, setScenario] = useState<HeroPositionPref>('random');
   const [speed, setSpeed] = useState<Speed>('1x');
+  const [stackDepth, setStackDepth] = useState<number>(STARTING_BB);
+  const [watchAfterFold, setWatchAfterFold] = useState<boolean>(false);
 
   const recordedHand = useRef<number>(-1);
   const strategyRef = useRef<NodeStrategy | null>(null);
   const rollRef = useRef<number>(50);
+  const lastDealtRef = useRef<GameState | null>(null);
+  // buffer of the real solved nodes the hero faced this hand; flushed onto the
+  // HistoryHand at completion so Hand Review shows the actual decisions.
+  const decisionsRef = useRef<DecisionSnapshot[]>([]);
 
   const hero = game.players[0];
   const isHeroTurn = game.toAct === 0 && game.street !== 'complete' && game.street !== 'showdown';
   const handOver = game.street === 'complete';
   const legal = useMemo(() => legalActions(game), [game]);
+  // derived loading flag (no setState-in-effect needed): we're "loading" while
+  // it's the hero's turn but the HUD/strategy hasn't been computed yet.
+  const hudLoading = isHeroTurn && !hud;
 
   const applyProfiles = useCallback((next: string[]) => {
     setProfiles(next);
-    setGame(createGame(NUM_PLAYERS, STARTING_BB, BIG_BLIND, next));
+    setGame(createGame(NUM_PLAYERS, stackDepth, BIG_BLIND, next));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
     setVillain(null);
-  }, []);
+    lastDealtRef.current = null;
+  }, [stackDepth]);
+
+  // change starting stack depth (bb); rebuilds the table with fresh stacks
+  const applyStackDepth = useCallback((bb: number) => {
+    setStackDepth(bb);
+    setGame(createGame(NUM_PLAYERS, bb, BIG_BLIND, profiles));
+    setFeedback(null);
+    setHud(null);
+    setStrategy(null);
+    setRng(null);
+    setVillain(null);
+    strategyRef.current = null;
+    lastDealtRef.current = null;
+  }, [profiles]);
 
   const deal = useCallback(() => {
     setGame((prev) => {
@@ -132,6 +154,9 @@ export function useGame(initialProfiles: string[]) {
         next.buttonIndex = (POS_TO_BUTTON[scenario] - 1 + NUM_PLAYERS) % NUM_PLAYERS;
       }
       startHand(next);
+      // snapshot the freshly-dealt hand (same hole cards + deck) so "Repeat
+      // hand" can replay the exact same spot.
+      lastDealtRef.current = structuredClone(next);
       return next;
     });
     setFeedback(null);
@@ -140,12 +165,41 @@ export function useGame(initialProfiles: string[]) {
     setRng(null);
     setVillain(null);
     strategyRef.current = null;
+    decisionsRef.current = [];
+    playDeal();
   }, [scenario]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
     deal();
   }, [deal]);
+
+  // replay the exact same hand (identical hole cards + board run-out)
+  const repeatHand = useCallback(() => {
+    const snap = lastDealtRef.current;
+    if (!snap) return;
+    setGame(structuredClone(snap));
+    setFeedback(null);
+    setHud(null);
+    setStrategy(null);
+    setRng(null);
+    setVillain(null);
+    strategyRef.current = null;
+    decisionsRef.current = [];
+    playDeal();
+  }, []);
+
+  // full reset: fresh 100bb stacks, hand 0 (stats kept — reset those separately)
+  const resetGame = useCallback(() => {
+    setGame(createGame(NUM_PLAYERS, stackDepth, BIG_BLIND, profiles));
+    setFeedback(null);
+    setHud(null);
+    setStrategy(null);
+    setRng(null);
+    setVillain(null);
+    strategyRef.current = null;
+    lastDealtRef.current = null;
+  }, [profiles, stackDepth]);
 
   const heroAct = useCallback((action: Action) => {
     setGame((prev) => {
@@ -163,12 +217,39 @@ export function useGame(initialProfiles: string[]) {
           position: pos,
           heroAction: idToClass(fb.chosen),
           recommended: idToClass(fb.best),
-          verdict: fb.verdict === 'minor' ? 'ok' : fb.verdict,
+          verdict: fb.verdict === 'best' || fb.verdict === 'correct' ? 'correct' : fb.verdict === 'inaccuracy' ? 'ok' : 'mistake',
           evLoss: fb.evLoss,
           rngMatch: fb.rngMatch,
         });
         saveStats(updated);
         return updated;
+      });
+
+      // capture the real solved node for Hand Review (strat already reflects the
+      // true villain range / pot / facing-bet at this decision).
+      const vIdx = primaryVillainIdx(prev, 0);
+      const vp = vIdx >= 0 && !prev.players[vIdx].isHero ? prev.players[vIdx] : null;
+      decisionsRef.current.push({
+        street: prev.street,
+        boardLen: prev.board.length,
+        pot: potTotal(prev),
+        toCall: la.callAmount,
+        position: pos,
+        villainName: vp ? vp.name : 'the field',
+        villainTag: vp ? getProfile(vp.profileId).tag : '',
+        chosenId: fb.chosen,
+        chosenLabel: fb.chosenLabel,
+        bestId: fb.best,
+        bestLabel: fb.bestLabel,
+        evLoss: fb.evLoss,
+        equity: strat.equity,
+        rngMatch: fb.rngMatch,
+        note: strat.note,
+        rangeNote: strat.rangeNote,
+        options: strat.options.map((o) => ({
+          id: o.id, label: o.label, freq: o.freq, ev: o.ev, kind: o.kind, amount: o.amount, sizePct: o.sizePct,
+        })),
+        villainRange: strat.villainRange ? Array.from(strat.villainRange.entries()) : [],
       });
 
       strategyRef.current = null;
@@ -179,6 +260,23 @@ export function useGame(initialProfiles: string[]) {
 
       const next = structuredClone(prev);
       applyAction(next, action);
+      // If the hero folded and "watch after fold" is off, fast-forward the bots
+      // to the end immediately. When watch is on, leave it — the AI-stepping
+      // effect plays the runout out at the normal speed so the user can see it.
+      if (next.players[0].folded && !watchAfterFold) {
+        runoutToEnd(next);
+      }
+      return next;
+    });
+  }, [watchAfterFold]);
+
+  // instantly finish the current hand (bots play to the end) — used by the
+  // "skip to end" button while watching a folded hand run out.
+  const finishHand = useCallback(() => {
+    setGame((prev) => {
+      if (prev.street === 'complete' || prev.toAct === 0) return prev;
+      const next = structuredClone(prev);
+      runoutToEnd(next);
       return next;
     });
   }, []);
@@ -202,7 +300,6 @@ export function useGame(initialProfiles: string[]) {
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
     if (!isHeroTurn) return;
-    setHudLoading(true);
     const id = setTimeout(() => {
       const { range, note } = buildVillainRange(game, 0);
       const strat = getNodeStrategy(game, 0, 1100);
@@ -232,6 +329,10 @@ export function useGame(initialProfiles: string[]) {
             l.playerId === vIdx &&
             (l.type === 'raise' || l.type === 'bet'),
         );
+        // postflop action runs from left-of-button (first/most OOP) to the
+        // button (last/most IP); hero is IP if they act after this villain.
+        const orderRank = (seat: number) => (seat - (game.buttonIndex + 1) + NUM_PLAYERS) % NUM_PLAYERS;
+        const heroInPosition = orderRank(0) > orderRank(vIdx);
         setVillain({
           name: vp.name,
           position: positionLabel(vIdx, game.buttonIndex, NUM_PLAYERS),
@@ -239,6 +340,7 @@ export function useGame(initialProfiles: string[]) {
           tag: getProfile(vp.profileId).tag,
           wasAggressor,
           rangeNote: note,
+          heroInPosition,
         });
       } else {
         setVillain(null);
@@ -256,13 +358,18 @@ export function useGame(initialProfiles: string[]) {
         ruleEstimate: ruleOf2and4(outsInfo.outs, cardsToCome),
         rangeNote: note,
       });
-      setHudLoading(false);
     }, 30);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.handNumber, game.street, game.toAct, game.board.length]);
 
   // ---- record hand result + history on completion ----
+  // This effect reacts to a one-shot terminal transition (street → 'complete')
+  // and persists the result to localStorage + analytics state. It is guarded by
+  // `recordedHand` so it runs exactly once per hand and can't cascade. The
+  // set-state-in-effect lint rule targets derived-state loops, which this is
+  // not — so it's disabled for these two legitimate, guarded writes.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (game.street !== 'complete') return;
     if (recordedHand.current === game.handNumber) return;
@@ -290,16 +397,114 @@ export function useGame(initialProfiles: string[]) {
       result: game.message,
       deltaBB: delta,
       showdown,
+      decisions: decisionsRef.current.slice(),
     };
-    setHistory((h) => [hist, ...h].slice(0, 50));
+    setHistory((h) => {
+      const next = [hist, ...h].slice(0, 50);
+      saveHistory(next);
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.street, game.handNumber]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // play the outcome cue once per graded decision (effect, not the state
+  // updater — keeps it from double-firing under StrictMode in dev).
+  useEffect(() => {
+    if (!feedback) return;
+    playAction();
+    playResult(feedback.verdict, feedback.evLoss);
+  }, [feedback]);
 
   const leaks = useMemo(() => findLeaks(stats), [stats]);
 
   const doResetStats = useCallback(() => {
     setStats(resetStats());
     setHistory([]);
+    saveHistory([]);
+  }, []);
+
+  // delete specific hands from the reviewable history (multi-select in Hand Review)
+  const removeHistoryHands = useCallback((handNumbers: number[]) => {
+    const set = new Set(handNumbers);
+    setHistory((h) => {
+      const next = h.filter((x) => !set.has(x.handNumber));
+      saveHistory(next);
+      return next;
+    });
+  }, []);
+
+  // clear the reviewable hand history but KEEP tagged hands (and stats). Tagged
+  // hands stay in the list so they're still reviewable; everything else is dropped.
+  const clearHistory = useCallback(() => {
+    setHistory((h) => {
+      const next = h.filter((x) => isTagged(journal, x.handNumber));
+      saveHistory(next);
+      return next;
+    });
+  }, [journal]);
+
+  // ---- review journal (durable "tag for review" + written takeaways) ----
+  // Toggle a finished hand into/out of the journal. Snapshots the cards/board/
+  // result so the note survives reload even after the in-memory history rolls off.
+  const toggleTag = useCallback((hand: HistoryHand) => {
+    setJournal((j) => {
+      const next = isTagged(j, hand.handNumber)
+        ? removeEntry(j, hand.handNumber)
+        : addEntry(j, {
+            handNumber: hand.handNumber,
+            heroCards: hand.heroCards,
+            board: hand.board,
+            result: hand.result,
+            deltaBB: hand.deltaBB,
+          });
+      saveJournal(next);
+      return next;
+    });
+  }, []);
+
+  const setHandTakeaway = useCallback((handNumber: number, text: string) => {
+    setJournal((j) => {
+      const next = setTakeaway(j, handNumber, text);
+      saveJournal(next);
+      return next;
+    });
+  }, []);
+
+  // Write a takeaway, auto-tagging the hand first if it isn't already — done in a
+  // single journal update so there's no add-then-set race.
+  const upsertTakeaway = useCallback((hand: HistoryHand, text: string) => {
+    setJournal((j) => {
+      const withEntry = isTagged(j, hand.handNumber)
+        ? j
+        : addEntry(j, {
+            handNumber: hand.handNumber,
+            heroCards: hand.heroCards,
+            board: hand.board,
+            result: hand.result,
+            deltaBB: hand.deltaBB,
+          });
+      const next = setTakeaway(withEntry, hand.handNumber, text);
+      saveJournal(next);
+      return next;
+    });
+  }, []);
+
+  const removeJournalEntry = useCallback((handNumber: number) => {
+    setJournal((j) => {
+      const next = removeEntry(j, handNumber);
+      saveJournal(next);
+      return next;
+    });
+  }, []);
+
+  const removeJournalEntries = useCallback((handNumbers: number[]) => {
+    const set = new Set(handNumbers);
+    setJournal((j) => {
+      const next = j.filter((e) => !set.has(e.handNumber));
+      saveJournal(next);
+      return next;
+    });
   }, []);
 
   return {
@@ -316,19 +521,48 @@ export function useGame(initialProfiles: string[]) {
     hudLoading,
     history,
     stats,
+    journal,
+    toggleTag,
+    setHandTakeaway,
+    upsertTakeaway,
+    removeJournalEntry,
+    removeJournalEntries,
     leaks,
+    clearHistory,
+    removeHistoryHands,
     profiles,
     scenario,
     speed,
+    stackDepth,
+    applyStackDepth,
+    watchAfterFold,
+    setWatchAfterFold,
+    finishHand,
     setSpeed,
     setScenario,
     deal,
     skipHand,
+    repeatHand,
+    resetGame,
     heroAct,
     applyProfiles,
     doResetStats,
     pot: potTotal(game),
   };
+}
+
+// Run the bots to the end of the hand in place (hero is out / not to act).
+function runoutToEnd(state: GameState): void {
+  let guard = 0;
+  while (
+    state.street !== 'complete' &&
+    state.street !== 'showdown' &&
+    state.toAct >= 0 &&
+    state.toAct !== 0 &&
+    guard++ < 400
+  ) {
+    applyAction(state, decideAction(state));
+  }
 }
 
 function describeLog(type: string, amount: number): string {

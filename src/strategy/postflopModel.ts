@@ -4,10 +4,60 @@
 
 import type { Card } from '../engine/cards';
 import type { WeightedRange } from '../engine/range';
-import { equityVsRange } from '../engine/equity';
+import { equityVsRange, countOuts } from '../engine/equity';
 import { classifyFlop } from '../engine/board';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { mixFromEv } from './types';
+
+// Four-way classification of an aggressive line by hero equity (+ draw), so the
+// explanation distinguishes a real bluff from thin value / a semi-bluff.
+type BetClass = 'value' | 'thin' | 'semibluff' | 'bluff';
+function classifyBet(e: number, outs: number): BetClass {
+  if (e >= 0.62) return 'value';
+  if (e >= 0.5) return 'thin';
+  if (e >= 0.3 || outs >= 4) return 'semibluff';
+  return 'bluff';
+}
+// kind drives grid/bar color; we keep the existing 2-tone (value vs bluff).
+const classKind = (c: BetClass): ActionOption['kind'] => (c === 'value' || c === 'thin' ? 'value' : 'bluff');
+
+/** GTO bluff frequency for a bet of `frac`×pot on the river, and value:bluff ratio. */
+function riverBalance(frac: number): string {
+  const bluffFrac = frac / (2 * frac + 1);
+  const ratio = (1 - bluffFrac) / Math.max(0.001, bluffFrac);
+  return ` River balance: this size wants ~${Math.round(bluffFrac * 100)}% bluffs (≈ ${ratio.toFixed(1)} : 1 value-to-bluff).`;
+}
+
+function whyBet(
+  c: BetClass,
+  e: number,
+  d: { fe: number; e2: number },
+  outs: number,
+  isAllIn: boolean,
+  river: boolean,
+  frac: number,
+): string {
+  const fe = `${Math.round(d.fe * 100)}%`;
+  const eq = `${Math.round(e * 100)}%`;
+  const e2 = `${Math.round(d.e2 * 100)}%`;
+  let base: string;
+  switch (c) {
+    case 'value':
+      base = isAllIn
+        ? `Value shove: you're well ahead (~${eq}) — get max chips in while you hold the edge.`
+        : `Value bet: you're ahead (~${eq}). Worse hands call and build the pot; ~${fe} of the time better hands fold too.`;
+      break;
+    case 'thin':
+      base = `Thin value / merge: only a slight favourite (~${eq}). Bet to get called by worse — but size down, you're not strong enough to bloat the pot.`;
+      break;
+    case 'semibluff':
+      base = `Semi-bluff: ~${eq} equity now${outs > 0 ? ` with ~${outs} outs` : ''}. Two ways to win — villain folds ~${fe}, and when called you still hit ~${e2} of the time. Keep barreling cards that complete your draw.`;
+      break;
+    default:
+      base = `Pure bluff: ~${eq} equity — essentially drawing thin. Only profitable via fold equity (~${fe}); pick good blocker cards and a believable story, otherwise just give up.`;
+  }
+  return river ? base + riverBalance(frac) : base;
+}
 
 export interface PostflopInput {
   hero: Card[];
@@ -25,6 +75,8 @@ export interface PostflopInput {
   iterations?: number;
   rangeNote?: string;
   heroCode?: string;
+  /** hero's position vs the villain — affects equity realisation & fold equity. */
+  position?: 'ip' | 'oop';
 }
 
 interface Candidate {
@@ -48,11 +100,24 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const C = inp.toCall;
   const bb = inp.bigBlind;
 
+  // outs for semi-bluff vs pure-bluff labelling (meaningful flop/turn only)
+  const outs = inp.board.length >= 3 && inp.board.length < 5 ? countOuts(inp.hero, inp.board).outs : 0;
+  const isRiver = inp.board.length === 5;
+
   const tex = inp.board.length >= 3 ? classifyFlop(inp.board) : null;
   const wetness =
     tex == null
       ? 0
       : (tex.connected ? 0.06 : 0) + (tex.suitPattern !== 'rainbow' ? 0.05 : 0) + (tex.paired ? -0.03 : 0);
+
+  // position: in position you act last, so you realise more of your equity
+  // (free cards, pot control) and your bets carry a touch more fold equity;
+  // out of position the opposite. 1.0 = neutral when position is unknown.
+  const oop = inp.position === 'oop';
+  const ip = inp.position === 'ip';
+  const realize = ip ? 1.06 : oop ? 0.9 : 1.0;
+  const feMult = ip ? 1.1 : oop ? 0.9 : 1.0;
+  const eReal = Math.min(1, e * realize);
 
   const cands: Candidate[] = [];
 
@@ -61,10 +126,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     cands.push({
       id: 'check',
       label: 'Check',
-      ev: (e * P) / bb,
+      ev: (eReal * P) / bb,
       kind: 'passive',
-      why: `Realize your ~${pct(e)} equity in a ${P}-chip pot without risking more. Best when you're not ahead enough to bet for value or to profitably pressure.`,
-      math: `EV = equity × pot = ${pct1(e)} × ${P} = ${(e * P).toFixed(1)} chips ≈ ${((e * P) / bb).toFixed(2)} bb`,
+      why: `Realize your ~${pct(e)} equity in a ${P}-chip pot without risking more${
+        inp.position ? ` (${ip ? 'in position you realise it well — you can check back and take a free card' : 'out of position you realise less — villain can barrel you off it'})` : ''
+      }. Best when you're not ahead enough to bet for value or to profitably pressure.`,
+      math: `EV = equity × pot${inp.position ? ` × realise(${realize})` : ''} = ${pct1(eReal)} × ${P} = ${(eReal * P).toFixed(1)} chips ≈ ${((eReal * P) / bb).toFixed(2)} bb`,
     });
   }
   if (C > 0) {
@@ -80,10 +147,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     cands.push({
       id: 'call',
       label: `Call ${C}`,
-      ev: (e * (P + C) - C) / bb,
+      ev: (eReal * (P + C) - C) / bb,
       kind: 'passive',
-      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${e >= need ? 'profitable' : 'marginal/-EV'}.`,
-      math: `EV = equity × (pot + call) − call = ${pct1(e)} × ${P + C} − ${C} = ${(e * (P + C) - C).toFixed(1)} chips ≈ ${((e * (P + C) - C) / bb).toFixed(2)} bb`,
+      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${eReal >= need ? 'profitable' : 'marginal/-EV'}.${
+        oop ? ' Out of position you realise less of that equity, so call tighter.' : ip ? ' In position you realise it well.' : ''
+      }`,
+      math: `EV = equity × (pot + call) − call = ${pct1(eReal)} × ${P + C} − ${C} = ${(eReal * (P + C) - C).toFixed(1)} chips ≈ ${((eReal * (P + C) - C) / bb).toFixed(2)} bb`,
     });
   }
 
@@ -97,18 +166,16 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(e, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false);
-    const isValue = e >= 0.55;
+    const d = computeAggro(e, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult);
+    const cls = classifyBet(e, outs);
     cands.push({
       id,
       label,
       ev: d.ev / bb,
       amount: target,
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
-      kind: isValue ? 'value' : 'bluff',
-      why: isValue
-        ? `Bet for value: you're ahead (~${pct(e)}). Worse hands call and you build a bigger pot; ~${pct(d.fe)} of the time better hands fold too.`
-        : `Pressure/semi-bluff: villain folds ~${pct(d.fe)} (you take the ${P} pot); when called you still carry ~${pct(d.e2)} equity.`,
+      kind: classKind(cls),
+      why: whyBet(cls, e, d, outs, false, isRiver, frac),
       math: `EV = fold% × pot + called% × (eq-when-called × final pot − you invest)\n   = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A})\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb`,
     });
   };
@@ -118,19 +185,25 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(e, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true);
-    const isValue = e >= 0.55;
+    const d = computeAggro(e, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult);
+    const cls = classifyBet(e, outs);
+    const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
+    // shoving your whole stack is high-variance and hard to recover from IRL, so
+    // apply a small risk premium — all-in only "wins" when it's clearly best.
+    const RISK = 0.5;
+    const rawEv = d.ev / bb;
+    const adjEv = rawEv - RISK;
     cands.push({
       id: 'allin',
       label: 'All-in',
-      ev: d.ev / bb,
+      ev: adjEv,
       amount: inp.maxRaiseTo,
       sizePct: Math.round((100 * (inp.maxRaiseTo - inp.currentBet)) / Math.max(1, potForSize)),
-      kind: isValue ? 'value' : 'bluff',
-      why: isValue
-        ? `Max value/protection: you're ahead (~${pct(e)}) and put maximum chips in while you hold the edge.`
-        : `High-variance shove: only profitable via fold equity (~${pct(d.fe)}); when called you have ~${pct(d.e2)}.`,
-      math: `EV = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A}) = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb`,
+      kind: classKind(cls),
+      why:
+        whyBet(cls, e, d, outs, true, isRiver, allinFrac) +
+        ` Note: a ${RISK}bb risk premium is applied — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
+      math: `EV = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A}) = ${rawEv.toFixed(2)} bb\n   − ${RISK} bb high-variance risk premium → ${adjEv.toFixed(2)} bb`,
     });
   }
 
@@ -191,13 +264,23 @@ function computeAggro(
   heroCommitted: number,
   wetness: number,
   isAllIn: boolean,
+  realize = 1.0,
+  feMult = 1.0,
 ): AggroDetail {
   const R = target - currentBet; // pressure on top of a call
   const A = target - heroCommitted; // total hero invests now
-  const s = R / Math.max(1, P + C);
-  let fe = 0.12 + 0.42 * Math.min(s, 1.6) - wetness;
-  fe = Math.max(0.04, Math.min(0.82, fe));
-  const e2 = Math.max(0, e - (isAllIn ? 0.06 : 0.1)); // villain continues with a stronger range
+  const s = R / Math.max(1, P + C); // raise size relative to the pot
+  // Fold equity rises with size but SATURATES fast and never folds everything.
+  // A pot-sized bet already buys most of the folds; over-betting/shoving buys
+  // almost none more — so a 10x-pot shove is not "free money". Position nudges
+  // it (in position bets earn a touch more folds).
+  let fe = (0.1 + 0.3 * Math.min(s, 1.2) - wetness) * feMult;
+  fe = Math.max(0.04, Math.min(0.6, fe));
+  // When called, villain's continuing range is stronger — and the bigger the
+  // bet, the tighter (and stronger) that range, so hero's realised equity drops
+  // more the larger the size. This is what kills the over-betting/shove EV.
+  const sizePenalty = 0.1 * Math.min(Math.max(0, s - 0.5), 2);
+  const e2 = Math.max(0, Math.min(1, e * realize) - (isAllIn ? 0.06 : 0.08) - sizePenalty);
   const calledPot = P + A + R;
   const ev = fe * P + (1 - fe) * (e2 * calledPot - A);
   return { ev, fe, e2, calledPot, A };

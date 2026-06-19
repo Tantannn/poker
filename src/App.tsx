@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useGame } from './hooks/useGame';
 import { PokerTable } from './components/PokerTable';
 import { RangeGrid } from './components/RangeGrid';
@@ -7,16 +7,28 @@ import { PostflopLab } from './components/PostflopLab';
 import { PotOddsCalc } from './components/PotOddsCalc';
 import { Analytics } from './components/Analytics';
 import { Reference } from './components/Reference';
+import { LeakQuiz } from './components/LeakQuiz';
+import { ExploitTrainer } from './components/ExploitTrainer';
+import { Replay } from './components/Replay';
+
+// antd lives only in the Principles panel — lazy-load it so the main bundle stays lean.
+const PrinciplesPanel = lazy(() =>
+  import('./components/PrinciplesPanel').then((m) => ({ default: m.PrinciplesPanel })),
+);
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'play' | 'charts' | 'trainer' | 'lab' | 'odds' | 'analytics' | 'reference';
+type Tab = 'play' | 'charts' | 'trainer' | 'lab' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'analytics' | 'reference';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'play', label: '♠ Play vs Bots' },
   { id: 'charts', label: 'Preflop Charts' },
   { id: 'trainer', label: 'Range Trainer' },
   { id: 'lab', label: 'Postflop Lab' },
+  { id: 'quiz', label: 'Leak Quiz' },
+  { id: 'exploit', label: '🎯 Read & Exploit' },
+  { id: 'replay', label: 'Hand Review' },
+  { id: 'principles', label: '📓 Principles' },
   { id: 'odds', label: 'Pot Odds' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'reference', label: 'Reference' },
@@ -65,6 +77,28 @@ export default function App() {
         {tab === 'lab' && (
           <div className="content-col">
             <PostflopLab />
+          </div>
+        )}
+        {tab === 'quiz' && (
+          <div className="content-col">
+            <LeakQuiz g={g} />
+          </div>
+        )}
+        {tab === 'exploit' && (
+          <div className="content-col">
+            <ExploitTrainer />
+          </div>
+        )}
+        {tab === 'replay' && (
+          <div className="content-col">
+            <Replay g={g} />
+          </div>
+        )}
+        {tab === 'principles' && (
+          <div className="content-col">
+            <Suspense fallback={<div className="card"><p className="sub">Loading…</p></div>}>
+              <PrinciplesPanel g={g} />
+            </Suspense>
           </div>
         )}
         {tab === 'odds' && (

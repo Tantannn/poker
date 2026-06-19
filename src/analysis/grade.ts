@@ -10,8 +10,19 @@ import { describeTexture } from '../engine/board';
 import { classifyHandClass } from '../strategy/handClass';
 import { getProfile } from '../ai/profiles';
 import type { ActionClass } from './feedback';
+import type { MoveTier } from '../store/stats';
+import { moveTier } from '../store/stats';
 
-export type Verdict = 'correct' | 'minor' | 'mistake';
+// The grade uses the same five GTOW-style tiers as the session scorecard.
+export type Verdict = MoveTier;
+
+const HEADLINE: Record<Verdict, (loss: number) => string> = {
+  best: () => '✓ Best — top of the solver line',
+  correct: (l) => `✓ Correct — sound alternative (−${l.toFixed(2)} bb)`,
+  inaccuracy: (l) => `≈ Inaccuracy (−${l.toFixed(2)} bb)`,
+  wrong: (l) => `✗ Wrong move (−${l.toFixed(2)} bb EV)`,
+  blunder: (l) => `✗✗ Blunder (−${l.toFixed(2)} bb EV)`,
+};
 
 /** Decision-time context captured for the gameplan/feedback explainer. */
 export interface FeedbackContext {
@@ -110,27 +121,20 @@ export function gradeNode(
   const loss = computeEvLoss(strategy, chosen);
   const prescribed = rngPrescription(strategy, roll);
 
-  let verdict: Verdict;
-  if (loss <= 0.04) verdict = 'correct';
-  else if (loss <= 0.4) verdict = 'minor';
-  else verdict = 'mistake';
+  const verdict: Verdict = moveTier(loss);
 
-  const headline =
-    verdict === 'correct'
-      ? '✓ Solid — on the solver line'
-      : verdict === 'minor'
-        ? `≈ Minor leak (−${loss.toFixed(2)} bb)`
-        : `✗ Mistake (−${loss.toFixed(2)} bb EV)`;
+  const headline = HEADLINE[verdict](loss);
 
   const bestLabel = labelFor(strategy, strategy.bestId);
   const chosenLabel = labelFor(strategy, chosen);
   const rngMatch = chosen === prescribed;
 
   let detail: string;
-  if (verdict === 'correct') {
-    detail = strategy.source === 'preflop-chart'
-      ? `${strategy.rangeNote}: this is a standard ${bestLabel.toLowerCase()}.`
-      : `Highest-EV action was ${bestLabel}. You matched it.`;
+  if (verdict === 'best' || verdict === 'correct') {
+    const lead = verdict === 'best' ? '' : `A fine alternative (−${loss.toFixed(2)} bb). `;
+    detail = lead + (strategy.source === 'preflop-chart'
+      ? `${strategy.rangeNote}: ${bestLabel} is the standard line.`
+      : `Highest-EV action was ${bestLabel}.`);
   } else {
     detail = `Best was ${bestLabel} (${fmtEv(evOf(strategy, strategy.bestId))} bb) vs your ${chosenLabel} (${fmtEv(
       evOf(strategy, chosen),

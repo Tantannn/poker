@@ -11,12 +11,17 @@ export function Feedback({ fb }: { fb: NodeFeedback | null }) {
   // when a new decision is graded, auto-open the gameplan for a leak/mistake
   if (fb !== prevFb) {
     setPrevFb(fb);
-    setExplain(fb ? fb.verdict !== 'correct' : false);
+    setExplain(fb ? fb.verdict !== 'best' && fb.verdict !== 'correct' : false);
     setShowChart(false);
   }
 
   if (!fb) return null;
-  const cls = fb.verdict === 'correct' ? 'good' : fb.verdict === 'minor' ? 'okv' : 'bad';
+  const cls =
+    fb.verdict === 'best' || fb.verdict === 'correct'
+      ? 'good'
+      : fb.verdict === 'inaccuracy'
+        ? 'okv'
+        : 'bad';
   const ctx = fb.context;
   const strat = fb.strategy;
   const best = strat.options.find((o) => o.id === fb.best);

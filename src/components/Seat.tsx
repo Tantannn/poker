@@ -16,17 +16,19 @@ interface Props {
 export function Seat({ player, position, isButton, isToAct, reveal, isWinner, profileName, slot }: Props) {
   const showCards = player.isHero || reveal;
   const folded = player.folded;
+  // hero's own cards are shown larger for readability; opponents stay small
+  const cardSize = player.isHero ? 'md' : 'sm';
   return (
-    <div className={`seat slot-${slot} ${isToAct ? 'active' : ''} ${folded ? 'folded' : ''} ${isWinner ? 'winner' : ''}`}>
+    <div className={`seat slot-${slot} ${player.isHero ? 'hero-seat' : ''} ${isToAct ? 'active' : ''} ${folded ? 'folded' : ''} ${isWinner ? 'winner' : ''}`}>
       <div className="seat-cards">
         {player.holeCards.length === 0 ? (
           <>
-            <div className="pcard placeholder sm" />
-            <div className="pcard placeholder sm" />
+            <div className={`pcard placeholder ${cardSize}`} />
+            <div className={`pcard placeholder ${cardSize}`} />
           </>
         ) : (
           player.holeCards.map((c, i) => (
-            <PlayingCard key={i} card={c} hidden={!showCards} size="sm" dim={folded} />
+            <PlayingCard key={i} card={c} hidden={!showCards} size={cardSize} dim={folded} />
           ))
         )}
       </div>

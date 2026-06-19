@@ -60,6 +60,17 @@ export function OpponentPanel({ villain, enabled, onToggle, loading }: Props) {
                 <Bar label="Calls too much" v={p.callStation} danger />
               </div>
 
+              <div className={`opp-pos ${villain.heroInPosition ? 'ip' : 'oop'}`}>
+                <span className="opp-pos-badge">
+                  {villain.heroInPosition ? '▸ You are IN POSITION' : '◂ You are OUT OF POSITION'}
+                </span>
+                <p>
+                  {villain.heroInPosition
+                    ? 'You act after this villain postflop — you can check back for a free card, bluff-catch cheaply, and value bet thinly. Use it: bet more, realise more equity.'
+                    : 'You act before this villain postflop — you realise less of your equity (they can pressure you off hands). Be more proactive (bet / check-raise) and call tighter.'}
+                </p>
+              </div>
+
               <div className="opp-range">
                 <span className="opp-range-lbl">Likely holding</span>
                 <span className="opp-range-val">

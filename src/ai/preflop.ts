@@ -59,7 +59,7 @@ function expandToken(tok: string): string[] {
     const [a, b] = tok.split('-');
     return expandRange(a, b);
   }
-  let plus = tok.endsWith('+');
+  const plus = tok.endsWith('+');
   if (plus) tok = tok.slice(0, -1);
   if (tok.length === 2 && tok[0] === tok[1]) {
     if (plus) {

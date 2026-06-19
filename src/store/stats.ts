@@ -103,6 +103,68 @@ export function topEvLeaks(s: SessionStats, n = 5): DecisionRecord[] {
     .slice(0, n);
 }
 
+export interface ScoreBuckets {
+  best: number;
+  correct: number;
+  inaccuracy: number;
+  wrong: number;
+  blunder: number;
+  moves: number;
+}
+
+// EV-loss thresholds (in bb) that split each move into a GTOW-style tier.
+//   best       — you played the top-EV line (loss ≈ 0).
+//   correct    — a SOUND alternative: a mixed-strategy line or a slightly-off
+//                bet size the solver still plays. This band is wide (≤0.5bb) on
+//                purpose — most good-but-not-perfect plays belong here, not in
+//                "inaccuracy". A narrow band starved this tier so it never ticked.
+//   inaccuracy — clearly suboptimal but not a real punt.
+//   wrong      — a meaningful error. blunder — a punt.
+export const TIER = { best: 0.05, correct: 0.5, inaccuracy: 1.5, wrong: 4.0 };
+const POINTS = { best: 100, correct: 90, inaccuracy: 55, wrong: 25, blunder: 0 };
+
+/** The five GTOW-style move tiers. Single source of truth for both the live
+ *  per-decision grade (analysis/grade.ts) and the session scorecard. */
+export type MoveTier = 'best' | 'correct' | 'inaccuracy' | 'wrong' | 'blunder';
+
+/** Classify a single decision's EV loss (bb) into its tier. */
+export function moveTier(evLoss: number): MoveTier {
+  const e = Math.max(0, evLoss);
+  if (e <= TIER.best) return 'best';
+  if (e <= TIER.correct) return 'correct';
+  if (e <= TIER.inaccuracy) return 'inaccuracy';
+  if (e <= TIER.wrong) return 'wrong';
+  return 'blunder';
+}
+
+/** Classify every recorded decision into the five GTOW-style tiers. */
+export function scoreBuckets(s: SessionStats): ScoreBuckets {
+  const b: ScoreBuckets = { best: 0, correct: 0, inaccuracy: 0, wrong: 0, blunder: 0, moves: 0 };
+  for (const d of s.decisions) {
+    b.moves++;
+    b[moveTier(d.evLoss ?? 0)]++;
+  }
+  return b;
+}
+
+/** Weighted accuracy score 0..100 — best moves score 100, blunders 0. */
+export function gtowScore(s: SessionStats): number {
+  const b = scoreBuckets(s);
+  if (b.moves === 0) return 0;
+  const pts =
+    b.best * POINTS.best +
+    b.correct * POINTS.correct +
+    b.inaccuracy * POINTS.inaccuracy +
+    b.wrong * POINTS.wrong +
+    b.blunder * POINTS.blunder;
+  return Math.round(pts / b.moves);
+}
+
+export function avgEvLossPerHand(s: SessionStats): number {
+  if (s.handsPlayed === 0) return 0;
+  return totalEvLoss(s) / s.handsPlayed;
+}
+
 export function accuracy(s: SessionStats): { correct: number; ok: number; mistake: number; total: number } {
   let correct = 0;
   let ok = 0;

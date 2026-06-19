@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Action, LegalActions } from '../engine/table';
 
 interface Props {
@@ -15,9 +15,13 @@ interface Props {
 export function Controls({ legal, pot, currentBet, heroCommitted, bigBlind, onAction, onSkip, disabled }: Props) {
   const [raiseTo, setRaiseTo] = useState(legal.minRaiseTo);
 
-  useEffect(() => {
+  // re-clamp the raise amount when the legal bounds change (new street / spot)
+  // — done during render rather than in an effect to avoid a cascading re-render.
+  const [bounds, setBounds] = useState({ min: legal.minRaiseTo, max: legal.maxRaiseTo });
+  if (bounds.min !== legal.minRaiseTo || bounds.max !== legal.maxRaiseTo) {
+    setBounds({ min: legal.minRaiseTo, max: legal.maxRaiseTo });
     setRaiseTo(clamp(legal.minRaiseTo, legal.minRaiseTo, legal.maxRaiseTo));
-  }, [legal.minRaiseTo, legal.maxRaiseTo]);
+  }
 
   // mirrors the postflop model's sizing so the chosen amount maps to a solver option
   const sizeToFrac = (frac: number) => {
