@@ -34,6 +34,8 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      // let browser shortcuts (Ctrl/Cmd+C/V/F, etc.) through — don't act on them
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (handOver || !started) {
         if (e.key === ' ' || e.key === 'Enter') {
           e.preventDefault();
@@ -99,7 +101,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                   {game.message} <span className={resultDeltaClass(g)}>{deltaText(g)}</span>
                   {g.history[0] && (() => {
                     const last = g.history[0];
-                    const tagged = g.journal.some((e) => e.handNumber === last.handNumber);
+                    const tagged = g.journal.some((e) => e.id === last.id);
                     return (
                       <button
                         className={`tag-btn ${tagged ? 'on' : ''}`}

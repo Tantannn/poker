@@ -46,15 +46,15 @@ function snapToStrategy(snap: DecisionSnapshot, heroCode: string): NodeStrategy 
 
 export function Replay({ g }: { g: G }) {
   const [taggedOnly, setTaggedOnly] = useState(false);
-  const taggedNums = useMemo(() => new Set(g.journal.map((e) => e.handNumber)), [g.journal]);
+  const taggedIds = useMemo(() => new Set(g.journal.map((e) => e.id)), [g.journal]);
   const hands = useMemo(
-    () => (taggedOnly ? g.history.filter((h) => taggedNums.has(h.handNumber)) : g.history),
-    [g.history, taggedOnly, taggedNums],
+    () => (taggedOnly ? g.history.filter((h) => taggedIds.has(h.id)) : g.history),
+    [g.history, taggedOnly, taggedIds],
   );
   const [sel, setSel] = useState(0);
   const idx = Math.min(sel, Math.max(0, hands.length - 1));
   const hand = hands[idx];
-  const entry = hand ? g.journal.find((e) => e.handNumber === hand.handNumber) : undefined;
+  const entry = hand ? g.journal.find((e) => e.id === hand.id) : undefined;
   const isTagged = !!entry;
 
   // streets actually reached this hand (always at least preflop)
@@ -67,13 +67,13 @@ export function Replay({ g }: { g: G }) {
   const [street, setStreet] = useState<Street>('flop');
   const [chartSnap, setChartSnap] = useState<DecisionSnapshot | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
-  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [checked, setChecked] = useState<Set<string>>(new Set());
 
-  const toggleCheck = (n: number) =>
+  const toggleCheck = (id: string) =>
     setChecked((s) => {
       const next = new Set(s);
-      if (next.has(n)) next.delete(n);
-      else next.add(n);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   const activeStreet = reached.includes(street) ? street : reached[reached.length - 1];
@@ -159,7 +159,7 @@ export function Replay({ g }: { g: G }) {
         <label className="inline-label">Hand</label>
         <select value={idx} onChange={(e) => { setSel(Number(e.target.value)); }}>
           {hands.map((h, i) => (
-            <option key={h.handNumber} value={i}>
+            <option key={h.id} value={i}>
               #{h.handNumber} · {h.deltaBB >= 0 ? '+' : ''}{h.deltaBB.toFixed(1)}bb
             </option>
           ))}
@@ -173,7 +173,7 @@ export function Replay({ g }: { g: G }) {
         </button>
         <label className="rv-filter">
           <input type="checkbox" checked={taggedOnly} onChange={(e) => { setTaggedOnly(e.target.checked); setSel(0); }} />
-          Tagged only ({taggedNums.size})
+          Tagged only ({taggedIds.size})
         </label>
         <button className={`rv-clear ${manageOpen ? 'on' : ''}`} onClick={() => setManageOpen((v) => !v)} title="Select hands to delete">
           🗑 Manage
@@ -183,7 +183,7 @@ export function Replay({ g }: { g: G }) {
       {manageOpen && (
         <div className="rv-manage">
           <div className="rv-manage-bar">
-            <button className="rv-mini" onClick={() => setChecked(new Set(g.history.map((h) => h.handNumber)))}>Select all</button>
+            <button className="rv-mini" onClick={() => setChecked(new Set(g.history.map((h) => h.id)))}>Select all</button>
             <button className="rv-mini" onClick={() => setChecked(new Set())}>Clear</button>
             <button
               className="rv-mini danger"
@@ -201,14 +201,14 @@ export function Replay({ g }: { g: G }) {
           </div>
           <div className="rv-manage-list">
             {g.history.map((h) => (
-              <label key={h.handNumber} className="rv-manage-row">
-                <input type="checkbox" checked={checked.has(h.handNumber)} onChange={() => toggleCheck(h.handNumber)} />
+              <label key={h.id} className="rv-manage-row">
+                <input type="checkbox" checked={checked.has(h.id)} onChange={() => toggleCheck(h.id)} />
                 <span className="rv-mg-num">#{h.handNumber}</span>
                 <span className="pr-cards">{h.heroCards.map((c, i) => <PlayingCard key={i} card={c} size="sm" />)}</span>
                 <span className={`rv-mg-delta ${h.deltaBB > 0 ? 'pos' : h.deltaBB < 0 ? 'neg' : ''}`}>
                   {h.deltaBB >= 0 ? '+' : ''}{h.deltaBB.toFixed(1)} bb
                 </span>
-                {taggedNums.has(h.handNumber) && <span className="rv-mg-tag">★</span>}
+                {taggedIds.has(h.id) && <span className="rv-mg-tag">★</span>}
               </label>
             ))}
           </div>

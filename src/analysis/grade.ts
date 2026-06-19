@@ -18,10 +18,10 @@ export type Verdict = MoveTier;
 
 const HEADLINE: Record<Verdict, (loss: number) => string> = {
   best: () => '✓ Best — top of the solver line',
-  correct: (l) => `✓ Correct — sound alternative (−${l.toFixed(2)} bb)`,
-  inaccuracy: (l) => `≈ Inaccuracy (−${l.toFixed(2)} bb)`,
-  wrong: (l) => `✗ Wrong move (−${l.toFixed(2)} bb EV)`,
-  blunder: (l) => `✗✗ Blunder (−${l.toFixed(2)} bb EV)`,
+  correct: (l) => `✓ Correct — sound line (−${l.toFixed(2)} bb vs best)`,
+  inaccuracy: (l) => `≈ Inaccuracy (−${l.toFixed(2)} bb vs best)`,
+  wrong: (l) => `✗ Wrong — your line is -EV (−${l.toFixed(2)} bb vs best)`,
+  blunder: (l) => `✗✗ Blunder (−${l.toFixed(2)} bb vs best)`,
 };
 
 /** Decision-time context captured for the gameplan/feedback explainer. */
@@ -48,6 +48,7 @@ export interface NodeFeedback {
   best: ActionId;
   bestLabel: string;
   evLoss: number;
+  chosenEv: number;
   roll: number;
   prescribed: ActionId;
   prescribedLabel: string;
@@ -119,9 +120,10 @@ export function gradeNode(
 ): NodeFeedback {
   const chosen = matchActionId(strategy, action, callAmount);
   const loss = computeEvLoss(strategy, chosen);
+  const chosenEv = evOf(strategy, chosen);
   const prescribed = rngPrescription(strategy, roll);
 
-  const verdict: Verdict = moveTier(loss);
+  const verdict: Verdict = moveTier(loss, chosenEv);
 
   const headline = HEADLINE[verdict](loss);
 
@@ -148,6 +150,7 @@ export function gradeNode(
     best: strategy.bestId,
     bestLabel,
     evLoss: loss,
+    chosenEv,
     roll,
     prescribed,
     prescribedLabel: labelFor(strategy, prescribed),

@@ -42,6 +42,8 @@ export interface DecisionSnapshot {
 }
 
 export interface HistoryHand {
+  /** stable unique id (uuid). handNumber restarts on reset, so it can't be the key. */
+  id: string;
   handNumber: number;
   heroCards: Card[];
   board: Card[];
@@ -60,7 +62,10 @@ export function loadHistory(): HistoryHand[] {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as HistoryHand[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // backfill ids for hands saved before the uuid migration (deterministic so
+    // any tagged-journal links by the same legacy id still match)
+    return parsed.map((h) => (h.id ? h : { ...h, id: `legacy-${h.handNumber}` }));
   } catch {
     return [];
   }

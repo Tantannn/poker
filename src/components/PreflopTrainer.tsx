@@ -55,6 +55,10 @@ export function PreflopTrainer() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // let browser shortcuts (Ctrl/Cmd+C/V/F, etc.) through
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'r' || e.key === 'R') answer(true);
       else if (e.key === 'f' || e.key === 'F') answer(false);
       else if (e.key === ' ') {

@@ -53,18 +53,33 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
 }
 
 function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
-  const { sc } = pickPreflopScenario(state, heroIdx);
+  const { sc, level } = pickPreflopScenario(state, heroIdx);
   const code = handCode(state.players[heroIdx].holeCards);
   const charted = cellStrategy(sc, code);
   const la = legalActions(state);
+  const bb = state.bigBlind;
+
+  // standard raise-to size (total chips) for an aggressive preflop action:
+  // RFI opens ~2.5bb; a 3-bet ~3× the open; a 4-bet ~2.3× the 3-bet.
+  const raiseSize = (id: ActionOption['id']): number | undefined => {
+    if (id !== 'open' && id !== 'raise') return undefined;
+    const target = level >= 2 ? Math.round(2.3 * state.currentBet)
+      : level === 1 ? Math.round(3 * state.currentBet)
+      : Math.round(2.5 * bb);
+    return Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, target));
+  };
 
   // map charted options to concrete EVs (relative, heuristic) + explanations
-  const options: ActionOption[] = charted.map((o) => ({
-    ...o,
-    ev: round2(BASE_EV[o.kind ?? 'fold'] * (0.5 + 0.5 * o.freq)),
-    why: whyPreflop(o.kind, sc, code, o.freq),
-    math: `Preflop chart: ${(o.freq * 100).toFixed(0)}% is the baseline frequency for ${code} in "${sc.short}". EV is a relative estimate (charts aren't EV-solved).`,
-  }));
+  const options: ActionOption[] = charted.map((o) => {
+    const amount = raiseSize(o.id);
+    return {
+      ...o,
+      amount, // raise-to in chips; StrategyPanel renders the bb conversion
+      ev: round2(BASE_EV[o.kind ?? 'fold'] * (0.5 + 0.5 * o.freq)),
+      why: whyPreflop(o.kind, sc, code, o.freq),
+      math: `Preflop chart: ${(o.freq * 100).toFixed(0)}% is the baseline frequency for ${code} in "${sc.short}". EV is a relative estimate (charts aren't EV-solved).`,
+    };
+  });
 
   if (la.callAmount > 0 && !options.some((o) => o.id === 'fold')) {
     options.push({ id: 'fold', label: 'Fold', freq: 0, ev: 0, kind: 'fold', why: `${code} is below the continue threshold here.` });

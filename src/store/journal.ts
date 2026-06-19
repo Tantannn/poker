@@ -7,7 +7,9 @@
 import type { Card } from '../engine/cards';
 
 export interface JournalEntry {
-  handNumber: number;
+  /** stable unique id (matches the HistoryHand it was tagged from). */
+  id: string;
+  handNumber: number; // for display only
   heroCards: Card[];
   board: Card[];
   result: string;
@@ -28,7 +30,9 @@ export function loadJournal(): JournalEntry[] {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as JournalEntry[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // backfill ids for entries saved before the uuid migration
+    return parsed.map((e) => (e.id ? e : { ...e, id: `legacy-${e.handNumber}` }));
   } catch {
     return [];
   }
@@ -42,8 +46,8 @@ export function saveJournal(entries: JournalEntry[]): void {
   }
 }
 
-export function isTagged(entries: JournalEntry[], handNumber: number): boolean {
-  return entries.some((e) => e.handNumber === handNumber);
+export function isTagged(entries: JournalEntry[], id: string): boolean {
+  return entries.some((e) => e.id === id);
 }
 
 /** Add a hand to the journal (no-op if already there). Newest first. */
@@ -51,19 +55,15 @@ export function addEntry(
   entries: JournalEntry[],
   hand: Omit<JournalEntry, 'takeaway' | 'createdAt'>,
 ): JournalEntry[] {
-  if (isTagged(entries, hand.handNumber)) return entries;
+  if (isTagged(entries, hand.id)) return entries;
   const next = [{ ...hand, takeaway: '', createdAt: stamp() }, ...entries];
   return next.slice(0, MAX_ENTRIES);
 }
 
-export function removeEntry(entries: JournalEntry[], handNumber: number): JournalEntry[] {
-  return entries.filter((e) => e.handNumber !== handNumber);
+export function removeEntry(entries: JournalEntry[], id: string): JournalEntry[] {
+  return entries.filter((e) => e.id !== id);
 }
 
-export function setTakeaway(
-  entries: JournalEntry[],
-  handNumber: number,
-  takeaway: string,
-): JournalEntry[] {
-  return entries.map((e) => (e.handNumber === handNumber ? { ...e, takeaway } : e));
+export function setTakeaway(entries: JournalEntry[], id: string, takeaway: string): JournalEntry[] {
+  return entries.map((e) => (e.id === id ? { ...e, takeaway } : e));
 }

@@ -219,6 +219,7 @@ export function useGame(initialProfiles: string[]) {
           recommended: idToClass(fb.best),
           verdict: fb.verdict === 'best' || fb.verdict === 'correct' ? 'correct' : fb.verdict === 'inaccuracy' ? 'ok' : 'mistake',
           evLoss: fb.evLoss,
+          chosenEv: fb.chosenEv,
           rngMatch: fb.rngMatch,
         });
         saveStats(updated);
@@ -390,6 +391,7 @@ export function useGame(initialProfiles: string[]) {
       }));
     const showdown = game.players.map((p) => ({ name: p.name, cards: p.holeCards, folded: p.folded }));
     const hist: HistoryHand = {
+      id: crypto.randomUUID(),
       handNumber: game.handNumber,
       heroCards: hero.holeCards,
       board: game.board,
@@ -425,10 +427,10 @@ export function useGame(initialProfiles: string[]) {
   }, []);
 
   // delete specific hands from the reviewable history (multi-select in Hand Review)
-  const removeHistoryHands = useCallback((handNumbers: number[]) => {
-    const set = new Set(handNumbers);
+  const removeHistoryHands = useCallback((ids: string[]) => {
+    const set = new Set(ids);
     setHistory((h) => {
-      const next = h.filter((x) => !set.has(x.handNumber));
+      const next = h.filter((x) => !set.has(x.id));
       saveHistory(next);
       return next;
     });
@@ -438,7 +440,7 @@ export function useGame(initialProfiles: string[]) {
   // hands stay in the list so they're still reviewable; everything else is dropped.
   const clearHistory = useCallback(() => {
     setHistory((h) => {
-      const next = h.filter((x) => isTagged(journal, x.handNumber));
+      const next = h.filter((x) => isTagged(journal, x.id));
       saveHistory(next);
       return next;
     });
@@ -449,9 +451,10 @@ export function useGame(initialProfiles: string[]) {
   // result so the note survives reload even after the in-memory history rolls off.
   const toggleTag = useCallback((hand: HistoryHand) => {
     setJournal((j) => {
-      const next = isTagged(j, hand.handNumber)
-        ? removeEntry(j, hand.handNumber)
+      const next = isTagged(j, hand.id)
+        ? removeEntry(j, hand.id)
         : addEntry(j, {
+            id: hand.id,
             handNumber: hand.handNumber,
             heroCards: hand.heroCards,
             board: hand.board,
@@ -463,9 +466,9 @@ export function useGame(initialProfiles: string[]) {
     });
   }, []);
 
-  const setHandTakeaway = useCallback((handNumber: number, text: string) => {
+  const setHandTakeaway = useCallback((id: string, text: string) => {
     setJournal((j) => {
-      const next = setTakeaway(j, handNumber, text);
+      const next = setTakeaway(j, id, text);
       saveJournal(next);
       return next;
     });
@@ -475,33 +478,34 @@ export function useGame(initialProfiles: string[]) {
   // single journal update so there's no add-then-set race.
   const upsertTakeaway = useCallback((hand: HistoryHand, text: string) => {
     setJournal((j) => {
-      const withEntry = isTagged(j, hand.handNumber)
+      const withEntry = isTagged(j, hand.id)
         ? j
         : addEntry(j, {
+            id: hand.id,
             handNumber: hand.handNumber,
             heroCards: hand.heroCards,
             board: hand.board,
             result: hand.result,
             deltaBB: hand.deltaBB,
           });
-      const next = setTakeaway(withEntry, hand.handNumber, text);
+      const next = setTakeaway(withEntry, hand.id, text);
       saveJournal(next);
       return next;
     });
   }, []);
 
-  const removeJournalEntry = useCallback((handNumber: number) => {
+  const removeJournalEntry = useCallback((id: string) => {
     setJournal((j) => {
-      const next = removeEntry(j, handNumber);
+      const next = removeEntry(j, id);
       saveJournal(next);
       return next;
     });
   }, []);
 
-  const removeJournalEntries = useCallback((handNumbers: number[]) => {
-    const set = new Set(handNumbers);
+  const removeJournalEntries = useCallback((ids: string[]) => {
+    const set = new Set(ids);
     setJournal((j) => {
-      const next = j.filter((e) => !set.has(e.handNumber));
+      const next = j.filter((e) => !set.has(e.id));
       saveJournal(next);
       return next;
     });

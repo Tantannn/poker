@@ -91,7 +91,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                   </div>
                   {o.amount != null && (
                     <div className="strat-amt">
-                      {o.id === 'call' ? 'call' : o.id === 'raise' ? 'raise to' : 'bet to'} <b>{o.amount}</b>
+                      {o.id === 'call' ? 'call' : o.id === 'raise' ? 'raise to' : o.id === 'open' ? 'open to' : 'bet to'} <b>{o.amount}</b>
                       {' '}({(o.amount / BIG_BLIND).toFixed(1)}bb){o.sizePct != null ? ` · ${o.sizePct}% pot` : ''}
                     </div>
                   )}

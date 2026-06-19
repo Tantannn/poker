@@ -15,7 +15,7 @@ type Filter = 'all' | 'wins' | 'losses' | 'noted' | 'unnoted';
 
 export function PrinciplesPanel({ g }: { g: G }) {
   const [filter, setFilter] = useState<Filter>('all');
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
 
   const rows = useMemo(() => {
     return g.journal.filter((e) => {
@@ -73,7 +73,7 @@ export function PrinciplesPanel({ g }: { g: G }) {
           autoSize={{ minRows: 1, maxRows: 4 }}
           placeholder="Extract one principle from this hand…"
           value={e.takeaway}
-          onChange={(ev) => g.setHandTakeaway(e.handNumber, ev.target.value)}
+          onChange={(ev) => g.setHandTakeaway(e.id, ev.target.value)}
         />
       ),
     },
@@ -126,14 +126,14 @@ export function PrinciplesPanel({ g }: { g: G }) {
           </p>
         ) : (
           <Table<JournalEntry>
-            rowKey="handNumber"
+            rowKey="id"
             size="small"
             columns={columns}
             dataSource={rows}
             pagination={{ pageSize: 12, hideOnSinglePage: true }}
             rowSelection={{
               selectedRowKeys: selected,
-              onChange: (keys) => setSelected(keys as number[]),
+              onChange: (keys) => setSelected(keys as string[]),
             }}
           />
         )}

@@ -10,6 +10,7 @@ export interface DecisionRecord {
   recommended: ActionClass;
   verdict: Verdict;
   evLoss?: number; // bb lost vs the best action at this node
+  chosenEv?: number; // EV (bb) of the action the hero took — its sign tiers wrong vs inaccuracy
   rngMatch?: boolean | null; // did hero follow the RNG-prescribed action?
 }
 
@@ -127,14 +128,22 @@ const POINTS = { best: 100, correct: 90, inaccuracy: 55, wrong: 25, blunder: 0 }
  *  per-decision grade (analysis/grade.ts) and the session scorecard. */
 export type MoveTier = 'best' | 'correct' | 'inaccuracy' | 'wrong' | 'blunder';
 
-/** Classify a single decision's EV loss (bb) into its tier. */
-export function moveTier(evLoss: number): MoveTier {
-  const e = Math.max(0, evLoss);
-  if (e <= TIER.best) return 'best';
-  if (e <= TIER.correct) return 'correct';
-  if (e <= TIER.inaccuracy) return 'inaccuracy';
-  if (e <= TIER.wrong) return 'wrong';
-  return 'blunder';
+// A deeply -EV line (bb) is a blunder; a +EV line that still leaves more than
+// this much on the table (e.g. folding a monster) is treated as a real error.
+const BLUNDER_EV = -3;
+const CATASTROPHE_LOSS = 6;
+
+/** Classify a decision by EV. The SIGN of the chosen action's EV decides
+ *  wrong-vs-inaccuracy: a +EV line is never worse than an inaccuracy, a -EV line
+ *  is a mistake, a deeply -EV line is a blunder. `chosenEv` is the EV (bb) of the
+ *  action the hero actually took; `evLoss` is its gap below the best line. */
+export function moveTier(evLoss: number, chosenEv = 0): MoveTier {
+  const loss = Math.max(0, evLoss);
+  if (loss <= TIER.best) return 'best';
+  if (loss <= TIER.correct) return 'correct';
+  if (chosenEv <= BLUNDER_EV || loss > CATASTROPHE_LOSS) return 'blunder';
+  if (chosenEv < 0 || loss > TIER.wrong) return 'wrong';
+  return 'inaccuracy';
 }
 
 /** Classify every recorded decision into the five GTOW-style tiers. */
@@ -142,7 +151,7 @@ export function scoreBuckets(s: SessionStats): ScoreBuckets {
   const b: ScoreBuckets = { best: 0, correct: 0, inaccuracy: 0, wrong: 0, blunder: 0, moves: 0 };
   for (const d of s.decisions) {
     b.moves++;
-    b[moveTier(d.evLoss ?? 0)]++;
+    b[moveTier(d.evLoss ?? 0, d.chosenEv ?? 0)]++;
   }
   return b;
 }

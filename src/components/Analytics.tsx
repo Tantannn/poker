@@ -42,7 +42,7 @@ export function Analytics({ g }: { g: G }) {
   const evLossAll = totalEvLoss(stats);
   const rng = rngAdherence(stats);
   const rngPct = rng.total ? Math.round((rng.followed / rng.total) * 100) : 0;
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const buckets = scoreBuckets(stats);
   const score = gtowScore(stats);
@@ -192,8 +192,8 @@ export function Analytics({ g }: { g: G }) {
         ) : (
           <div className="history-list">
             {history.map((h) => (
-              <div key={h.handNumber} className="history-item">
-                <button className="history-row" onClick={() => setExpanded(expanded === h.handNumber ? null : h.handNumber)}>
+              <div key={h.id} className="history-item">
+                <button className="history-row" onClick={() => setExpanded(expanded === h.id ? null : h.id)}>
                   <span className="hh-num">#{h.handNumber}</span>
                   <span className="hh-cards">
                     {h.heroCards.map((c, i) => (
@@ -208,7 +208,7 @@ export function Analytics({ g }: { g: G }) {
                     {h.deltaBB.toFixed(1)} bb
                   </span>
                 </button>
-                {expanded === h.handNumber && (
+                {expanded === h.id && (
                   <div className="history-detail">
                     <div className="hh-result">{h.result}</div>
                     <ol className="hh-log">
