@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { potOdds, requiredEquityForBet } from '../engine/potOdds';
+import { potOdds, requiredEquityForBet, mdf } from '../engine/potOdds';
 import { ruleOf2and4 } from '../engine/equity';
 
 const DRAWS: [string, number][] = [
@@ -110,13 +110,15 @@ export function PotOddsCalc() {
       </div>
 
       <div className="card">
-        <h3>Pot Odds Quick Reference</h3>
+        <h3>Pot Geometry Quick Reference</h3>
         <table>
           <thead>
             <tr>
               <th>Bet size (of pot)</th>
               <th>You're getting</th>
-              <th>Equity needed to call</th>
+              <th>Equity to call</th>
+              <th>Bluffs needed</th>
+              <th>MDF</th>
             </tr>
           </thead>
           <tbody>
@@ -125,13 +127,18 @@ export function PotOddsCalc() {
                 <td>{name}</td>
                 <td>{(1 / frac).toFixed(2)} : 1</td>
                 <td className="num">{(requiredEquityForBet(frac) * 100).toFixed(1)}%</td>
+                <td className="num">{(requiredEquityForBet(frac) * 100).toFixed(1)}%</td>
+                <td className="num">{(mdf(1, frac) * 100).toFixed(0)}%</td>
               </tr>
             ))}
           </tbody>
         </table>
         <p className="note">
-          Equity needed = call ÷ (pot after your call). Ignores implied odds — when you can win more
-          later, you can profitably call with less.
+          <b>One number, two jobs:</b> the equity you need to <i>call</i> a bet equals the % of{' '}
+          <i>bluffs</i> the bettor needs at that size — they're the same formula, f ÷ (1 + 2f).
+          So memorize one column. <b>MDF</b> = 1 ÷ (1 + f): bet bigger, defend less (pot-bet → defend
+          half). Quick hooks: ½ pot → 25%, pot → 33%, 2× → 40%. All ignore implied odds — when you can
+          win more later, you can call with less.
         </p>
       </div>
     </>

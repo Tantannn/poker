@@ -138,10 +138,16 @@ function postflopStrategy(state: GameState, heroIdx: number, iterations?: number
   const pot = potTotal(state);
   const { range, note } = buildVillainRange(state, heroIdx);
 
+  // every still-live opponent — in a multiway pot hero must beat all of them, so
+  // the EV model gets the whole field (approximated as each holding `range`).
+  const liveOpps = state.players.filter((p) => !p.folded && p.id !== heroIdx).length;
+  const oppRanges = Array.from({ length: Math.max(1, liveOpps) }, () => range);
+
   return solvePostflop({
     hero: hero.holeCards,
     board: state.board,
     oppRange: range,
+    oppRanges,
     pot,
     toCall: la.callAmount,
     heroCommitted: hero.committed,

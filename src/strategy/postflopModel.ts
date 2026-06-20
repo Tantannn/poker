@@ -4,7 +4,8 @@
 
 import type { Card } from '../engine/cards';
 import type { WeightedRange } from '../engine/range';
-import { equityVsRange, countOuts } from '../engine/equity';
+import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
+import { requiredEquityForBet } from '../engine/potOdds';
 import { classifyFlop } from '../engine/board';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { mixFromEv } from './types';
@@ -21,9 +22,11 @@ function classifyBet(e: number, outs: number): BetClass {
 // kind drives grid/bar color; we keep the existing 2-tone (value vs bluff).
 const classKind = (c: BetClass): ActionOption['kind'] => (c === 'value' || c === 'thin' ? 'value' : 'bluff');
 
-/** GTO bluff frequency for a bet of `frac`×pot on the river, and value:bluff ratio. */
+/** GTO bluff frequency for a bet of `frac`×pot on the river, and value:bluff ratio.
+ *  Memo: the bluff fraction equals the equity a caller needs at this size — same
+ *  number, so `requiredEquityForBet` is the single source for both. */
 function riverBalance(frac: number): string {
-  const bluffFrac = frac / (2 * frac + 1);
+  const bluffFrac = requiredEquityForBet(frac);
   const ratio = (1 - bluffFrac) / Math.max(0.001, bluffFrac);
   return ` River balance: this size wants ~${Math.round(bluffFrac * 100)}% bluffs (≈ ${ratio.toFixed(1)} : 1 value-to-bluff).`;
 }
@@ -63,6 +66,9 @@ export interface PostflopInput {
   hero: Card[];
   board: Card[];
   oppRange: WeightedRange;
+  /** ranges of EVERY live opponent (for multiway equity). Falls back to [oppRange]
+   *  when omitted. >1 entry → hero must beat the whole field, so equity/EV drop. */
+  oppRanges?: WeightedRange[];
   pot: number; // chips in middle before hero acts (incl. villain bet)
   toCall: number; // chips to call (0 if can check)
   heroCommitted: number; // chips hero already put this street
@@ -94,7 +100,13 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 export function solvePostflop(inp: PostflopInput): NodeStrategy {
-  const eqRes = equityVsRange(inp.hero, inp.board, inp.oppRange, inp.iterations ?? 1200);
+  const ranges = inp.oppRanges && inp.oppRanges.length ? inp.oppRanges : [inp.oppRange];
+  const nOpp = ranges.length;
+  const iters = inp.iterations ?? 1200;
+  // multiway: hero must beat the whole field, so equity is lower than heads-up.
+  const eqRes = nOpp > 1
+    ? equityVsField(inp.hero, inp.board, ranges, iters)
+    : equityVsRange(inp.hero, inp.board, inp.oppRange, iters);
   const e = eqRes.equity;
   const P = inp.pot;
   const C = inp.toCall;
@@ -166,7 +178,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(e, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult);
+    const d = computeAggro(e, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp);
     const cls = classifyBet(e, outs);
     cands.push({
       id,
@@ -185,7 +197,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(e, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult);
+    const d = computeAggro(e, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp);
     const cls = classifyBet(e, outs);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
@@ -239,7 +251,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     bestEv: round2(bestEv),
     bestId: best.id,
     source: 'postflop-model',
-    note: `Equity ${(e * 100).toFixed(1)}% vs villain range. EVs are heuristic estimates (fold-equity model), not a solver.`,
+    note: `Equity ${(e * 100).toFixed(1)}% ${nOpp > 1 ? `vs the ${nOpp}-way field (you must beat all)` : 'vs villain range'}. EVs are heuristic estimates (fold-equity model), not a solver.`,
     equity: e,
     rangeNote: inp.rangeNote,
     heroCode: inp.heroCode,
@@ -266,6 +278,7 @@ function computeAggro(
   isAllIn: boolean,
   realize = 1.0,
   feMult = 1.0,
+  oppCount = 1,
 ): AggroDetail {
   const R = target - currentBet; // pressure on top of a call
   const A = target - heroCommitted; // total hero invests now
@@ -276,11 +289,19 @@ function computeAggro(
   // it (in position bets earn a touch more folds).
   let fe = (0.1 + 0.3 * Math.min(s, 1.2) - wetness) * feMult;
   fe = Math.max(0.04, Math.min(0.6, fe));
+  // MULTIWAY: EVERY opponent has to fold for the bet to take it down. Treating
+  // their folds as roughly independent, the chance they ALL fold is fe^oppCount —
+  // so fold equity collapses fast as the field grows.
+  if (oppCount > 1) fe = Math.max(0.02, Math.pow(fe, oppCount));
   // When called, villain's continuing range is stronger — and the bigger the
   // bet, the tighter (and stronger) that range, so hero's realised equity drops
   // more the larger the size. This is what kills the over-betting/shove EV.
   const sizePenalty = 0.1 * Math.min(Math.max(0, s - 0.5), 2);
-  const e2 = Math.max(0, Math.min(1, e * realize) - (isAllIn ? 0.06 : 0.08) - sizePenalty);
+  // ALL-IN calling range is tighter still: only strong hands stack off, so the
+  // equity hero realises WHEN CALLED is lower than vs the wider continuing range.
+  // Each extra opponent tightens the range that continues, dropping it further.
+  const callTightness = (isAllIn ? 0.12 : 0.08) + 0.04 * (oppCount - 1);
+  const e2 = Math.max(0, Math.min(1, e * realize) - callTightness - sizePenalty);
   const calledPot = P + A + R;
   const ev = fe * P + (1 - fe) * (e2 * calledPot - A);
   return { ev, fe, e2, calledPot, A };

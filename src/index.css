@@ -136,7 +136,7 @@ body {
   gap: 3px; transition: 0.2s;
 }
 /* hero shows larger hole cards — widen the seat and its card row to fit them */
-.seat.hero-seat { width: 150px; z-index: 4; }
+.seat.hero-seat { width: 150px; z-index: 0; }
 .seat.hero-seat .seat-cards { gap: 6px; }
 .seat-cards { display: flex; gap: 3px; }
 .seat-info {
@@ -490,6 +490,25 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .modal-side { flex: 1; min-width: 180px; }
 .modal-note { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 .modal-note b { color: var(--txt); }
+
+/* ---------- equity explainer (collapsible) ---------- */
+.equity-explain { margin: 0 0 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); }
+.equity-explain summary { cursor: pointer; font-weight: 700; color: var(--txt); list-style: none; user-select: none; }
+.equity-explain summary::-webkit-details-marker { display: none; }
+.equity-explain summary::before { content: '▸ '; color: var(--gold); }
+.equity-explain[open] summary::before { content: '▾ '; }
+.equity-explain summary:hover { color: var(--gold); }
+.equity-explain p { margin: 8px 0 0; line-height: 1.5; }
+.equity-explain b { color: var(--txt); }
+.equity-explain ol { margin: 8px 0 0; padding-left: 18px; }
+.equity-explain ol li { margin: 4px 0; line-height: 1.45; }
+.equity-explain .equity-formula { margin-top: 8px; font-family: var(--mono, monospace); color: var(--gold); background: rgba(0,0,0,0.25); border-radius: 5px; padding: 5px 8px; text-align: center; }
+.equity-explain .equity-rules-head { margin-top: 10px; font-weight: 700; color: var(--txt); }
+.equity-explain .equity-rules { width: 100%; margin: 6px 0 0; border-collapse: collapse; font-size: 11.5px; }
+.equity-explain .equity-rules td { padding: 3px 6px; border-top: 1px solid var(--line); }
+.equity-explain .equity-rules td:nth-child(2) { text-align: right; color: var(--gold); white-space: nowrap; }
+.equity-explain .equity-rules .equity-rules-hook { color: var(--muted); font-style: italic; }
+.equity-explain .equity-caveat { color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
 
 .mini-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; width: min(430px, 84vw); aspect-ratio: 1; }
 .mini-cell { display: flex; align-items: center; justify-content: center; font-size: clamp(6px, 1.7vw, 9px); font-weight: 800; color: #fff; border-radius: 2px; letter-spacing: -0.3px; text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.8); overflow: hidden; }

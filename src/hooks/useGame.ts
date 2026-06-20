@@ -14,7 +14,7 @@ import {
   startHand,
 } from '../engine/table';
 import type { Card } from '../engine/cards';
-import { countOuts, equityVsRange, ruleOf2and4 } from '../engine/equity';
+import { countOuts, equityVsRange, equityVsField, ruleOf2and4 } from '../engine/equity';
 import { potOdds } from '../engine/potOdds';
 import { decideAction } from '../ai/decide';
 import type { NodeStrategy } from '../strategy';
@@ -304,10 +304,23 @@ export function useGame(initialProfiles: string[]) {
     const id = setTimeout(() => {
       const { range, note } = buildVillainRange(game, 0);
       const strat = getNodeStrategy(game, 0, 1100);
-      const eq =
+      // count opponents still live — in a multiway pot you must beat ALL of them,
+      // so equity is materially lower than the heads-up (single-villain) number.
+      const liveOpps = game.players.filter((p) => !p.isHero && !p.folded).length;
+      // postflop strat.equity is already multiway-aware (solver gets the field);
+      // preflop has no solved equity, so compute the field equity here.
+      let eq =
         strat.equity != null
           ? { equity: strat.equity, win: strat.equity, tie: 0 }
           : equityVsRange(hero.holeCards, game.board, range, 1400);
+      let multiwayNote = '';
+      if (liveOpps > 1) {
+        multiwayNote = ` · vs ${liveOpps} opponents (multiway)`;
+        if (strat.equity == null) {
+          const f = equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400);
+          eq = { equity: f.equity, win: f.win, tie: f.tie };
+        }
+      }
       const outsInfo = countOuts(hero.holeCards, game.board);
       const pot = potTotal(game);
       const toCall = legal.callAmount;
@@ -357,7 +370,7 @@ export function useGame(initialProfiles: string[]) {
         requiredEquity: po.requiredEquity,
         oddsRatio: po.oddsRatio,
         ruleEstimate: ruleOf2and4(outsInfo.outs, cardsToCome),
-        rangeNote: note,
+        rangeNote: note + multiwayNote,
       });
     }, 30);
     return () => clearTimeout(id);
