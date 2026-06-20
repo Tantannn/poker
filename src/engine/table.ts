@@ -4,7 +4,7 @@
 
 import type { Card } from './cards';
 import { makeDeck, shuffle } from './cards';
-import { evaluate7 } from './evaluator';
+import { evaluate7, describeHand } from './evaluator';
 
 export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
 export type Street = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'complete';
@@ -463,7 +463,7 @@ function doShowdown(state: GameState) {
         playerId: w.id,
         amount: amt,
         potIndex,
-        handDesc: describeShort(w.res.category),
+        handDesc: describeHand(w.res),
       });
     }
   });
@@ -471,7 +471,27 @@ function doShowdown(state: GameState) {
   state.street = 'complete';
   state.toAct = -1;
   const wnames = [...new Set(state.winners.map((w) => state.players[w.playerId].name))];
-  state.message = `Showdown — ${wnames.join(', ')} win${wnames.length === 1 ? 's' : ''} the pot.`;
+
+  // Explain the win: name the winning hand, and flag kicker-decided pots where
+  // the best loser held the same hand category & named ranks.
+  const allScored = state.players
+    .filter((p) => !p.folded && p.holeCards.length === 2)
+    .map((p) => ({ id: p.id, res: evaluate7([...p.holeCards, ...state.board]) }));
+  const top = allScored.reduce((best, s) => (s.res.score > best.res.score ? s : best), allScored[0]);
+  const winDesc = describeHand(top.res);
+  const losers = allScored.filter((s) => s.res.score < top.res.score);
+  const bestLoser = losers.reduce<(typeof allScored)[number] | undefined>(
+    (best, s) => (!best || s.res.score > best.res.score ? s : best),
+    undefined,
+  );
+  const kickerWin =
+    bestLoser !== undefined &&
+    bestLoser.res.categoryRank === top.res.categoryRank &&
+    describeHand(bestLoser.res) === winDesc;
+
+  const verb = wnames.length === 1 ? 'wins' : 'win';
+  const reason = wnames.length === 1 ? ` with ${winDesc}${kickerWin ? ' (better kicker)' : ''}` : '';
+  state.message = `Showdown — ${wnames.join(', ')} ${verb} the pot${reason}.`;
 }
 
 function awardUncontested(state: GameState) {
@@ -483,10 +503,6 @@ function awardUncontested(state: GameState) {
   state.street = 'complete';
   state.toAct = -1;
   state.message = `${winner.name} wins ${pot} uncontested.`;
-}
-
-function describeShort(cat: string): string {
-  return cat;
 }
 
 /** Snapshot of bb won/lost this hand for each player (call after a hand completes). */

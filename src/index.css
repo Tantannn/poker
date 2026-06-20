@@ -820,6 +820,23 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .rv-actions { margin: 12px 0; }
 .rv-log { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--txt); }
 .rv-log li { margin: 3px 0; }
+/* hand summary narrative + per-decision deep dive */
+.rv-summary { background: var(--bg2); border: 1px solid var(--line); border-left: 4px solid var(--gold); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+.rv-summary p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.6; }
+.rv-summary b { color: var(--txt); }
+.rv-deep { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.rv-deep > summary { cursor: pointer; color: var(--gold); font-size: 12.5px; font-weight: 800; list-style: none; user-select: none; }
+.rv-deep > summary::-webkit-details-marker { display: none; }
+.rv-deep > summary::before { content: '▸ '; }
+.rv-deep[open] > summary::before { content: '▾ '; }
+.rv-deep-body { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.rv-deep-block { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+.rv-deep-h { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gold); margin-bottom: 4px; }
+.rv-deep-block p { margin: 0; font-size: 13px; line-height: 1.55; }
+.rv-deep-block b { color: var(--txt); }
+.rv-deep-block .good { color: var(--raise); }
+.rv-deep-block .bad { color: var(--red); }
+
 .rv-showdown { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
 .rv-sd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 8px; }
 .rv-sd { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; text-align: center; }
@@ -851,3 +868,92 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .risk-tag { font-size: 9px; font-weight: 800; border-radius: 3px; padding: 0 5px; margin-left: 5px; background: #4a2a12; color: #e0843a; border: 1px solid #e0843a55; }
 .strat-amt { font-size: 11.5px; color: var(--muted); margin: 2px 0 0 2px; }
 .strat-amt b { color: var(--gold); font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   MOBILE / RESPONSIVE
+   Tablet-and-down (≤720px): tighten chrome, make the nav a
+   horizontal scroll strip, and let the action buttons share a row.
+   Phone (≤600px): scale the felt, seats and every card class so the
+   absolutely-positioned table stops overflowing on a narrow screen.
+   ============================================================ */
+@media (max-width: 720px) {
+  .app { padding: 0 10px 40px; }
+  .app-header { padding: 16px 6px 4px; }
+  .app-header h1 { font-size: 22px; }
+  .app-header p { font-size: 12px; margin-top: 4px; }
+  .app-footer { font-size: 11px; }
+
+  /* nav: one swipeable row instead of a tall wrap pile */
+  .app-nav {
+    flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
+    gap: 5px; margin: 12px 0; padding-bottom: 5px;
+    -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+  }
+  .app-nav button { flex: 0 0 auto; padding: 7px 12px; font-size: 13px; }
+
+  .play-layout { gap: 12px; }
+
+  /* action buttons: drop fixed widths so Fold/Call/Raise fit one phone row */
+  .controls { padding: 11px; }
+  .ctrl-row { gap: 6px; }
+  .ctrl-row .btn { flex: 1; min-width: 0; padding: 12px 8px; font-size: 14px; }
+  .btn kbd { display: none; } /* no hardware keyboard on touch */
+  .btn-deal, .btn-repeat { min-width: 0; flex: 1 1 auto; font-size: 15px; }
+  .ctrl-raise { gap: 8px; }
+  .size-btns { flex: 1 1 100%; gap: 5px; }
+  .size-btns button { flex: 1; padding: 7px 4px; }
+  .ctrl-raise input[type="range"] { flex: 1 1 60%; min-width: 0; }
+  .raise-num { width: 66px; }
+
+  .card { padding: 14px; }
+  .modal-body { gap: 12px; }
+}
+
+@media (max-width: 600px) {
+  /* ---- the felt scales; give it more vertical room so seats breathe ---- */
+  .felt { border-width: 9px; aspect-ratio: 4 / 3.2; }
+  .table-center { width: 92%; gap: 6px; }
+  .pot-amount { font-size: 18px; }
+  .pot-label, .pot-bb { font-size: 10px; }
+  .street-tag { font-size: 9px; letter-spacing: 1px; padding: 2px 8px; }
+  .winner-banner { font-size: 11px; padding: 4px 10px; }
+
+  /* board cards (rendered at size "md") shrink to fit 5 across a phone felt */
+  .board { gap: 4px; min-height: 56px; }
+  .board .pcard.md { width: 34px; height: 48px; font-size: 16px; }
+  .board .pcard.md .s { font-size: 13px; }
+
+  /* ---- seats ---- */
+  .seat { width: 84px; gap: 2px; }
+  .seat.hero-seat { width: 96px; }
+  .seat-info { padding: 3px 5px; border-radius: 8px; }
+  .seat-top { gap: 3px; }
+  .seat-name { font-size: 11px; }
+  .seat-pos { font-size: 9px; padding: 0 3px; }
+  .dealer-btn { width: 13px; height: 13px; font-size: 8px; }
+  .seat-stack { font-size: 11px; }
+  .seat-profile, .seat-action { font-size: 9px; }
+  .seat-action { min-height: 11px; }
+  .seat-bet { font-size: 10px; padding: 1px 6px; top: -16px; }
+
+  /* hero hole cards (md) + opponent cards (sm) shrink for the smaller seats */
+  .seat .pcard.md { width: 30px; height: 42px; font-size: 15px; }
+  .seat .pcard.md .s { font-size: 12px; }
+  .seat .pcard.sm { width: 22px; height: 31px; font-size: 12px; }
+  .seat .pcard.sm .s { font-size: 10px; }
+
+  /* tuck the side seats fully inside the rail so they don't clip off-screen */
+  .slot-1, .slot-2 { left: 0; }
+  .slot-4, .slot-5 { right: 0; }
+  .slot-1 .seat-bet, .slot-2 .seat-bet { margin-left: 4px; }
+  .slot-4 .seat-bet, .slot-5 .seat-bet { margin-right: 4px; }
+
+  /* big "lg" cards used in Hand Review / Postflop Lab */
+  .pcard.lg { width: 54px; height: 76px; font-size: 27px; }
+  .pcard.lg .s { font-size: 20px; }
+  .lab-board { gap: 16px; padding: 12px; }
+
+  .hud-value.big { font-size: 22px; }
+  .big-stat { font-size: 26px; }
+  .kpi-value { font-size: 22px; }
+}

@@ -29,6 +29,90 @@ const VILLAIN = rangeFromSet(RFI_RANGES.BTN);
 
 const evRank = (a: { ev: number }, b: { ev: number }) => b.ev - a.ev;
 
+const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+const bb = (chips: number) => (chips / 2).toFixed(1);
+
+// Plain-language tier for an EV loss (in bb) — what the mistake actually cost.
+function evLossTier(loss: number): { label: string; cls: string; gloss: string } {
+  if (loss <= 0.05) return { label: 'Optimal', cls: 'good', gloss: 'matches the solver line — no EV given up.' };
+  if (loss <= 0.5) return { label: 'Minor', cls: 'okv', gloss: 'a small leak; close spot, cheap to get slightly wrong.' };
+  if (loss <= 1.5) return { label: 'Mistake', cls: 'bad', gloss: 'a clear error — the better line wins meaningfully more.' };
+  return { label: 'Blunder', cls: 'bad', gloss: 'a big punt — this is where stacks leak fastest.' };
+}
+
+/** Deep-dive on a single decision: pot-odds math, equity vs price, EV cost over
+ *  a sample, and a concept hook. Renders as a collapsible under the decision. */
+function DecisionDeepDive({ d }: { d: DecisionSnapshot }) {
+  const req = d.toCall > 0 ? d.toCall / (d.pot + d.toCall) : null;
+  const tier = evLossTier(d.evLoss);
+  const bestOpt = d.options.find((o) => o.id === d.bestId);
+  const chosenOpt = d.options.find((o) => o.id === d.chosenId);
+  const ahead = req != null && d.equity != null ? d.equity >= req : null;
+
+  return (
+    <details className="rv-deep">
+      <summary>🔬 Deep dive — why this is a {tier.label.toLowerCase()}</summary>
+      <div className="rv-deep-body">
+        {req != null ? (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">The price</div>
+            <p>
+              You had to call <b>{d.toCall}</b> ({bb(d.toCall)}bb) into a <b>{d.pot}</b> ({bb(d.pot)}bb) pot,
+              so you were getting <b>{(d.pot / d.toCall).toFixed(1)}-to-1</b> and needed{' '}
+              <b>{pct(req)}</b> equity to break even.
+              {d.equity != null && (
+                <> You actually held <b>{pct(d.equity)}</b> — {ahead
+                  ? <span className="good">a profitable call on raw equity alone.</span>
+                  : <span className="bad">short of the price, so a pure call needs implied odds or fold equity to justify.</span>}
+                </>
+              )}
+            </p>
+          </div>
+        ) : (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">The spot</div>
+            <p>
+              No bet was facing you — it was checked to you or you were first in. The question isn't pot odds
+              but whether <b>betting</b> (for value or as a bluff) beats <b>checking</b>, given your{' '}
+              {d.equity != null ? <>~{pct(d.equity)} equity</> : 'hand strength'} and how villain's range reacts.
+            </p>
+          </div>
+        )}
+
+        <div className="rv-deep-block">
+          <div className="rv-deep-h">Your line vs the solver</div>
+          <p>
+            You chose <b>{d.chosenLabel}</b>
+            {chosenOpt && <> (the solver mixes it {pct(chosenOpt.freq)} of the time, {chosenOpt.ev >= 0 ? '+' : ''}{chosenOpt.ev.toFixed(2)}bb)</>}.
+            {' '}The highest-EV line was <b>{d.bestLabel}</b>
+            {bestOpt && <> at {bestOpt.ev >= 0 ? '+' : ''}{bestOpt.ev.toFixed(2)}bb</>}.
+            {d.evLoss > 0.001
+              ? <> The gap is <b className="bad">−{d.evLoss.toFixed(2)}bb</b>: repeated every time this exact spot comes up, that's roughly <b>{(d.evLoss * 100).toFixed(0)}bb per 100 hands</b> bleeding off. <span className={tier.cls === 'good' ? 'good' : 'muted'}>{tier.gloss}</span></>
+              : <> You picked the top line — <span className="good">{tier.gloss}</span></>}
+          </p>
+        </div>
+
+        {d.rngMatch === true && (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">Mixed strategy</div>
+            <p className="gp-muted">
+              This is a mixed spot — more than one action is correct at some frequency. The RNG roll picked this
+              branch, and you followed it, so it's graded as correct even if a different action also scores well.
+            </p>
+          </div>
+        )}
+
+        {d.note && (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">Solver note</div>
+            <p className="gp-muted">{d.note}</p>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 /** Rebuild a NodeStrategy from a stored decision snapshot, for the range chart. */
 function snapToStrategy(snap: DecisionSnapshot, heroCode: string): NodeStrategy {
   return {
@@ -244,6 +328,42 @@ export function Replay({ g }: { g: G }) {
         )}
       </div>
 
+      {(() => {
+        const decs = hand.decisions ?? [];
+        const totalLoss = decs.reduce((s, d) => s + Math.max(0, d.evLoss), 0);
+        const eqFirst = equityCurve[0];
+        const eqLast = equityCurve[equityCurve.length - 1];
+        const swing = eqFirst && eqLast ? eqLast.equity - eqFirst.equity : 0;
+        const swungUp = swing > 0.06;
+        const swungDown = swing < -0.06;
+        return (
+          <div className="rv-summary">
+            <div className="gp-h">📖 Hand summary — the whole arc</div>
+            <p>
+              You were dealt <b>{heroCode}</b>{preflopClass ? <> ({preflopClass.label})</> : null}.{' '}
+              {equityCurve.length > 1 && eqFirst && eqLast && (
+                <>Equity vs a typical opening range moved from <b>{pct(eqFirst.equity)}</b> on the{' '}
+                {eqFirst.street} to <b>{pct(eqLast.equity)}</b> by the {eqLast.street}
+                {swungUp && <> — the board <span className="good">ran in your favour</span> (you picked up equity)</>}
+                {swungDown && <> — the board <span className="bad">ran against you</span> (your hand faded)</>}
+                {!swungUp && !swungDown && <> — a flat run-out, roughly the equity you started with</>}.{' '}</>
+              )}
+              {hand.result}{' '}
+              Net result: <span className={hand.deltaBB > 0 ? 'good' : hand.deltaBB < 0 ? 'bad' : ''}>
+                {hand.deltaBB >= 0 ? '+' : ''}{hand.deltaBB.toFixed(1)} bb
+              </span>.
+            </p>
+            {decs.length > 0 && (
+              <p className="gp-muted">
+                {totalLoss <= 0.1
+                  ? '✅ You played this hand to the solver line — no meaningful EV left on the table. Result aside, the decisions were sound.'
+                  : <>Across {decs.length} decision{decs.length === 1 ? '' : 's'} you gave up <b className="bad">−{totalLoss.toFixed(2)}bb</b> total vs the best lines. Remember: a losing hand played correctly is still a win for your win-rate — variance owns the short term, EV owns the long run. Expand each <b>🔬 Deep dive</b> below to see exactly where.</>}
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="rv-decisions">
         <div className="gp-h">Your decision{streetDecisions.length === 1 ? '' : 's'} on the {activeStreet} — the real spot</div>
         {streetDecisions.length === 0 ? (
@@ -296,6 +416,8 @@ export function Replay({ g }: { g: G }) {
                     <button className="toggle" onClick={() => setChartSnap(d)} title="See the villain range this equity is measured against">📊 Range chart</button>
                   )}
                 </div>
+
+                <DecisionDeepDive d={d} />
               </div>
             );
           })

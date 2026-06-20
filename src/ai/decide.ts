@@ -64,12 +64,28 @@ export function decideAction(state: GameState): Action {
       return sizeTo(1.0, false);
     }
     const odds = potOdds(pot, la.callAmount);
-    const callThreshold = 0.58 - profile.callRaiseLooseness * 0.18;
-    if (strength > callThreshold || odds.requiredEquity < strength * 0.6 + 0.1) {
+    let callThreshold = 0.58 - profile.callRaiseLooseness * 0.18;
+
+    // Facing a shove or a big overbet preflop, villains tighten HARD — nobody
+    // stacks off 100bb light. The bigger the price, the closer to a premium-only
+    // calling range. This is what gives a hero's all-in real fold equity instead
+    // of always getting snapped off by a better hand.
+    const callBB = la.callAmount / state.bigBlind;
+    const bigShove = la.isAllInCall || callBB >= 12;
+    if (bigShove) {
+      const pressure = Math.min(1, callBB / 50); // ~50bb+ to call ⇒ max tightness
+      // up to ~0.82 ≈ {66+, AK} — folds the rest of the deck to the jam
+      callThreshold = Math.max(callThreshold, 0.62 + pressure * 0.2);
+    }
+
+    // good-price call only applies to normal-sized raises, never a jam
+    const priceOk = !bigShove && odds.requiredEquity < strength * 0.6 + 0.1;
+    if (strength > callThreshold || priceOk) {
       if (la.callAmount > 0) return { type: 'call' };
       return { type: 'check' };
     }
-    if (profile.callStation > 0.7 && r() < profile.callStation - 0.4) return { type: 'call' };
+    // calling stations peel light vs normal raises, but even they fold to a jam
+    if (!bigShove && profile.callStation > 0.7 && r() < profile.callStation - 0.4) return { type: 'call' };
     return { type: 'fold' };
   }
 
@@ -80,14 +96,24 @@ export function decideAction(state: GameState): Action {
     // facing a bet
     const odds = potOdds(pot, la.callAmount);
     const margin = equity - odds.requiredEquity;
+    // a shove or a near-pot+ overbet — villains demand a real edge to stack off
+    const bigBet = la.isAllInCall || la.callAmount > pot * 0.9;
 
     // value raise with strong hands
     if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7) {
       return sizeTo(0.7, false);
     }
-    // semi-bluff raise with aggression
-    if (margin > 0 && equity < 0.55 && la.canRaise && r() < profile.bluffFreq * 0.5) {
+    // semi-bluff raise with aggression (not into a jam we can't profitably inflate)
+    if (!bigBet && margin > 0 && equity < 0.55 && la.canRaise && r() < profile.bluffFreq * 0.5) {
       return sizeTo(0.8, false);
+    }
+    // vs a shove / overbet: only continue with a clear edge. Marginal made hands
+    // and draws fold — so a hero who jams has fold equity and isn't auto-called.
+    if (bigBet) {
+      const need = la.isAllInCall ? 0.05 : 0.02;
+      if (margin > need) return { type: 'call' };
+      if (profile.callStation > 0.75 && margin > -0.04 && r() < profile.callStation - 0.5) return { type: 'call' };
+      return { type: 'fold' };
     }
     if (margin > -0.03) return { type: 'call' };
     // calling stations call light
