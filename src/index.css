@@ -217,10 +217,23 @@ body {
 }
 .size-btns button:hover { border-color: var(--raise2); }
 .ctrl-raise input[type="range"] { flex: 1; min-width: 140px; accent-color: var(--raise); }
+.raise-step { display: flex; align-items: center; gap: 6px; }
 .raise-num {
-  width: 80px; background: var(--bg2); color: var(--txt); border: 1px solid var(--line);
-  border-radius: 6px; padding: 8px; font-size: 14px;
+  width: 70px; background: var(--bg2); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; font-size: 14px; text-align: center;
 }
+.raise-num::-webkit-inner-spin-button,
+.raise-num::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.step-btn {
+  width: 34px; height: 34px; flex: none; background: var(--chip); color: var(--txt);
+  border: 1px solid var(--line); border-radius: 6px; font-size: 20px; font-weight: 800;
+  line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.step-btn:hover:not(:disabled) { border-color: var(--raise2); color: var(--raise); }
+.step-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .waiting { text-align: center; color: var(--muted); font-style: italic; padding: 18px; }
 
 /* ---------- feedback ---------- */

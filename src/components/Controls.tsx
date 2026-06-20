@@ -76,14 +76,34 @@ export function Controls({ legal, pot, currentBet, heroCommitted, bigBlind, onAc
             value={raiseTo}
             onChange={(e) => setRaiseTo(clamp(Number(e.target.value), legal.minRaiseTo, legal.maxRaiseTo))}
           />
-          <input
-            type="number"
-            className="raise-num"
-            min={legal.minRaiseTo}
-            max={legal.maxRaiseTo}
-            value={raiseTo}
-            onChange={(e) => setRaiseTo(clamp(Number(e.target.value), legal.minRaiseTo, legal.maxRaiseTo))}
-          />
+          <div className="raise-step">
+            <button
+              type="button"
+              className="step-btn"
+              aria-label="Decrease bet"
+              disabled={raiseTo <= legal.minRaiseTo}
+              onClick={() => setRaiseTo(clamp(raiseTo - bigBlind / 2, legal.minRaiseTo, legal.maxRaiseTo))}
+            >
+              −
+            </button>
+            <input
+              type="number"
+              className="raise-num"
+              min={legal.minRaiseTo}
+              max={legal.maxRaiseTo}
+              value={raiseTo}
+              onChange={(e) => setRaiseTo(clamp(Number(e.target.value), legal.minRaiseTo, legal.maxRaiseTo))}
+            />
+            <button
+              type="button"
+              className="step-btn"
+              aria-label="Increase bet"
+              disabled={raiseTo >= legal.maxRaiseTo}
+              onClick={() => setRaiseTo(clamp(raiseTo + bigBlind / 2, legal.minRaiseTo, legal.maxRaiseTo))}
+            >
+              +
+            </button>
+          </div>
         </div>
       )}
 
