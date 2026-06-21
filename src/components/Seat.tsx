@@ -42,11 +42,11 @@ export function Seat({ player, position, isButton, isToAct, reveal, isWinner, pr
           {player.stack} <span className="muted">({(player.stack / BIG_BLIND).toFixed(0)}bb)</span>
         </div>
         {profileName && !player.isHero && <div className="seat-profile">{profileName}</div>}
-        {player.lastAction && (
-          <div className={`seat-action ${player.allIn ? 'allin' : ''}`}>
-            {player.allIn ? 'ALL-IN' : player.lastAction}
-          </div>
-        )}
+        {/* always rendered (min-height reserves the space) so an action appearing
+            on fold/check doesn't add a row and reflow the seat */}
+        <div className={`seat-action ${player.allIn ? 'allin' : ''}`}>
+          {player.lastAction ? (player.allIn ? 'ALL-IN' : player.lastAction) : ''}
+        </div>
       </div>
       {player.committed > 0 && (
         <div className="seat-bet">

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useGame, type HeroPositionPref, type Speed } from '../hooks/useGame';
 import { PROFILE_LIST } from '../ai/profiles';
+import { DIFFICULTY_LIST } from '../ai/difficulty';
 
 type G = ReturnType<typeof useGame>;
 
@@ -48,6 +49,19 @@ export function ScenarioBar({ g }: { g: G }) {
               title={handInProgress ? 'Applies after this hand' : ''}
             >
               {s}bb
+            </button>
+          ))}
+        </div>
+        <span className="sc-label sc-speed-label">Bots:</span>
+        <div className="sc-btns">
+          {DIFFICULTY_LIST.map((d) => (
+            <button
+              key={d.id}
+              className={g.difficulty === d.id ? 'active' : ''}
+              onClick={() => g.setDifficulty(d.id)}
+              title={d.blurb}
+            >
+              {d.label}
             </button>
           ))}
         </div>

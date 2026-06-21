@@ -4,14 +4,19 @@
 
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
-import { monteCarloEquity } from '../engine/equity';
+import { equityVsRange, equityVsField } from '../engine/equity';
+import { buildVillainRange } from '../strategy';
 import { potOdds } from '../engine/potOdds';
 import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE } from './preflop';
 import { getProfile } from './profiles';
+import { DIFFICULTIES, type DifficultyParams, type HeroReads } from './difficulty';
 
-const BOT_EQUITY_ITERS = 400;
+export interface DecideOpts {
+  diff?: DifficultyParams;
+  reads?: HeroReads;
+}
 
-export function decideAction(state: GameState): Action {
+export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const i = state.toAct;
   const p = state.players[i];
   const la = legalActions(state);
@@ -19,8 +24,15 @@ export function decideAction(state: GameState): Action {
   const pos = positionLabel(i, state.buttonIndex, state.players.length);
   const pot = potTotal(state);
   const r = Math.random;
+  const diff = opts?.diff ?? DIFFICULTIES.normal;
+  const reads = opts?.reads;
 
   const liveOpponents = state.players.filter((q) => !q.folded && q.id !== p.id).length;
+
+  // per-decision human "mood": a small streaky tilt so a bot isn't a fixed robot.
+  const mood = 0.85 + r() * 0.3; // ~0.85..1.15
+  // slightly randomized bet sizing so bots don't always fire identical fractions.
+  const jitter = (frac: number): number => Math.max(0.2, frac * (0.9 + r() * 0.2));
 
   // helper to make a raise/bet to a pot fraction, clamped to legal bounds.
   // `shove` opts out of the commitment guard for deliberate all-ins.
@@ -46,6 +58,19 @@ export function decideAction(state: GameState): Action {
     target = Math.min(target, la.maxRaiseTo);
     return { type: isBet ? 'bet' : 'raise', amount: target };
   };
+
+  // ---- difficulty: weaker bots make mistakes ----
+  // With probability mistakeRate, abandon the correct line and play "fishy":
+  // call too much, spaz-raise, or stab randomly — exactly how a beginner leaks.
+  if (diff.mistakeRate > 0 && r() < diff.mistakeRate) {
+    if (la.callAmount > 0) {
+      if (la.canRaise && r() < 0.12) return sizeTo(jitter(0.6), false); // random spaz raise
+      return { type: 'call' }; // station call — pays off too much
+    }
+    if (la.canCheck && r() < 0.55) return { type: 'check' };
+    if (la.canRaise) return sizeTo(jitter(0.5), true); // random stab
+    return { type: 'check' };
+  }
 
   // =================== PREFLOP ===================
   if (state.street === 'preflop') {
@@ -106,7 +131,42 @@ export function decideAction(state: GameState): Action {
   }
 
   // =================== POSTFLOP ===================
-  const { equity } = monteCarloEquity(p.holeCards, state.board, liveOpponents, BOT_EQUITY_ITERS);
+  // Hand-read: estimate equity against the opponent's *actual* range (built from
+  // their position + preflop action), not vs random cards. This is the core
+  // smartness upgrade — bots now fold weak hands to strong ranges and value-bet
+  // correctly, instead of treating every opponent as a random hand.
+  const { range: villainRange } = buildVillainRange(state, i);
+  const eqRes =
+    liveOpponents > 1
+      ? equityVsField(
+          p.holeCards,
+          state.board,
+          Array.from({ length: liveOpponents }, () => villainRange),
+          diff.iters,
+        )
+      : equityVsRange(p.holeCards, state.board, villainRange, diff.iters);
+  // difficulty: weaker bots misread their equity (noise); strong bots read true.
+  let equity = eqRes.equity;
+  if (diff.equityNoise > 0) {
+    equity = Math.max(0, Math.min(1, equity + (r() * 2 - 1) * diff.equityNoise));
+  }
+
+  // ---- adaptation: hard/extreme bots exploit the hero's leaks ----
+  // Read the running tally of how the hero plays and tilt bluff/value/call
+  // tendencies to attack it. Needs a small sample before it kicks in.
+  let bluffTilt = 1;
+  let valueTilt = 1;
+  let callWiden = 0;
+  if (reads && diff.adapt > 0 && reads.decisions >= 12) {
+    const f2b = reads.foldToBet / Math.max(1, reads.betsFaced);
+    const aggF = reads.aggrActions / Math.max(1, reads.passiveActions);
+    if (f2b > 0.55) bluffTilt += diff.adapt * 0.9; // hero over-folds → bluff more
+    if (f2b < 0.35) {
+      bluffTilt -= diff.adapt * 0.6; // hero is a station → bluff less,
+      valueTilt += diff.adapt * 0.5; // value bet more
+    }
+    if (aggF > 1.6) callWiden += diff.adapt * 0.07; // hero over-aggressive → call lighter
+  }
 
   if (la.callAmount > 0) {
     // facing a bet
@@ -115,41 +175,52 @@ export function decideAction(state: GameState): Action {
     // a shove or a near-pot+ overbet — villains demand a real edge to stack off
     const bigBet = la.isAllInCall || la.callAmount > pot * 0.9;
 
-    // value raise with strong hands
-    if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7) {
-      return sizeTo(0.7, false);
+    // value raise with strong hands — but sometimes just flat to trap (slowplay)
+    if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7 * mood) {
+      if (equity > 0.85 && r() < 0.25) return { type: 'call' }; // trap the monster
+      return sizeTo(jitter(0.7), false);
     }
     // semi-bluff raise with aggression (not into a jam we can't profitably inflate)
-    if (!bigBet && margin > 0 && equity < 0.55 && la.canRaise && r() < profile.bluffFreq * 0.5) {
-      return sizeTo(0.8, false);
+    if (!bigBet && margin > 0 && equity < 0.55 && la.canRaise && r() < profile.bluffFreq * 0.5 * mood * bluffTilt) {
+      return sizeTo(jitter(0.8), false);
     }
     // vs a shove / overbet: only continue with a clear edge. Marginal made hands
     // and draws fold — so a hero who jams has fold equity and isn't auto-called.
     if (bigBet) {
       const need = la.isAllInCall ? 0.05 : 0.02;
-      if (margin > need) return { type: 'call' };
+      if (margin > need - callWiden) return { type: 'call' };
       if (profile.callStation > 0.75 && margin > -0.04 && r() < profile.callStation - 0.5) return { type: 'call' };
       return { type: 'fold' };
     }
-    if (margin > -0.03) return { type: 'call' };
-    // calling stations call light
+    // Soft call/fold boundary: instead of a hard cutoff at break-even, call with
+    // a probability that rises smoothly through the break-even line. `temp` sets
+    // how fuzzy the zone is — wide for weak/human bots, near-sharp for extreme.
+    // This removes the robotic "flips at exactly X%" tell.
+    const callProb = 1 / (1 + Math.exp(-(margin + callWiden + 0.02) / diff.temp));
+    if (r() < callProb) return { type: 'call' };
+    // calling stations call light even below the line
     if (r() < profile.callStation * 0.5 && odds.requiredEquity < 0.4) return { type: 'call' };
     return { type: 'fold' };
   }
 
   // can check or bet
   const wasAggressor = state.lastAggressor === i || state.lastAggressor === -1;
+  const canSlowplay = state.street === 'flop' || state.street === 'turn';
+  // trap: occasionally check a monster to induce bluffs / keep their range in
+  if (equity > 0.85 && canSlowplay && r() < 0.3) {
+    return { type: 'check' };
+  }
   // value bet
-  if (equity > 0.62 && r() < 0.6 + profile.aggression * 0.35) {
-    return sizeTo(equity > 0.8 ? 0.75 : 0.55, true);
+  if (equity > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt) {
+    return sizeTo(jitter(equity > 0.8 ? 0.75 : 0.55), true);
   }
   // c-bet as the aggressor on many boards
-  if (wasAggressor && r() < profile.cbetFreq && state.street === 'flop') {
-    return sizeTo(0.5, true);
+  if (wasAggressor && r() < profile.cbetFreq * mood * bluffTilt && state.street === 'flop') {
+    return sizeTo(jitter(0.5), true);
   }
   // pure bluff
-  if (equity < 0.4 && r() < profile.bluffFreq * 0.5) {
-    return sizeTo(0.6, true);
+  if (equity < 0.4 && r() < profile.bluffFreq * 0.5 * mood * bluffTilt) {
+    return sizeTo(jitter(0.6), true);
   }
   return { type: 'check' };
 }

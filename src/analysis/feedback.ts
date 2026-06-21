@@ -4,10 +4,11 @@
 
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
-import { monteCarloEquity } from '../engine/equity';
+import { equityVsRange, equityVsField } from '../engine/equity';
 import { potOdds } from '../engine/potOdds';
 import { countOuts, ruleOf2and4 } from '../engine/equity';
 import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE } from '../ai/preflop';
+import { buildVillainRange } from '../strategy';
 
 export type ActionClass = 'fold' | 'check' | 'call' | 'raise';
 export type Verdict = 'correct' | 'ok' | 'mistake';
@@ -71,8 +72,14 @@ export function recommend(state: GameState): Recommendation & {
     return { action: 'fold', reason: `${code} is too weak to continue versus a raise — fold.` };
   }
 
-  // postflop
-  const eq = monteCarloEquity(p.holeCards, state.board, liveOpp(state, p.id), 2500).equity;
+  // postflop — equity vs the opponent's actual range (not random cards), so this
+  // advice lines up with the HUD, solver and bots.
+  const { range } = buildVillainRange(state, p.id);
+  const opps = liveOpp(state, p.id);
+  const eq =
+    opps > 1
+      ? equityVsField(p.holeCards, state.board, Array.from({ length: opps }, () => range), 2000).equity
+      : equityVsRange(p.holeCards, state.board, range, 2000).equity;
   const outsInfo = countOuts(p.holeCards, state.board);
 
   if (la.callAmount > 0) {

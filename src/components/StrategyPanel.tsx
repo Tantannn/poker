@@ -2,11 +2,9 @@
 // for every action, with optional "why / how it's calculated" explanations and
 // a popup of the range chart at the hero's position.
 
-import { useState } from 'react';
 import type { NodeStrategy } from '../strategy';
 import type { RngInfo } from '../hooks/useGame';
 import { BIG_BLIND } from '../hooks/useGame';
-import { RangeChartModal } from './RangeChartModal';
 import { InfoTip } from './CalcTip';
 
 // quality tier of an option vs the best line, by EV loss (bb)
@@ -25,18 +23,11 @@ interface Props {
 }
 
 export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Props) {
-  const [showChart, setShowChart] = useState(false);
-
   return (
     <div className="strat-panel">
       <div className="strat-head">
         <span>🧠 Solver strategy</span>
         <div className="strat-head-btns">
-          {enabled && strategy && (
-            <button className="toggle" onClick={() => setShowChart(true)} title="See the range chart at your position">
-              📊 Chart
-            </button>
-          )}
           <button className="toggle" onClick={onToggle}>
             {enabled ? 'Hide' : 'Show'}
           </button>
@@ -127,10 +118,6 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
           </div>
           <div className="strat-note">{strategy.note}</div>
         </>
-      )}
-
-      {showChart && strategy && (
-        <RangeChartModal strategy={strategy} onClose={() => setShowChart(false)} />
       )}
     </div>
   );

@@ -6,8 +6,10 @@ import { Seat } from './Seat';
 import { PlayingCard } from './PlayingCard';
 import { Controls } from './Controls';
 import { Hud } from './Hud';
+import { DecisionCurve } from './DecisionCurve';
 import { ScoreCard } from './ScoreCard';
 import { StrategyPanel } from './StrategyPanel';
+import { RangeChartModal } from './RangeChartModal';
 import { SituationPanel } from './SituationPanel';
 import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
@@ -29,6 +31,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   const [infoEnabled, setInfoEnabled] = useState(true);
   const [oppEnabled, setOppEnabled] = useState(true);
   const [supportsHidden, setSupportsHidden] = useState(false);
+  const [showChart, setShowChart] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -92,6 +95,14 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
             ))}
           </div>
         </div>
+
+        {!supportsHidden && strategy && (
+          <div className="chart-access">
+            <button className="btn-chart-seat" onClick={() => setShowChart(true)} title="Open the range chart for your current seat">
+              📊 Range chart — your seat
+            </button>
+          </div>
+        )}
 
         <div className="action-area">
           {!started || handOver ? (
@@ -176,6 +187,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         ) : (
           <>
             <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} />
+            {hudEnabled && hud && <DecisionCurve equity={hud.equity} pot={hud.pot} toCall={hud.toCall} />}
             <SituationPanel board={game.board} heroCards={hero.holeCards} street={game.street} active={isHeroTurn} villain={villain} />
             <StrategyPanel
               strategy={strategy}
@@ -196,7 +208,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           <ul>
             <li><b>🧭 Situation</b> reads the spot in words — position, board texture, your hand class — before you act.</li>
             <li><b>📊 HUD</b> = equity vs villain's range, pot odds &amp; outs. Hit <b>ⓘ Explain</b> for the math.</li>
-            <li><b>🧠 Solver</b> = per-action frequency &amp; EV; <b>ⓘ Explain</b> shows the reason + EV calc, <b>📊 Chart</b> the range.</li>
+            <li><b>🧠 Solver</b> = per-action frequency &amp; EV; <b>ⓘ Explain</b> shows the reason + EV calc. The <b>📊 Range chart — your seat</b> button under the table opens the range.</li>
             <li><b>🎭 Opponent</b> = archetype tendencies, IP/OOP read, and how to exploit them.</li>
             <li><b>RNG roll</b> picks which branch of a mixed strategy to take; each action is scored by <b>EV loss</b> (bb).</li>
           </ul>
@@ -211,6 +223,10 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           </>
         )}
       </div>
+
+      {showChart && strategy && (
+        <RangeChartModal strategy={strategy} onClose={() => setShowChart(false)} />
+      )}
     </div>
   );
 }

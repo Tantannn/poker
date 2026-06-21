@@ -17,6 +17,8 @@ import type { Card } from '../engine/cards';
 import { countOuts, equityVsRange, equityVsField, ruleOf2and4 } from '../engine/equity';
 import { potOdds } from '../engine/potOdds';
 import { decideAction } from '../ai/decide';
+import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
+import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
 import type { NodeStrategy } from '../strategy';
 import { buildVillainRange, getNodeStrategy, primaryVillainIdx } from '../strategy';
 import { getProfile } from '../ai/profiles';
@@ -38,6 +40,7 @@ import type { JournalEntry } from '../store/journal';
 import { addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway } from '../store/journal';
 import type { HistoryHand, DecisionSnapshot } from '../store/history';
 import { loadHistory, saveHistory } from '../store/history';
+import { loadGame, saveGame, loadSettings, saveSettings } from '../store/game';
 
 export type { HistoryHand } from '../store/history';
 
@@ -96,10 +99,16 @@ const POS_TO_BUTTON: Record<Exclude<HeroPositionPref, 'random'>, number> = {
   SB: 5,
 };
 
+// persisted table settings, read once at module load and used only as the
+// initial mount defaults below (so a refresh resumes the same table/settings).
+const SAVED = loadSettings();
+
 export function useGame(initialProfiles: string[]) {
-  const [profiles, setProfiles] = useState<string[]>(initialProfiles);
-  const [game, setGame] = useState<GameState>(() =>
-    createGame(NUM_PLAYERS, STARTING_BB, BIG_BLIND, initialProfiles),
+  const initProfiles = SAVED?.profiles ?? initialProfiles;
+
+  const [profiles, setProfiles] = useState<string[]>(initProfiles);
+  const [game, setGame] = useState<GameState>(
+    () => loadGame() ?? createGame(NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles),
   );
   const [feedback, setFeedback] = useState<NodeFeedback | null>(null);
   const [hud, setHud] = useState<HudInfo | null>(null);
@@ -109,10 +118,14 @@ export function useGame(initialProfiles: string[]) {
   const [history, setHistory] = useState<HistoryHand[]>(() => loadHistory());
   const [stats, setStats] = useState<SessionStats>(() => loadStats());
   const [journal, setJournal] = useState<JournalEntry[]>(() => loadJournal());
-  const [scenario, setScenario] = useState<HeroPositionPref>('random');
-  const [speed, setSpeed] = useState<Speed>('1x');
-  const [stackDepth, setStackDepth] = useState<number>(STARTING_BB);
-  const [watchAfterFold, setWatchAfterFold] = useState<boolean>(false);
+  const [scenario, setScenario] = useState<HeroPositionPref>((SAVED?.scenario as HeroPositionPref) ?? 'random');
+  const [speed, setSpeed] = useState<Speed>((SAVED?.speed as Speed) ?? '1x');
+  const [stackDepth, setStackDepth] = useState<number>(SAVED?.stackDepth ?? STARTING_BB);
+  const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
+  const [difficulty, setDifficulty] = useState<Difficulty>((SAVED?.difficulty as Difficulty) ?? 'normal');
+
+  // running read on how the hero plays, fed to hard/extreme bots so they adapt.
+  const heroReadsRef = useRef<HeroReads>(emptyReads());
 
   const recordedHand = useRef<number>(-1);
   const strategyRef = useRef<NodeStrategy | null>(null);
@@ -259,6 +272,20 @@ export function useGame(initialProfiles: string[]) {
         villainRange: strat.villainRange ? Array.from(strat.villainRange.entries()) : [],
       });
 
+      // update the running read on how the hero plays (for adaptive bots)
+      const rd = heroReadsRef.current;
+      rd.decisions++;
+      if (prev.street === 'preflop') {
+        rd.preflopActions++;
+        if (action.type === 'call' || action.type === 'raise' || action.type === 'bet') rd.vpipActions++;
+      }
+      if (action.type === 'bet' || action.type === 'raise') rd.aggrActions++;
+      else if (action.type === 'call') rd.passiveActions++;
+      if (la.callAmount > 0) {
+        rd.betsFaced++;
+        if (action.type === 'fold') rd.foldToBet++;
+      }
+
       strategyRef.current = null;
       setStrategy(null);
       setHud(null);
@@ -271,11 +298,11 @@ export function useGame(initialProfiles: string[]) {
       // to the end immediately. When watch is on, leave it — the AI-stepping
       // effect plays the runout out at the normal speed so the user can see it.
       if (next.players[0].folded && !watchAfterFold) {
-        runoutToEnd(next);
+        runoutToEnd(next, DIFFICULTIES[difficulty]);
       }
       return next;
     });
-  }, [watchAfterFold]);
+  }, [watchAfterFold, difficulty]);
 
   // instantly finish the current hand (bots play to the end) — used by the
   // "skip to end" button while watching a folded hand run out.
@@ -283,10 +310,10 @@ export function useGame(initialProfiles: string[]) {
     setGame((prev) => {
       if (prev.street === 'complete' || prev.toAct === 0) return prev;
       const next = structuredClone(prev);
-      runoutToEnd(next);
+      runoutToEnd(next, DIFFICULTIES[difficulty]);
       return next;
     });
-  }, []);
+  }, [difficulty]);
 
   // ---- AI stepping ----
   useEffect(() => {
@@ -296,13 +323,28 @@ export function useGame(initialProfiles: string[]) {
       setGame((prev) => {
         if (prev.toAct < 0 || prev.toAct === 0 || prev.street === 'complete') return prev;
         const next = structuredClone(prev);
-        const action = decideAction(next);
+        const action = decideAction(next, { diff: DIFFICULTIES[difficulty], reads: heroReadsRef.current });
         applyAction(next, action);
         return next;
       });
     }, SPEED_DELAY[speed]);
     return () => clearTimeout(timer);
-  }, [game, speed]);
+  }, [game, speed, difficulty]);
+
+  // if we restored a finished hand, mark it recorded so the result effect below
+  // doesn't double-count it into stats/history after a refresh. Runs once on mount.
+  useEffect(() => {
+    if (game.street === 'complete' && game.handNumber > 0) recordedHand.current = game.handNumber;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- persist game + settings so a refresh resumes the table ----
+  useEffect(() => {
+    saveGame(game);
+  }, [game]);
+  useEffect(() => {
+    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty });
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty]);
 
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
@@ -447,6 +489,7 @@ export function useGame(initialProfiles: string[]) {
     setStats(resetStats());
     setHistory([]);
     saveHistory([]);
+    heroReadsRef.current = emptyReads(); // forget the hero read on a fresh start
   }, []);
 
   // delete specific hands from the reviewable history (multi-select in Hand Review)
@@ -564,6 +607,8 @@ export function useGame(initialProfiles: string[]) {
     applyStackDepth,
     watchAfterFold,
     setWatchAfterFold,
+    difficulty,
+    setDifficulty,
     finishHand,
     setSpeed,
     setScenario,
@@ -579,7 +624,7 @@ export function useGame(initialProfiles: string[]) {
 }
 
 // Run the bots to the end of the hand in place (hero is out / not to act).
-function runoutToEnd(state: GameState): void {
+function runoutToEnd(state: GameState, diff?: DifficultyParams): void {
   let guard = 0;
   while (
     state.street !== 'complete' &&
@@ -588,7 +633,7 @@ function runoutToEnd(state: GameState): void {
     state.toAct !== 0 &&
     guard++ < 400
   ) {
-    applyAction(state, decideAction(state));
+    applyAction(state, decideAction(state, { diff }));
   }
 }
 

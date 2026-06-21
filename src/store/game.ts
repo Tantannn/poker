@@ -1,0 +1,63 @@
+// Persist the live game + table settings to localStorage so a refresh (F5)
+// resumes exactly where you left off instead of dealing a fresh table.
+
+import type { GameState } from '../engine/table';
+
+const GAME_KEY = 'poker.game.v1';
+const SETTINGS_KEY = 'poker.settings.v1';
+
+export function saveGame(g: GameState): void {
+  try {
+    localStorage.setItem(GAME_KEY, JSON.stringify(g));
+  } catch {
+    /* storage full / disabled — fall back to in-memory only */
+  }
+}
+
+export function loadGame(): GameState | null {
+  try {
+    const raw = localStorage.getItem(GAME_KEY);
+    if (!raw) return null;
+    const g = JSON.parse(raw) as GameState;
+    // minimal shape sanity-check so a corrupt/old blob can't crash the app
+    if (!g || !Array.isArray(g.players) || typeof g.handNumber !== 'number') return null;
+    return g;
+  } catch {
+    return null;
+  }
+}
+
+export function clearGame(): void {
+  try {
+    localStorage.removeItem(GAME_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export interface PersistSettings {
+  profiles: string[];
+  stackDepth: number;
+  scenario: string;
+  speed: string;
+  watchAfterFold: boolean;
+  difficulty: string;
+}
+
+export function saveSettings(s: PersistSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadSettings(): PersistSettings | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistSettings;
+  } catch {
+    return null;
+  }
+}

@@ -23,7 +23,8 @@
       "Bash(echo \"exit:$?\")",
       "PowerShell(npx tsc --noEmit)",
       "Bash(rtk read *)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
