@@ -22,11 +22,27 @@ export function decideAction(state: GameState): Action {
 
   const liveOpponents = state.players.filter((q) => !q.folded && q.id !== p.id).length;
 
-  // helper to make a raise/bet to a pot fraction, clamped to legal bounds
-  const sizeTo = (fractionOfPot: number, isBet: boolean): Action => {
+  // helper to make a raise/bet to a pot fraction, clamped to legal bounds.
+  // `shove` opts out of the commitment guard for deliberate all-ins.
+  const sizeTo = (fractionOfPot: number, isBet: boolean, shove = false): Action => {
     const base = isBet ? p.committed : state.currentBet;
     let target = Math.round(base + fractionOfPot * (pot + (isBet ? 0 : la.callAmount)));
     target = Math.max(target, la.minRaiseTo);
+
+    // Commitment guard: a normal bet/raise must never silently balloon into an
+    // all-in just because the pot-fraction math (or a re-raise war) crossed the
+    // stack. Cap a single action at ~60% of the remaining stack. Pots still grow
+    // street by street — but the human isn't surprise-jammed on a deep stack.
+    if (!shove) {
+      const softCap = p.committed + Math.round(p.stack * 0.6);
+      if (target > softCap) {
+        // if the cap would leave only crumbs behind, jam cleanly instead of
+        // leaving an unplayable sub-8bb stack; otherwise pull back to the cap.
+        const leftover = la.maxRaiseTo - softCap;
+        target = leftover <= state.bigBlind * 8 ? la.maxRaiseTo : Math.max(softCap, la.minRaiseTo);
+      }
+    }
+
     target = Math.min(target, la.maxRaiseTo);
     return { type: isBet ? 'bet' : 'raise', amount: target };
   };

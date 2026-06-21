@@ -61,6 +61,27 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
               </div>
             </div>
           )}
+          <div className="strat-sizing">
+            <span>💡 Size by <b>polarization</b>, not "am I winning": monsters + bluffs → <b>big</b> · medium made → <b>small</b> · no-equity air → <b>check</b>.</span>
+            <InfoTip
+              content={
+                <span className="tip-body">
+                  <b className="tip-title">Why size this way</b>
+                  <span className="tip-what">
+                    <b>Value</b> = get called by worse. <b>Bluff</b> = fold out better. You can't value-bet
+                    air — nothing worse calls, so betting big with nothing is a <b>bluff</b>, not value.
+                  </span>
+                  <span className="tip-what">
+                    <b>Monsters + bluffs → big</b> (polar): value gets paid, bluffs fold out better hands.
+                    {' '}<b>Medium made → small</b> (thin value/merge): worse hands keep calling, don't blow
+                    them off. <b>Trash with no fold equity → check</b>.
+                  </span>
+                  <span className="tip-remember"><b>Remember:</b> the axis is how polarized you are, not
+                    winning vs losing. The EVs below already price this in.</span>
+                </span>
+              }
+            />
+          </div>
           <div className="strat-rows">
             {strategy.options.map((o) => {
               const isPrescribed = rng?.prescribed === o.id;

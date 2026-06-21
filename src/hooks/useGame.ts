@@ -55,8 +55,14 @@ export interface HudInfo {
   equity: number;
   win: number;
   tie: number;
+  // raw Monte-Carlo tally behind win/tie (wins + ties + losses === trials)
+  trials: number;
+  wins: number;
+  ties: number;
+  losses: number;
   outs: number;
   outCards: Card[];
+  outsBreakdown: { category: string; cards: Card[] }[];
   toCall: number;
   pot: number;
   requiredEquity: number;
@@ -307,20 +313,19 @@ export function useGame(initialProfiles: string[]) {
       // count opponents still live — in a multiway pot you must beat ALL of them,
       // so equity is materially lower than the heads-up (single-villain) number.
       const liveOpps = game.players.filter((p) => !p.isHero && !p.folded).length;
-      // postflop strat.equity is already multiway-aware (solver gets the field);
-      // preflop has no solved equity, so compute the field equity here.
-      let eq =
-        strat.equity != null
-          ? { equity: strat.equity, win: strat.equity, tie: 0 }
+      // Always run a real Monte-Carlo so the HUD's win/tie/equity have a concrete,
+      // explainable source (the raw won/tied/lost tally) — not a solver number with
+      // a faked tie=0. Multiway sims against the whole live field.
+      const sim =
+        liveOpps > 1
+          ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400)
           : equityVsRange(hero.holeCards, game.board, range, 1400);
-      let multiwayNote = '';
-      if (liveOpps > 1) {
-        multiwayNote = ` · vs ${liveOpps} opponents (multiway)`;
-        if (strat.equity == null) {
-          const f = equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400);
-          eq = { equity: f.equity, win: f.win, tie: f.tie };
-        }
-      }
+      const trials = sim.trials;
+      const win = trials > 0 ? sim.wins / trials : 0;
+      const tie = trials > 0 ? sim.ties / trials : 0;
+      // decomposition shown in the HUD tooltip matches this exactly
+      const eq = { equity: win + tie / 2, win, tie };
+      const multiwayNote = liveOpps > 1 ? ` · vs ${liveOpps} opponents (multiway)` : '';
       const outsInfo = countOuts(hero.holeCards, game.board);
       const pot = potTotal(game);
       const toCall = legal.callAmount;
@@ -363,8 +368,13 @@ export function useGame(initialProfiles: string[]) {
         equity: eq.equity,
         win: eq.win,
         tie: eq.tie,
+        trials: sim.trials,
+        wins: sim.wins,
+        ties: Math.round(sim.ties),
+        losses: sim.losses,
         outs: outsInfo.outs,
         outCards: outsInfo.cards,
+        outsBreakdown: outsInfo.byCategory,
         toCall,
         pot,
         requiredEquity: po.requiredEquity,

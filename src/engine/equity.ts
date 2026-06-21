@@ -2,7 +2,8 @@
 
 import type { Card } from './cards';
 import { makeDeck, sameCard } from './cards';
-import { evaluate7 } from './evaluator';
+import { evaluate7, HAND_CATEGORIES } from './evaluator';
+import type { HandCategory } from './evaluator';
 import type { WeightedRange } from './range';
 import { buildSampleTable, sampleCombo } from './range';
 
@@ -11,6 +12,12 @@ export interface EquityResult {
   tie: number; // fraction
   equity: number; // win + tie/ (split) — pot share fraction
   iterations: number;
+  // raw simulation tally (integer event counts) so the HUD can show exactly
+  // where win%/tie% came from: wins + ties + losses === trials.
+  trials: number;
+  wins: number;
+  ties: number;
+  losses: number;
 }
 
 function remainingDeck(used: Card[]): Card[] {
@@ -28,13 +35,15 @@ export function monteCarloEquity(
   opponents: number,
   iterations = 3000,
 ): EquityResult {
-  if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0 };
+  if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
 
   const used = [...hero, ...board];
   const baseDeck = remainingDeck(used);
   const needBoard = 5 - board.length;
   let win = 0;
   let tie = 0;
+  let wins = 0;
+  let ties = 0;
 
   for (let it = 0; it < iterations; it++) {
     // Partial Fisher–Yates: draw what we need from a fresh shuffle each iter.
@@ -68,14 +77,17 @@ export function monteCarloEquity(
       }
     }
     if (!heroBeaten) {
-      if (tiedWith > 0) tie += 1 / (tiedWith + 1);
-      else win += 1;
+      if (tiedWith > 0) { tie += 1 / (tiedWith + 1); ties++; }
+      else { win += 1; wins++; }
     }
   }
 
   const w = win / iterations;
   const t = tie / iterations;
-  return { win: w, tie: t, equity: w + t, iterations };
+  return {
+    win: w, tie: t, equity: w + t, iterations,
+    trials: iterations, wins, ties, losses: iterations - wins - ties,
+  };
 }
 
 /**
@@ -89,7 +101,7 @@ export function equityVsRange(
   oppRange: WeightedRange,
   iterations = 1500,
 ): EquityResult {
-  if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0 };
+  if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
   const dead = [...hero, ...board];
   const table = buildSampleTable(oppRange, dead);
   if (table.total <= 0) {
@@ -122,10 +134,13 @@ export function equityVsRange(
     if (hs > os) win++;
     else if (hs === os) tie++;
   }
-  if (valid === 0) return { win: 0, tie: 0, equity: 0, iterations: 0 };
+  if (valid === 0) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
   const w = win / valid;
   const t = tie / valid;
-  return { win: w, tie: t, equity: w + t / 2, iterations: valid };
+  return {
+    win: w, tie: t, equity: w + t / 2, iterations: valid,
+    trials: valid, wins: win, ties: tie, losses: valid - win - tie,
+  };
 }
 
 /**
@@ -140,7 +155,7 @@ export function equityVsField(
   oppRanges: WeightedRange[],
   iterations = 1500,
 ): EquityResult {
-  if (hero.length < 2 || oppRanges.length === 0) return { win: 0, tie: 0, equity: 0, iterations: 0 };
+  if (hero.length < 2 || oppRanges.length === 0) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
   if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations);
 
   const dead0 = [...hero, ...board];
@@ -149,6 +164,8 @@ export function equityVsField(
   let win = 0;
   let tie = 0;
   let valid = 0;
+  let wins = 0;
+  let ties = 0;
 
   const collides = (c: Card, used: Card[]) => used.some((u) => sameCard(u, c));
 
@@ -198,15 +215,18 @@ export function equityVsField(
     }
     valid++;
     if (!beaten) {
-      if (tiedWith > 0) tie += 1 / (tiedWith + 1);
-      else win++;
+      if (tiedWith > 0) { tie += 1 / (tiedWith + 1); ties++; }
+      else { win++; wins++; }
     }
   }
 
-  if (valid === 0) return { win: 0, tie: 0, equity: 0, iterations: 0 };
+  if (valid === 0) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
   const w = win / valid;
   const t = tie / valid;
-  return { win: w, tie: t, equity: w + t, iterations: valid };
+  return {
+    win: w, tie: t, equity: w + t, iterations: valid,
+    trials: valid, wins, ties, losses: valid - wins - ties,
+  };
 }
 
 /**
@@ -214,21 +234,46 @@ export function equityVsField(
  * better category on the next street. This is the classic teaching estimate
  * (flush draw ~9, OESD ~8, gutshot ~4, etc.). Only meaningful on flop/turn.
  */
-export function countOuts(hero: Card[], board: Card[]): { outs: number; cards: Card[] } {
-  if (board.length < 3 || board.length >= 5) return { outs: 0, cards: [] };
+export interface OutsInfo {
+  outs: number;
+  cards: Card[];
+  /** outs grouped by the hand they make, strongest category first */
+  byCategory: { category: HandCategory; cards: Card[] }[];
+}
+
+export function countOuts(hero: Card[], board: Card[]): OutsInfo {
+  if (board.length < 3 || board.length >= 5) return { outs: 0, cards: [], byCategory: [] };
   const used = [...hero, ...board];
   const deck = remainingDeck(used);
   const current = evaluate7([...hero, ...board]).categoryRank;
+  // the bare community hand right now — used to reject "shared" improvements
+  const boardNow = evaluate7(board).categoryRank;
 
   const outCards: Card[] = [];
+  const groups = new Map<HandCategory, Card[]>();
   for (const c of deck) {
     const next = evaluate7([...hero, ...board, c]);
-    // Out = improves to a strictly higher category that is at least a pair.
-    if (next.categoryRank > current && next.categoryRank >= 1) {
-      outCards.push(c);
-    }
+    // must improve hero to a strictly higher category that's at least a pair
+    if (next.categoryRank <= current || next.categoryRank < 1) continue;
+    // Reject shared outs: if the card lifts the BOARD's own category at least as
+    // much as it lifts hero's, the gain is board-driven (it pairs/trips the
+    // board) and every player gets the same boost — hero's edge over the field
+    // didn't grow. A real out comes from hero's hole cards, so it must out-gain
+    // the bare board. This is the "don't count cards everyone gets" discount.
+    const boardNext = evaluate7([...board, c]).categoryRank;
+    const heroGain = next.categoryRank - current;
+    const boardGain = boardNext - boardNow;
+    if (boardGain >= heroGain) continue;
+    outCards.push(c);
+    const arr = groups.get(next.category) ?? [];
+    arr.push(c);
+    groups.set(next.category, arr);
   }
-  return { outs: outCards.length, cards: outCards };
+  // strongest hand first (Flush before Straight before Pair, etc.)
+  const byCategory = [...groups.entries()]
+    .map(([category, cards]) => ({ category, cards }))
+    .sort((a, b) => HAND_CATEGORIES.indexOf(b.category) - HAND_CATEGORIES.indexOf(a.category));
+  return { outs: outCards.length, cards: outCards, byCategory };
 }
 
 /**

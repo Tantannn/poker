@@ -31,8 +31,48 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
       ) : (
         <>
           <div className="hud-grid">
-            <Stat label={<CalcLabel id="equity" pos="bottom" />} value={pct(hud.equity)} big highlight />
-            <Stat label={<CalcLabel id="winTie" pos="bottom">Win / Tie</CalcLabel>} value={`${pct(hud.win)} / ${pct(hud.tie)}`} />
+            <Stat
+              label={
+                <Tooltip
+                  pos="bottom"
+                  className="tip-label"
+                  content={
+                    <span className="tip-body">
+                      <b className="tip-title">{CALC.equity.title}</b>
+                      <span className="tip-what">{CALC.equity.what}</span>
+                      <code className="tip-formula">{tallyText(hud)}</code>
+                      <span className="tip-remember"><b>Remember:</b> {CALC.equity.remember}</span>
+                    </span>
+                  }
+                >
+                  {CALC.equity.title}
+                </Tooltip>
+              }
+              value={pct(hud.equity)}
+              big
+              highlight
+            />
+            <Stat
+              label={
+                <Tooltip
+                  pos="bottom"
+                  className="tip-label"
+                  content={
+                    <span className="tip-body">
+                      <b className="tip-title">{CALC.winTie.title}</b>
+                      <span className="tip-what">
+                        Out of many simulated run-outs: <b>win</b> = you hold the best hand, <b>tie</b> = you chop the pot.
+                      </span>
+                      <code className="tip-formula">{tallyText(hud)}</code>
+                      <span className="tip-remember"><b>Remember:</b> {CALC.winTie.remember}</span>
+                    </span>
+                  }
+                >
+                  Win / Tie
+                </Tooltip>
+              }
+              value={`${pct(hud.win)} / ${pct(hud.tie)}`}
+            />
             <Stat label="Pot" value={`${hud.pot}`} />
             <Stat label="To call" value={`${hud.toCall}`} />
           </div>
@@ -96,13 +136,23 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
                 </Tooltip>
                 <b>{hud.ruleEstimate}%</b>
               </div>
-              {hud.outCards.length > 0 && hud.outCards.length <= 24 && (
-                <div className="out-cards">
-                  {hud.outCards.map((c, i) => (
-                    <span key={i} className={`out-pill ${c.suit === 1 || c.suit === 2 ? 'red' : ''}`}>
-                      {'23456789TJQKA'[c.rank - 2]}
-                      {['♣', '♦', '♥', '♠'][c.suit]}
-                    </span>
+              {hud.outsBreakdown.length > 0 && hud.outs <= 24 && (
+                <div className="out-breakdown">
+                  {hud.outsBreakdown.map((grp) => (
+                    <div className="out-group" key={grp.category}>
+                      <div className="out-group-head">
+                        <span className="out-count">{grp.cards.length}</span>
+                        <span className="out-cat">→ {grp.category}</span>
+                      </div>
+                      <div className="out-cards">
+                        {grp.cards.map((c, i) => (
+                          <span key={i} className={`out-pill ${c.suit === 1 || c.suit === 2 ? 'red' : ''}`}>
+                            {'23456789TJQKA'[c.rank - 2]}
+                            {['♣', '♦', '♥', '♠'][c.suit]}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -125,4 +175,19 @@ function Stat({ label, value, big, highlight }: { label: ReactNode; value: strin
 
 function pct(x: number): string {
   return (x * 100).toFixed(1) + '%';
+}
+
+// Worked example for the equity tooltip — shows the raw Monte-Carlo tally so the
+// win%/tie% are traceable to actual simulated hands, not a black-box number.
+function tallyText(hud: HudInfo): string {
+  const { trials, wins, ties, losses, win, tie, equity } = hud;
+  if (trials <= 0) return `equity = win% + ½ × tie% = ${pct(equity)}`;
+  return [
+    `Dealt ${trials} random run-outs vs villain's range:`,
+    `  won ${wins} · tied ${ties} · lost ${losses}`,
+    ``,
+    `win%   = ${wins} / ${trials} = ${pct(win)}`,
+    `tie%   = ${ties} / ${trials} = ${pct(tie)}`,
+    `equity = win% + ½ × tie% = ${pct(equity)}`,
+  ].join('\n');
 }

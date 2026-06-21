@@ -20,7 +20,10 @@
       "Bash(rtk find *)",
       "Bash(rtk grep *)",
       "Bash(rtk wc *)",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "PowerShell(npx tsc --noEmit)",
+      "Bash(rtk read *)",
+      "Bash(npx tsx *)"
     ]
   }
 }
