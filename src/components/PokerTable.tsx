@@ -195,6 +195,8 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               enabled={infoEnabled}
               loading={hudLoading}
               onToggle={() => setInfoEnabled((v) => !v)}
+              heroStack={hero.stack}
+              heroCommitted={hero.committed}
             />
             <OpponentPanel
               villain={villain}

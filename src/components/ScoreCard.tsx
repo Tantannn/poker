@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import type { SessionStats } from '../store/stats';
-import { scoreBuckets, gtowScore, totalEvLoss, avgEvLossPerHand } from '../store/stats';
+import { scoreBuckets, gtowScore, totalEvLoss, avgEvLossPerHand, downswing, bbPer100 } from '../store/stats';
 import { isSoundEnabled, setSoundEnabled } from '../sound';
 import { CalcLabel } from './CalcTip';
 
@@ -27,6 +27,14 @@ export function ScoreCard({ stats, onReset }: Props) {
   const evLoss = totalEvLoss(stats);
   const avgLoss = avgEvLossPerHand(stats);
   const scoreCls = score >= 85 ? 'good' : score >= 65 ? 'okv' : 'bad';
+  const ds = downswing(stats);
+  const winrate = bbPer100(stats);
+  const dsNote =
+    stats.handsPlayed < 15
+      ? 'Play more hands for a meaningful read on your swings.'
+      : ds.currentBB > Math.max(150, ds.stdPer100 * 2)
+        ? 'You are in a downswing — normal variance, not necessarily bad play. Judge skill by EV loss above, not by net.'
+        : 'Swings of this size are normal variance. Judge skill by EV loss, not by net result.';
 
   const toggleSound = () => {
     const next = !sound;
@@ -84,6 +92,37 @@ export function ScoreCard({ stats, onReset }: Props) {
           <CalcLabel id="evLoss">Avg. EV loss / hand</CalcLabel>
           <b>{avgLoss.toFixed(2)} bb</b>
         </div>
+      </div>
+
+      <div className="sc-variance">
+        <div className="hud-row">
+          <CalcLabel id="netBB">Net result</CalcLabel>
+          <b className={stats.netBB > 0 ? 'good' : stats.netBB < 0 ? 'bad' : ''}>
+            {stats.netBB >= 0 ? '+' : ''}{stats.netBB.toFixed(0)} bb
+            <span className="sc-sub"> ({winrate >= 0 ? '+' : ''}{winrate.toFixed(0)} bb/100)</span>
+          </b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="How far below your session peak you are right now (1 buy-in = 100bb)">
+            Current downswing
+          </span>
+          <b className={ds.currentBB > 0 ? 'bad' : ''}>
+            {ds.currentBB.toFixed(0)} bb{ds.currentBB > 0 ? ` (${ds.buyins.toFixed(1)} buy-ins)` : ''}
+          </b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="Worst peak-to-trough drop you have ridden through this session">
+            Worst downswing
+          </span>
+          <b>{ds.maxBB.toFixed(0)} bb</b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="Standard deviation per 100 hands — how big your normal swings are. Higher = bumpier ride.">
+            Swing size (bb/100)
+          </span>
+          <b>{ds.stdPer100.toFixed(0)}</b>
+        </div>
+        <div className="sc-variance-note">{dsNote}</div>
       </div>
     </div>
   );

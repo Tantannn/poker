@@ -20,9 +20,11 @@ interface Props {
   enabled: boolean;
   onToggle: () => void;
   loading: boolean;
+  heroStack: number; // chips behind (for the % -of-stack risk on each action)
+  heroCommitted: number; // chips already in this street
 }
 
-export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Props) {
+export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroStack, heroCommitted }: Props) {
   return (
     <div className="strat-panel">
       <div className="strat-head">
@@ -79,6 +81,11 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
               const isBest = o.id === strategy.bestId;
               const evLoss = Math.max(0, strategy.bestEv - o.ev);
               const tier = isBest ? { cls: 'tier-best', tag: 'best' } : tierOf(evLoss);
+              // how much of the remaining stack this action commits — the risk
+              // EV alone hides. Flags lines that turn into a stack-off.
+              const invest = o.amount != null ? Math.max(0, o.amount - heroCommitted) : 0;
+              const stackPct = heroStack > 0 && o.amount != null ? Math.min(1, invest / heroStack) : 0;
+              const bigCommit = o.id !== 'allin' && stackPct >= 0.5;
               return (
                 <div key={o.id} className="strat-rowwrap">
                   <div className={`strat-row ${isPrescribed ? 'prescribed' : ''}`}>
@@ -88,6 +95,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                         {o.label}
                         <span className={`tier-tag ${tier.cls}`}>{tier.tag}</span>
                         {o.id === 'allin' && <span className="risk-tag" title="High-variance: stacking off is hard to recover from in real play">⚠ risky</span>}
+                        {bigCommit && <span className="risk-tag" title={`Commits ${Math.round(stackPct * 100)}% of your remaining stack — you'll be pot-committed, expect to call it off`}>⚠ {Math.round(stackPct * 100)}% stack</span>}
                         {(o.why || o.math) && (
                           <InfoTip
                             content={
@@ -110,6 +118,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                     <div className="strat-amt">
                       {o.id === 'call' ? 'call' : o.id === 'raise' ? 'raise to' : o.id === 'open' ? 'open to' : 'bet to'} <b>{o.amount}</b>
                       {' '}({(o.amount / BIG_BLIND).toFixed(1)}bb){o.sizePct != null ? ` · ${o.sizePct}% pot` : ''}
+                      {stackPct > 0 ? ` · ${Math.round(stackPct * 100)}% stack` : ''}
                     </div>
                   )}
                 </div>

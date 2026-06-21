@@ -78,6 +78,25 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
           </div>
           <div className="hud-range">vs {hud.rangeNote}</div>
 
+          <div className="hud-risk">
+            <div className="hud-row">
+              <CalcLabel id="spr">Effective stack · SPR</CalcLabel>
+              <b>{hud.effStackBB.toFixed(0)}bb · {hud.spr > 0 ? hud.spr.toFixed(1) : '—'}</b>
+            </div>
+            {hud.toCall > 0 && (
+              <div className={`hud-commit ${hud.callStackPct >= 0.5 ? 'warn' : ''}`}>
+                {hud.callStackPct >= 0.5
+                  ? `⚠ A call commits ${Math.round(hud.callStackPct * 100)}% of your stack — treat this as a stack-off, not a cheap peel.`
+                  : `A call costs ${Math.round(hud.callStackPct * 100)}% of your remaining stack.`}
+              </div>
+            )}
+            {hud.toCall === 0 && hud.spr > 0 && hud.spr < 3 && (
+              <div className="hud-commit warn">
+                ⚠ Low SPR ({hud.spr.toFixed(1)}) — pots here get all-in fast. Plan to commit with top pair+ or fold.
+              </div>
+            )}
+          </div>
+
           {hud.toCall > 0 && (
             <div className="hud-odds">
               <div className="hud-row">

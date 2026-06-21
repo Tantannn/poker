@@ -5,6 +5,7 @@ import type { GameState } from '../engine/table';
 
 const GAME_KEY = 'poker.game.v1';
 const SETTINGS_KEY = 'poker.settings.v1';
+const DEALT_KEY = 'poker.dealt.v1';
 
 export function saveGame(g: GameState): void {
   try {
@@ -32,6 +33,29 @@ export function clearGame(): void {
     localStorage.removeItem(GAME_KEY);
   } catch {
     /* ignore */
+  }
+}
+
+// The "repeat hand" snapshot — the freshly-dealt state (same hole cards + deck),
+// persisted so Repeat Hand still works after a refresh.
+export function saveDealt(g: GameState | null): void {
+  try {
+    if (g) localStorage.setItem(DEALT_KEY, JSON.stringify(g));
+    else localStorage.removeItem(DEALT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadDealt(): GameState | null {
+  try {
+    const raw = localStorage.getItem(DEALT_KEY);
+    if (!raw) return null;
+    const g = JSON.parse(raw) as GameState;
+    if (!g || !Array.isArray(g.players)) return null;
+    return g;
+  } catch {
+    return null;
   }
 }
 

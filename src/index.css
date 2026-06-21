@@ -180,12 +180,12 @@ body {
 .seat-action { font-size: 11px; color: var(--muted); margin-top: 2px; min-height: 14px; }
 .seat-action.allin { color: var(--red); font-weight: 800; }
 .seat-bet {
-  position: absolute; top: -20px; background: rgba(0, 0, 0, 0.5); color: var(--gold);
+  position: absolute; top: -25px; background: rgba(0, 0, 0, 0.5); color: var(--gold);
   font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
 }
 .chip-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); margin-right: 3px; }
 
-.slot-0 { bottom: -6%; left: 50%; transform: translateX(-50%); }
+.slot-0 { bottom: -14%; left: 50%; transform: translateX(-50%); }
 .slot-0 .seat-info { border-color: var(--call); }
 .slot-1 { bottom: 14%; left: -2%; }
 .slot-2 { top: 14%; left: -2%; }
@@ -204,15 +204,15 @@ body {
 }
 
 /* ---------- action area ---------- */
-.chart-access { display: flex; justify-content: center; margin-top: 35px; }
+.chart-access { display: flex; justify-content: center; margin-top: 65px; }
 .btn-chart-seat {
   background: var(--bg2); color: var(--gold); border: 1px solid var(--line);
   border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .btn-chart-seat:hover { border-color: var(--gold); background: var(--panel); }
-.action-area { margin-top: 28px; }
+.action-area { margin-top: 20px; }
 .deal-area { text-align: center; }
-.hand-result { margin-bottom: 10px; color: var(--txt); font-weight: 600; }
+.hand-result { margin-bottom: 10px; margin-top: 60px; color: var(--txt); font-weight: 600; }
 .hand-result .pos { color: var(--raise); }
 .hand-result .neg { color: var(--red); }
 
@@ -262,7 +262,7 @@ body {
 }
 .step-btn:hover:not(:disabled) { border-color: var(--raise2); color: var(--raise); }
 .step-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.waiting { text-align: center; color: var(--muted); font-style: italic; padding: 18px; }
+.waiting { text-align: center; color: var(--muted); font-style: italic; padding: 18px; margin-top: 40px; }
 
 /* ---------- feedback ---------- */
 .feedback-box { margin-top: 12px; border-radius: 10px; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel); }

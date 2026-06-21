@@ -18,6 +18,7 @@ export interface SessionStats {
   handsPlayed: number;
   netBB: number; // cumulative big blinds won/lost
   decisions: DecisionRecord[]; // capped
+  handResults: number[]; // per-hand deltaBB series (capped) — for downswing/variance
   startedAt: number;
 }
 
@@ -31,9 +32,10 @@ export interface Leak {
 
 const KEY = 'poker-trainer-stats-v1';
 const MAX_DECISIONS = 2000;
+const MAX_HAND_RESULTS = 2000;
 
 export function emptyStats(): SessionStats {
-  return { handsPlayed: 0, netBB: 0, decisions: [], startedAt: stamp() };
+  return { handsPlayed: 0, netBB: 0, decisions: [], handResults: [], startedAt: stamp() };
 }
 
 function stamp(): number {
@@ -47,6 +49,7 @@ export function loadStats(): SessionStats {
     if (!raw) return emptyStats();
     const parsed = JSON.parse(raw) as SessionStats;
     if (!parsed.decisions) parsed.decisions = [];
+    if (!parsed.handResults) parsed.handResults = []; // migrate older saves
     return parsed;
   } catch {
     return emptyStats();
@@ -74,7 +77,42 @@ export function recordDecision(s: SessionStats, d: DecisionRecord): SessionStats
 }
 
 export function recordHand(s: SessionStats, deltaBB: number): SessionStats {
-  return { ...s, handsPlayed: s.handsPlayed + 1, netBB: s.netBB + deltaBB };
+  const handResults = [...s.handResults, deltaBB];
+  if (handResults.length > MAX_HAND_RESULTS) handResults.splice(0, handResults.length - MAX_HAND_RESULTS);
+  return { ...s, handsPlayed: s.handsPlayed + 1, netBB: s.netBB + deltaBB, handResults };
+}
+
+export interface Downswing {
+  net: number; // cumulative bb over the tracked series
+  peak: number; // highest running total reached
+  currentBB: number; // how far below that peak you are right now (≥ 0)
+  maxBB: number; // worst peak-to-trough drop this session
+  stdPer100: number; // std dev of results scaled to 100 hands — your swing size
+  buyins: number; // currentBB expressed in 100bb buy-ins
+}
+
+/** Drawdown + variance over the per-hand result series — the "how big are my
+ *  swings, how deep is this downswing" lens that net result alone hides. */
+export function downswing(s: SessionStats): Downswing {
+  const r = s.handResults ?? [];
+  let run = 0;
+  let peak = 0;
+  let maxBB = 0;
+  for (const d of r) {
+    run += d;
+    if (run > peak) peak = run;
+    const dd = peak - run;
+    if (dd > maxBB) maxBB = dd;
+  }
+  const n = r.length;
+  let mean = 0;
+  for (const d of r) mean += d;
+  mean = n ? mean / n : 0;
+  let varSum = 0;
+  for (const d of r) varSum += (d - mean) * (d - mean);
+  const std = n > 1 ? Math.sqrt(varSum / (n - 1)) : 0;
+  const currentBB = peak - run;
+  return { net: run, peak, currentBB, maxBB, stdPer100: std * 10, buyins: currentBB / 100 };
 }
 
 export function bbPer100(s: SessionStats): number {

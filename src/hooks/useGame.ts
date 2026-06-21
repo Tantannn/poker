@@ -40,7 +40,7 @@ import type { JournalEntry } from '../store/journal';
 import { addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway } from '../store/journal';
 import type { HistoryHand, DecisionSnapshot } from '../store/history';
 import { loadHistory, saveHistory } from '../store/history';
-import { loadGame, saveGame, loadSettings, saveSettings } from '../store/game';
+import { loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '../store/game';
 
 export type { HistoryHand } from '../store/history';
 
@@ -72,6 +72,10 @@ export interface HudInfo {
   oddsRatio: number;
   ruleEstimate: number;
   rangeNote: string;
+  // ---- risk / commitment lens ----
+  effStackBB: number; // effective stack (min of you vs live opponents), in bb
+  spr: number; // stack-to-pot ratio (effective stack ÷ pot)
+  callStackPct: number; // fraction of your remaining stack a call would cost (0..1)
 }
 
 export interface RngInfo {
@@ -102,6 +106,8 @@ const POS_TO_BUTTON: Record<Exclude<HeroPositionPref, 'random'>, number> = {
 // persisted table settings, read once at module load and used only as the
 // initial mount defaults below (so a refresh resumes the same table/settings).
 const SAVED = loadSettings();
+// persisted "repeat hand" snapshot, so Repeat Hand survives a refresh.
+const SAVED_DEALT = loadDealt();
 
 export function useGame(initialProfiles: string[]) {
   const initProfiles = SAVED?.profiles ?? initialProfiles;
@@ -130,7 +136,7 @@ export function useGame(initialProfiles: string[]) {
   const recordedHand = useRef<number>(-1);
   const strategyRef = useRef<NodeStrategy | null>(null);
   const rollRef = useRef<number>(50);
-  const lastDealtRef = useRef<GameState | null>(null);
+  const lastDealtRef = useRef<GameState | null>(SAVED_DEALT);
   // buffer of the real solved nodes the hero faced this hand; flushed onto the
   // HistoryHand at completion so Hand Review shows the actual decisions.
   const decisionsRef = useRef<DecisionSnapshot[]>([]);
@@ -151,6 +157,7 @@ export function useGame(initialProfiles: string[]) {
     setStrategy(null);
     setVillain(null);
     lastDealtRef.current = null;
+    saveDealt(null);
   }, [stackDepth]);
 
   // change starting stack depth (bb); rebuilds the table with fresh stacks
@@ -164,6 +171,7 @@ export function useGame(initialProfiles: string[]) {
     setVillain(null);
     strategyRef.current = null;
     lastDealtRef.current = null;
+    saveDealt(null);
   }, [profiles]);
 
   const deal = useCallback(() => {
@@ -174,8 +182,9 @@ export function useGame(initialProfiles: string[]) {
       }
       startHand(next);
       // snapshot the freshly-dealt hand (same hole cards + deck) so "Repeat
-      // hand" can replay the exact same spot.
+      // hand" can replay the exact same spot — persisted so it survives a refresh.
       lastDealtRef.current = structuredClone(next);
+      saveDealt(lastDealtRef.current);
       return next;
     });
     setFeedback(null);
@@ -218,6 +227,7 @@ export function useGame(initialProfiles: string[]) {
     setVillain(null);
     strategyRef.current = null;
     lastDealtRef.current = null;
+    saveDealt(null);
   }, [profiles, stackDepth]);
 
   const heroAct = useCallback((action: Action) => {
@@ -372,6 +382,13 @@ export function useGame(initialProfiles: string[]) {
       const pot = potTotal(game);
       const toCall = legal.callAmount;
       const po = potOdds(pot, toCall);
+      // risk lens: effective stack = min of your behind-stack and the live
+      // opponents' (you can only win/lose the smaller). SPR & call cost gauge how
+      // committed a line makes you — the thing EV alone doesn't show.
+      const oppStacks = game.players.filter((p) => !p.isHero && !p.folded).map((p) => p.stack);
+      const effStack = Math.min(hero.stack, ...(oppStacks.length ? oppStacks : [hero.stack]));
+      const spr = pot > 0 ? effStack / pot : 0;
+      const callStackPct = hero.stack > 0 ? Math.min(1, toCall / hero.stack) : 0;
       const cardsToCome = game.street === 'flop' ? 2 : game.street === 'turn' ? 1 : 0;
       const roll = Math.floor(Math.random() * 100) + 1;
 
@@ -423,6 +440,9 @@ export function useGame(initialProfiles: string[]) {
         oddsRatio: po.oddsRatio,
         ruleEstimate: ruleOf2and4(outsInfo.outs, cardsToCome),
         rangeNote: note + multiwayNote,
+        effStackBB: effStack / BIG_BLIND,
+        spr,
+        callStackPct,
       });
     }, 30);
     return () => clearTimeout(id);

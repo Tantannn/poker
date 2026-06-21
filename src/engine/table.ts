@@ -470,10 +470,9 @@ function doShowdown(state: GameState) {
 
   state.street = 'complete';
   state.toAct = -1;
-  const wnames = [...new Set(state.winners.map((w) => state.players[w.playerId].name))];
 
-  // Explain the win: name the winning hand, and flag kicker-decided pots where
-  // the best loser held the same hand category & named ranks.
+  // Explain the win: name each winner's hand (and which pot, when an all-in made
+  // side pots — that's the only way two *different* hands can both win).
   const allScored = state.players
     .filter((p) => !p.folded && p.holeCards.length === 2)
     .map((p) => ({ id: p.id, res: evaluate7([...p.holeCards, ...state.board]) }));
@@ -489,9 +488,29 @@ function doShowdown(state: GameState) {
     bestLoser.res.categoryRank === top.res.categoryRank &&
     describeHand(bestLoser.res) === winDesc;
 
-  const verb = wnames.length === 1 ? 'wins' : 'win';
-  const reason = wnames.length === 1 ? ` with ${winDesc}${kickerWin ? ' (better kicker)' : ''}` : '';
-  state.message = `Showdown — ${wnames.join(', ')} ${verb} the pot${reason}.`;
+  const potCount = state.pots.length;
+  const potLabel = (idx: number) => (potCount <= 1 ? 'the pot' : idx === 0 ? 'the main pot' : `side pot ${idx}`);
+
+  // collapse the per-pot winner rows into one entry per player (a player can
+  // scoop more than one pot), keeping their hand + which pots they took.
+  const perPlayer = new Map<number, { name: string; desc: string; pots: number[] }>();
+  for (const w of state.winners) {
+    const e = perPlayer.get(w.playerId) ?? { name: state.players[w.playerId].name, desc: w.handDesc, pots: [] };
+    e.pots.push(w.potIndex);
+    perPlayer.set(w.playerId, e);
+  }
+  const entries = [...perPlayer.values()];
+
+  if (entries.length === 1) {
+    state.message = `Showdown — ${entries[0].name} wins the pot with ${entries[0].desc}${kickerWin ? ' (better kicker)' : ''}.`;
+  } else if (potCount <= 1 && entries.every((e) => e.desc === entries[0].desc)) {
+    // genuine chop: same single pot, identical hands
+    state.message = `Showdown — ${entries.map((e) => e.name).join(' & ')} split the pot with ${entries[0].desc}.`;
+  } else {
+    // side pots: each winner took a different pot — name the pot and the hand
+    const parts = entries.map((e) => `${e.name} wins ${potLabel(Math.min(...e.pots))} with ${e.desc}`);
+    state.message = `Showdown — ${parts.join('; ')}.`;
+  }
 }
 
 function awardUncontested(state: GameState) {
