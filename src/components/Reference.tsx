@@ -40,6 +40,49 @@ export function Reference() {
       </div>
 
       <div className="card">
+        <h3>Remembering the charts vs each position</h3>
+        <p className="sub">
+          Don't memorize 169 cells per chart — memorize the <b>skeleton</b>, then adjust by who you're
+          facing. Every chart is built from the same parts; only the width changes.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Opening (RFI) — one range, stretched by seat</h4>
+            <p className="sub">
+              The base is always <b>pairs (22+)</b> + <b>suited aces</b> + <b>suited Broadways</b>. As you
+              move later, you add a layer outward — never reshuffle, just widen:
+            </p>
+            <ul className="tips">
+              <li><b>UTG / MP</b> — premiums only: 22+, A9s+/ATo+, KTs+/AJo+, top suited connectors.</li>
+              <li><b>CO</b> — add <b>all suited aces (A2s+)</b> + more suited gappers + offsuit Broadways.</li>
+              <li><b>BTN</b> — add the offsuit junk: K2s+, any Ax-offsuit, T8o/98o. Widest.</li>
+              <li><b>SB</b> — BTN-ish width but mixed/3-bet flavored (no one acts after you).</li>
+            </ul>
+            <p className="sub">
+              Hook: <b>"the later you sit, the more offsuit + small-suited gets unlocked."</b> Pairs and
+              suited aces are in every seat; offsuit hands are the last to join.
+            </p>
+          </div>
+          <div>
+            <h4>Facing a raise — three buckets</h4>
+            <p className="sub">Whether vs an open (3-bet) or vs a 3-bet (4-bet), every hand sorts into one of three:</p>
+            <ul className="tips">
+              <li><b>Value (raise):</b> hands that beat their range. Tight vs early opens (QQ+/AK vs UTG),
+                wider vs late opens (TT+/AJs/KQs vs BTN/CO).</li>
+              <li><b>Bluffs = blockers:</b> almost always <b>suited wheel aces (A5s–A2s)</b> + suited Broadway
+                gappers (KJs, QTs, J9s). They block villain's AA/AK and have backup equity.</li>
+              <li><b>Calls = playability:</b> medium pairs, suited Broadways, suited connectors — hands that
+                flop well rather than raw blockers.</li>
+            </ul>
+            <p className="sub">
+              Two dials to remember the rest: <b>value &amp; call ranges widen the looser the opener is</b>
+              (BTN/CO/SB open → you defend wider), and <b>bluffs are the same blocker family every time.</b>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
         <div className="two-col">
           <div>
             <h3>Postflop in three questions</h3>

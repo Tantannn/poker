@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { NodeFeedback } from '../analysis/grade';
 import { RangeChartModal } from './RangeChartModal';
 import { KIND_COLOR } from './chartColors';
+import { CalcLabel } from './CalcTip';
 
 export function Feedback({ fb }: { fb: NodeFeedback | null }) {
   const [explain, setExplain] = useState(false);
@@ -47,7 +48,7 @@ export function Feedback({ fb }: { fb: NodeFeedback | null }) {
 
       <div className="fb-line">
         You <b>{fb.chosenLabel}</b> · solver line <b>{fb.bestLabel}</b>
-        {fb.evLoss > 0.001 && <span className="fb-evloss"> · −{fb.evLoss.toFixed(2)} bb EV</span>}
+        {fb.evLoss > 0.001 && <span className="fb-evloss"> · −{fb.evLoss.toFixed(2)} bb <CalcLabel id="evLoss" pos="bottom">EV</CalcLabel></span>}
       </div>
       <div className={`fb-rng ${fb.rngMatch ? 'good' : ''}`}>
         🎲 RNG {fb.roll} → prescribed <b>{fb.prescribedLabel}</b>
@@ -84,7 +85,7 @@ export function Feedback({ fb }: { fb: NodeFeedback | null }) {
                 <p>{ctx.handBlurb}</p>
                 {fb.equity != null && (
                   <p className="gp-muted">
-                    Equity vs villain's range: <b>{(fb.equity * 100).toFixed(1)}%</b>.
+                    <CalcLabel id="equity">Equity vs villain's range</CalcLabel>: <b>{(fb.equity * 100).toFixed(1)}%</b>.
                   </p>
                 )}
               </div>

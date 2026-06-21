@@ -15,7 +15,12 @@
       "Bash(rtk tsc *)",
       "Bash(rtk ls *)",
       "Bash(rtk lint *)",
-      "Bash(rtk npm *)"
+      "Bash(rtk npm *)",
+      "Bash(rtk git *)",
+      "Bash(rtk find *)",
+      "Bash(rtk grep *)",
+      "Bash(rtk wc *)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

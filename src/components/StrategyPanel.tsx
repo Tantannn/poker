@@ -7,6 +7,7 @@ import type { NodeStrategy } from '../strategy';
 import type { RngInfo } from '../hooks/useGame';
 import { BIG_BLIND } from '../hooks/useGame';
 import { RangeChartModal } from './RangeChartModal';
+import { InfoTip } from './CalcTip';
 
 // quality tier of an option vs the best line, by EV loss (bb)
 function tierOf(evLoss: number): { cls: string; tag: string } {
@@ -24,7 +25,6 @@ interface Props {
 }
 
 export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Props) {
-  const [explain, setExplain] = useState(false);
   const [showChart, setShowChart] = useState(false);
 
   return (
@@ -33,14 +33,9 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
         <span>🧠 Solver strategy</span>
         <div className="strat-head-btns">
           {enabled && strategy && (
-            <>
-              <button className={`toggle ${explain ? 'on' : ''}`} onClick={() => setExplain((v) => !v)} title="Show why & the EV math">
-                ⓘ Explain
-              </button>
-              <button className="toggle" onClick={() => setShowChart(true)} title="See the range chart at your position">
-                📊 Chart
-              </button>
-            </>
+            <button className="toggle" onClick={() => setShowChart(true)} title="See the range chart at your position">
+              📊 Chart
+            </button>
           )}
           <button className="toggle" onClick={onToggle}>
             {enabled ? 'Hide' : 'Show'}
@@ -81,6 +76,16 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                         {o.label}
                         <span className={`tier-tag ${tier.cls}`}>{tier.tag}</span>
                         {o.id === 'allin' && <span className="risk-tag" title="High-variance: stacking off is hard to recover from in real play">⚠ risky</span>}
+                        {(o.why || o.math) && (
+                          <InfoTip
+                            content={
+                              <span className="tip-body">
+                                {o.why && <span className="tip-what">{o.why}</span>}
+                                {o.math && <code className="tip-formula">{o.math}</code>}
+                              </span>
+                            }
+                          />
+                        )}
                       </span>
                       <span className="strat-freq">{(o.freq * 100).toFixed(0)}%</span>
                     </div>
@@ -93,12 +98,6 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading }: Pro
                     <div className="strat-amt">
                       {o.id === 'call' ? 'call' : o.id === 'raise' ? 'raise to' : o.id === 'open' ? 'open to' : 'bet to'} <b>{o.amount}</b>
                       {' '}({(o.amount / BIG_BLIND).toFixed(1)}bb){o.sizePct != null ? ` · ${o.sizePct}% pot` : ''}
-                    </div>
-                  )}
-                  {explain && (o.why || o.math) && (
-                    <div className="strat-explain">
-                      {o.why && <div className="se-why">{o.why}</div>}
-                      {o.math && <div className="se-math">{o.math}</div>}
                     </div>
                   )}
                 </div>

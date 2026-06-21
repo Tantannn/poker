@@ -5,6 +5,7 @@ import { useState } from 'react';
 import type { SessionStats } from '../store/stats';
 import { scoreBuckets, gtowScore, totalEvLoss, avgEvLossPerHand } from '../store/stats';
 import { isSoundEnabled, setSoundEnabled } from '../sound';
+import { CalcLabel } from './CalcTip';
 
 interface Props {
   stats: SessionStats;
@@ -60,7 +61,7 @@ export function ScoreCard({ stats, onReset }: Props) {
         </div>
         <div className={`sc-score ${scoreCls}`}>
           <div className="sc-score-num">{score}%</div>
-          <div className="sc-lbl">GTOW Score</div>
+          <div className="sc-lbl"><CalcLabel id="gtowScore" pos="bottom">GTOW Score</CalcLabel></div>
         </div>
       </div>
 
@@ -76,11 +77,11 @@ export function ScoreCard({ stats, onReset }: Props) {
 
       <div className="sc-ev">
         <div className="hud-row">
-          <span>Total EV loss</span>
+          <CalcLabel id="evLoss">Total EV loss</CalcLabel>
           <b>{evLoss.toFixed(2)} bb</b>
         </div>
         <div className="hud-row">
-          <span>Avg. EV loss / hand</span>
+          <CalcLabel id="evLoss">Avg. EV loss / hand</CalcLabel>
           <b>{avgLoss.toFixed(2)} bb</b>
         </div>
       </div>

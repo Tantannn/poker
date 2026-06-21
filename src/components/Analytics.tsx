@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useGame } from '../hooks/useGame';
 import { accuracy, bbPer100, evLossPer100, rngAdherence, totalEvLoss, scoreBuckets, gtowScore } from '../store/stats';
 import type { DecisionRecord } from '../store/stats';
 import { PlayingCard } from './PlayingCard';
+import { CalcLabel } from './CalcTip';
 
 type G = ReturnType<typeof useGame>;
 
@@ -78,38 +80,32 @@ export function Analytics({ g }: { g: G }) {
         <div className="kpi-grid">
           <Kpi label="Hands played" value={`${stats.handsPlayed}`} />
           <Kpi
-            label="Win rate (bb/100)"
+            label={<CalcLabel id="bb100" pos="bottom">Win rate (bb/100)</CalcLabel>}
             value={`${bb100 >= 0 ? '+' : ''}${bb100.toFixed(1)}`}
             tone={bb100 > 0 ? 'pos' : bb100 < 0 ? 'neg' : ''}
           />
           <Kpi
-            label="Net result"
+            label={<CalcLabel id="netBB" pos="bottom">Net result</CalcLabel>}
             value={`${stats.netBB >= 0 ? '+' : ''}${stats.netBB.toFixed(1)} bb`}
             tone={stats.netBB > 0 ? 'pos' : stats.netBB < 0 ? 'neg' : ''}
           />
-          <Kpi label="Decision accuracy" value={`${accPct}%`} />
+          <Kpi label={<CalcLabel id="accuracy" pos="bottom">Decision accuracy</CalcLabel>} value={`${accPct}%`} />
           <Kpi
-            label="EV lost / 100"
+            label={<CalcLabel id="evLoss100" pos="bottom">EV lost / 100</CalcLabel>}
             value={`${evLoss100.toFixed(2)} bb`}
             tone={evLoss100 > 2 ? 'neg' : evLoss100 > 0.5 ? '' : 'pos'}
           />
-          <Kpi label="Total EV lost" value={`${evLossAll.toFixed(2)} bb`} tone={evLossAll > 0 ? 'neg' : 'pos'} />
-          <Kpi label="RNG adherence" value={rng.total ? `${rngPct}%` : '—'} />
+          <Kpi label={<CalcLabel id="evLoss" pos="bottom">Total EV lost</CalcLabel>} value={`${evLossAll.toFixed(2)} bb`} tone={evLossAll > 0 ? 'neg' : 'pos'} />
+          <Kpi label={<CalcLabel id="rngAdherence" pos="bottom">RNG adherence</CalcLabel>} value={rng.total ? `${rngPct}%` : '—'} />
         </div>
-        <p className="note">
-          <b>EV loss</b> is the gold-standard metric: a fold that costs 0.02 bb is trivial; one that
-          costs 2.5 bb is a real leak. Lower is better. <b>RNG adherence</b> = how often you took the
-          action the random roll prescribed for mixed spots.
-        </p>
+        <p className="note">Hover any metric for its formula &amp; a memory hook. Lower EV loss is better.</p>
         <div className="decision-bar">
           <Seg cls="good" n={acc.correct} total={acc.total} label="On baseline" />
           <Seg cls="okv" n={acc.ok} total={acc.total} label="Reasonable" />
           <Seg cls="bad" n={acc.mistake} total={acc.total} label="Leaks" />
         </div>
         <p className="note">
-          “Decision accuracy” compares each action you took to a transparent baseline (preflop charts +
-          equity-vs-pot-odds postflop). It's a yardstick, not a solver — close spots may show as
-          “reasonable”.
+          “Decision accuracy” compares each move to a transparent baseline — a yardstick, not a solver.
         </p>
       </div>
 
@@ -129,7 +125,7 @@ export function Analytics({ g }: { g: G }) {
             </div>
 
             <div className="an-section">
-              <div className="an-h">Move quality — GTOW score {score}%</div>
+              <div className="an-h">Move quality — <CalcLabel id="gtowScore">GTOW score</CalcLabel> {score}%</div>
               <div className="an-tiers">
                 <TierSeg cls="tbest" n={buckets.best} total={buckets.moves} label="Best" />
                 <TierSeg cls="tcorrect" n={buckets.correct} total={buckets.moves} label="Correct" />
@@ -151,8 +147,7 @@ export function Analytics({ g }: { g: G }) {
               <GroupTable title="By position" rows={byPos} />
             </div>
             <p className="note">
-              <b>Accuracy</b> = share of moves on the solver line. <b>Avg EV loss</b> is the average bb bled per
-              decision — the spots with the highest avg loss are where to focus study.
+              Highest avg-EV-loss spots are where to focus study. Hover the column headers for details.
             </p>
           </>
         )}
@@ -239,7 +234,7 @@ export function Analytics({ g }: { g: G }) {
   );
 }
 
-function Kpi({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Kpi({ label, value, tone }: { label: ReactNode; value: string; tone?: string }) {
   return (
     <div className="kpi">
       <div className={`kpi-value ${tone ?? ''}`}>{value}</div>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { potOdds, requiredEquityForBet, mdf } from '../engine/potOdds';
 import { ruleOf2and4 } from '../engine/equity';
+import { CalcLabel } from './CalcTip';
 
 const DRAWS: [string, number][] = [
   ['Gutshot straight', 4],
@@ -49,10 +50,10 @@ export function PotOddsCalc() {
             <label>Amount you must call</label>
             <input type="number" value={call} onChange={(e) => setCall(Math.max(0, +e.target.value))} />
             <div className="result">
-              <div className="stat-lbl">Required equity to break even</div>
+              <div className="stat-lbl"><CalcLabel id="potOdds">Required equity to break even</CalcLabel></div>
               <div className="big-stat gold">{(odds.requiredEquity * 100).toFixed(1)}%</div>
               <div className="stat-lbl" style={{ marginTop: 8 }}>
-                Pot odds (pot : call)
+                <CalcLabel id="oddsRatio">Pot odds (pot : call)</CalcLabel>
               </div>
               <div className="ratio">{call > 0 ? `${odds.oddsRatio.toFixed(2)} : 1` : '—'}</div>
             </div>
@@ -67,7 +68,7 @@ export function PotOddsCalc() {
               <option value={1}>Turn → River (1 card)</option>
             </select>
             <div className="result">
-              <div className="stat-lbl">Approx. equity (Rule of 2 &amp; 4)</div>
+              <div className="stat-lbl"><CalcLabel id="ruleOf24">Approx. equity (Rule of 2 &amp; 4)</CalcLabel></div>
               <div className="big-stat gold">{equity}%</div>
               <div className={`verdict ${equity >= odds.requiredEquity * 100 ? 'good' : 'bad'}`}>
                 {equity >= odds.requiredEquity * 100
@@ -116,9 +117,9 @@ export function PotOddsCalc() {
             <tr>
               <th>Bet size (of pot)</th>
               <th>You're getting</th>
-              <th>Equity to call</th>
-              <th>Bluffs needed</th>
-              <th>MDF</th>
+              <th><CalcLabel id="potGeometry" pos="bottom">Equity to call</CalcLabel></th>
+              <th><CalcLabel id="potGeometry" pos="bottom">Bluffs needed</CalcLabel></th>
+              <th><CalcLabel id="mdf" pos="bottom">MDF</CalcLabel></th>
             </tr>
           </thead>
           <tbody>
@@ -134,11 +135,8 @@ export function PotOddsCalc() {
           </tbody>
         </table>
         <p className="note">
-          <b>One number, two jobs:</b> the equity you need to <i>call</i> a bet equals the % of{' '}
-          <i>bluffs</i> the bettor needs at that size — they're the same formula, f ÷ (1 + 2f).
-          So memorize one column. <b>MDF</b> = 1 ÷ (1 + f): bet bigger, defend less (pot-bet → defend
-          half). Quick hooks: ½ pot → 25%, pot → 33%, 2× → 40%. All ignore implied odds — when you can
-          win more later, you can call with less.
+          <b>One number, two jobs:</b> equity-to-call = bluffs-needed = f ÷ (1 + 2f). Hover any header
+          for the formula. Quick hooks: ½ pot → 25%, pot → 33%, 2× → 40%. All ignore implied odds.
         </p>
       </div>
     </>

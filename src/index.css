@@ -45,6 +45,28 @@ body {
 
 .app-footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 
+/* ---------- calc tooltips (trigger + antd overlay content) ---------- */
+.tip { display: inline-flex; align-items: center; cursor: help; outline: none; }
+.tip-label { border-bottom: 1px dotted var(--muted); }
+.tip-label:hover, .tip-label:focus-visible { border-bottom-color: var(--gold); color: var(--txt); }
+.tip-i {
+  display: inline-flex; align-items: center; justify-content: center; font-style: normal;
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 50%;
+  width: 15px; height: 15px; line-height: 1; margin-left: 4px;
+}
+.tip-dot:hover .tip-i, .tip-dot:focus-visible .tip-i { color: var(--gold); border-color: var(--gold); }
+/* content rendered inside antd's portal overlay */
+.tip-body { display: flex; flex-direction: column; gap: 5px; text-align: left; }
+.tip-title { font-size: 12.5px; color: var(--gold); }
+.tip-what { font-size: 12px; color: var(--txt); line-height: 1.45; }
+.tip-formula {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 11.5px;
+  color: #bfe6d2; background: rgba(46, 194, 126, 0.08); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 7px; white-space: pre-wrap; line-height: 1.5;
+}
+.tip-remember { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.tip-remember b { color: var(--call); }
+
 /* ---------- play layout ---------- */
 .play-layout { display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
 @media (max-width: 980px) { .play-layout { grid-template-columns: 1fr; } }
@@ -491,8 +513,6 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .strat-head-btns { display: flex; gap: 6px; align-items: center; }
 .toggle.on { background: var(--raise2); color: #fff; border-color: var(--raise); }
 .strat-rowwrap { display: flex; flex-direction: column; }
-.strat-explain { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 2px; }
-.se-why { font-size: 12px; color: var(--txt); margin-bottom: 6px; }
 .se-math { font-size: 11.5px; color: var(--gold); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap; line-height: 1.45; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
@@ -526,11 +546,6 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .mini-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; width: min(430px, 84vw); aspect-ratio: 1; }
 .mini-cell { display: flex; align-items: center; justify-content: center; font-size: clamp(6px, 1.7vw, 9px); font-weight: 800; color: #fff; border-radius: 2px; letter-spacing: -0.3px; text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.8); overflow: hidden; }
 .mini-cell.hl { outline: 2px solid var(--gold); outline-offset: -1px; z-index: 2; font-size: clamp(7px, 1.9vw, 10px); }
-
-/* ---------- HUD explain ---------- */
-.hud-explain { margin-top: 8px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.he-why { font-size: 12px; color: var(--txt); margin-bottom: 6px; }
-.he-math { font-size: 11.5px; color: var(--gold); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap; line-height: 1.5; }
 
 /* ---------- opponent panel ---------- */
 .opp-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
@@ -925,7 +940,8 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 @media (max-width: 600px) {
   /* ---- the felt scales; give it more vertical room so seats breathe ---- */
   .felt { border-width: 9px; aspect-ratio: 4 / 3.2; }
-  .table-center { width: 92%; gap: 6px; }
+  /* more vertical room so POT, flop cards & breadcrumb don't pile up */
+  .table-center { width: 92%; gap: 12px; }
   .pot-amount { font-size: 18px; }
   .pot-label, .pot-bb { font-size: 10px; }
   .street-tag { font-size: 9px; letter-spacing: 1px; padding: 2px 8px; }
@@ -960,6 +976,8 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
   .slot-4, .slot-5 { right: 0; }
   .slot-1 .seat-bet, .slot-2 .seat-bet { margin-left: 4px; }
   .slot-4 .seat-bet, .slot-5 .seat-bet { margin-right: 4px; }
+  /* top seat's chip tucks closer to its seat so it doesn't crowd the POT */
+  .slot-3 .seat-bet { bottom: -14px; }
 
   /* big "lg" cards used in Hand Review / Postflop Lab */
   .pcard.lg { width: 54px; height: 76px; font-size: 27px; }

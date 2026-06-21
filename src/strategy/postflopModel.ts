@@ -154,7 +154,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ev: 0,
       kind: 'fold',
       why: `You need ${pct(need)} equity to call but only have ~${pct(e)}. Folding forfeits the pot but loses the least.`,
-      math: `EV(fold) = 0 bb (you put in nothing more).`,
+      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)}; you have ~${pct(e)}.\nEV(fold) = 0 bb (you put in nothing more).`,
     });
     cands.push({
       id: 'call',
@@ -164,7 +164,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${eReal >= need ? 'profitable' : 'marginal/-EV'}.${
         oop ? ' Out of position you realise less of that equity, so call tighter.' : ip ? ' In position you realise it well.' : ''
       }`,
-      math: `EV = equity × (pot + call) − call = ${pct1(eReal)} × ${P + C} − ${C} = ${(eReal * (P + C) - C).toFixed(1)} chips ≈ ${((eReal * (P + C) - C) / bb).toFixed(2)} bb`,
+      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call = ${pct1(eReal)} × ${P + C} − ${C} = ${(eReal * (P + C) - C).toFixed(1)} chips ≈ ${((eReal * (P + C) - C) / bb).toFixed(2)} bb`,
     });
   }
 
