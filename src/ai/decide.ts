@@ -9,6 +9,7 @@ import { buildVillainRange } from '../strategy';
 import { potOdds } from '../engine/potOdds';
 import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE } from './preflop';
 import { getProfile } from './profiles';
+import { rfiOpenFreq, limpedRaiseFreq, valueThreeBetFreq } from './blueprint';
 import { DIFFICULTIES, type DifficultyParams, type HeroReads } from './difficulty';
 
 export interface DecideOpts {
@@ -82,22 +83,21 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     if (!facingRaise) {
       // open opportunity (or BB option / limped pot)
       if (la.callAmount === 0) {
-        // BB with the option, or limped to us — mostly check, raise strong
-        if (strength > 0.78 && r() < 0.6 + profile.aggression * 0.3) return sizeTo(1.0, true);
-        if (strength > 0.6 && r() < profile.aggression * 0.4) return sizeTo(0.9, true);
+        // BB with the option, or limped to us — mostly check, raise by blueprint
+        // frequency (strength + aggression), so it's mixed rather than a hard cut.
+        if (r() < limpedRaiseFreq(code, profile.aggression)) return sizeTo(strength > 0.78 ? 1.0 : 0.9, true);
         return { type: 'check' };
       }
-      // it's folded to us (or limps in front) — RFI decision
-      const wantOpen =
-        (inRFI && r() < 0.85 + profile.openLooseness * 0.1) ||
-        (!inRFI && strength > 0.62 - profile.openLooseness * 0.18 && r() < profile.openLooseness * 0.5);
-      if (wantOpen) return sizeTo(1.1, false); // ~2.2-2.5bb raise
+      // it's folded to us (or limps in front) — RFI by blueprint open frequency:
+      // strong hands open ~always, borderline hands mix, a thin off-chart band steals.
+      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness)) return sizeTo(1.1, false); // ~2.2-2.5bb
       return { type: 'fold' };
     }
 
-    // facing a raise: 3-bet / call / fold
+    // facing a raise: 3-bet / call / fold. Value 3-bets fire by blueprint
+    // frequency — premiums near always, borderline value hands mixed.
     const threeBetWorthy = THREEBET_RANGE.has(code) || strength > 0.85;
-    if (threeBetWorthy && la.canRaise && r() < profile.threeBetFreq) {
+    if (threeBetWorthy && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq)) {
       return sizeTo(1.0, false);
     }
     // occasional bluff 3-bet for aggressive types
