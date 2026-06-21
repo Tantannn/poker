@@ -155,6 +155,13 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
                 </Tooltip>
                 <b>{hud.ruleEstimate}%</b>
               </div>
+              {hud.ruleEstimate / 100 - hud.equity > 0.1 && (
+                <div className="out-caveat">
+                  ⚠ Optimistic — this counts <i>every</i> out as a winner.
+                  {softOuts(hud) > 0 && ` ${softOuts(hud)} of them only make a weak pair that may not beat villain's range.`}
+                  {' '}Your real win chance is <b>{pct(hud.equity)}</b> (the equity up top) — trust that for the call.
+                </div>
+              )}
               {hud.outsBreakdown.length > 0 && hud.outs <= 24 && (
                 <div className="out-breakdown">
                   {hud.outsBreakdown.map((grp) => (
@@ -194,6 +201,15 @@ function Stat({ label, value, big, highlight }: { label: ReactNode; value: strin
 
 function pct(x: number): string {
   return (x * 100).toFixed(1) + '%';
+}
+
+// "soft" outs — ones that only make a (weak) pair/two-pair. They improve your
+// hand category but often don't beat a betting range, which is why the outs
+// estimate can sit far above your real equity.
+function softOuts(hud: HudInfo): number {
+  return hud.outsBreakdown
+    .filter((g) => g.category === 'Pair' || g.category === 'Two Pair')
+    .reduce((n, g) => n + g.cards.length, 0);
 }
 
 // Worked example for the equity tooltip — shows the raw Monte-Carlo tally so the

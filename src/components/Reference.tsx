@@ -83,6 +83,40 @@ export function Reference() {
             </ul>
           </div>
         </div>
+
+        <h4>Eyeballing equity vs a range</h4>
+        <p className="sub">
+          You can't compute it exactly in your head — it's an average over <i>every</i> hand they can
+          hold. The hook: <b>"what fraction of their range am I ahead of right now — plus my draw?"</b>
+        </p>
+        <div className="two-col">
+          <div>
+            <p className="sub"><b>Method — "Ahead? then Outs":</b></p>
+            <ul className="tips">
+              <li><b>1. Ahead or behind</b> their range? Made hand that beats most of it → start high; behind → start low.</li>
+              <li><b>2. Add the draw</b> — clean outs × 2 per card to come, but <b>halve weak outs</b> (pairs that don't beat a bettor).</li>
+              <li><b>3. Land on the ladder</b> → read off the rough %.</li>
+            </ul>
+            <p className="sub">
+              Made-hand equity comes from the <b>ladder</b>; draw equity from <b>outs</b> — discounted. That's
+              why 14 outs can still be only ~25% when half are weak pairs.
+            </p>
+          </div>
+          <div>
+            <h4>The equity ladder</h4>
+            <table>
+              <tbody>
+                <tr><td>Nuts / near-nuts</td><td className="num">85%+</td></tr>
+                <tr><td>Two pair, sets, strong made</td><td className="num">70–80%</td></tr>
+                <tr><td>Top pair good kicker</td><td className="num">55–65%</td></tr>
+                <tr><td>Middle / weak top pair</td><td className="num">40–50%</td></tr>
+                <tr><td>Flush or open-ender</td><td className="num">30–40%</td></tr>
+                <tr><td>Gutshot / two overcards</td><td className="num">15–25%</td></tr>
+                <tr><td>Air, no draw</td><td className="num">&lt;15% → fold</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div className="card">
