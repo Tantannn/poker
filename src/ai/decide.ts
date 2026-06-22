@@ -4,6 +4,7 @@
 
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
+import { makeRng } from '../engine/cards';
 import { equityVsRange, equityVsField } from '../engine/equity';
 import { buildVillainRange } from '../strategy';
 import { potOdds } from '../engine/potOdds';
@@ -24,7 +25,16 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const profile = getProfile(p.profileId);
   const pos = positionLabel(i, state.buttonIndex, state.players.length);
   const pot = potTotal(state);
-  const r = Math.random;
+  // Deterministic per-decision RNG. Seeded from the hand's seed + how many
+  // actions have happened this hand + the acting seat, so replaying the SAME
+  // hand (same hero line) reproduces the bots' EXACT decisions instead of
+  // rolling fresh each time. All bot randomness — option mix AND the Monte-Carlo
+  // equity sims below — draws from this one stream so the whole decision is
+  // reproducible. Falls back gracefully (seed 0) for pre-seed saved games.
+  const actionsThisHand = state.log.reduce((n, l) => n + (l.handNumber === state.handNumber ? 1 : 0), 0);
+  const decisionSeed =
+    (((state.seed ?? 0) >>> 0) ^ Math.imul(actionsThisHand + 1, 0x9e3779b1) ^ Math.imul(i + 1, 0x85ebca6b)) >>> 0;
+  const r = makeRng(decisionSeed);
   const diff = opts?.diff ?? DIFFICULTIES.normal;
   const reads = opts?.reads;
 
@@ -143,8 +153,9 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
           state.board,
           Array.from({ length: liveOpponents }, () => villainRange),
           diff.iters,
+          r,
         )
-      : equityVsRange(p.holeCards, state.board, villainRange, diff.iters);
+      : equityVsRange(p.holeCards, state.board, villainRange, diff.iters, r);
   // difficulty: weaker bots misread their equity (noise); strong bots read true.
   let equity = eqRes.equity;
   if (diff.equityNoise > 0) {

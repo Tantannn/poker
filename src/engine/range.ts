@@ -73,9 +73,9 @@ export function buildSampleTable(range: WeightedRange, dead: Card[]): SampleTabl
   return { combos, cum, total };
 }
 
-export function sampleCombo(table: SampleTable): [Card, Card] | null {
+export function sampleCombo(table: SampleTable, rng: () => number = Math.random): [Card, Card] | null {
   if (table.total <= 0) return null;
-  const x = Math.random() * table.total;
+  const x = rng() * table.total;
   // binary search
   let lo = 0;
   let hi = table.cum.length - 1;

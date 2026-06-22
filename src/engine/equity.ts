@@ -34,6 +34,7 @@ export function monteCarloEquity(
   board: Card[],
   opponents: number,
   iterations = 3000,
+  rng: () => number = Math.random,
 ): EquityResult {
   if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
 
@@ -50,7 +51,7 @@ export function monteCarloEquity(
     const deck = baseDeck.slice();
     let top = deck.length;
     const draw = (): Card => {
-      const j = Math.floor(Math.random() * top);
+      const j = Math.floor(rng() * top);
       const c = deck[j];
       deck[j] = deck[top - 1];
       top--;
@@ -100,13 +101,14 @@ export function equityVsRange(
   board: Card[],
   oppRange: WeightedRange,
   iterations = 1500,
+  rng: () => number = Math.random,
 ): EquityResult {
   if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
   const dead = [...hero, ...board];
   const table = buildSampleTable(oppRange, dead);
   if (table.total <= 0) {
     // range fully blocked — fall back to vs one random hand
-    return monteCarloEquity(hero, board, 1, iterations);
+    return monteCarloEquity(hero, board, 1, iterations, rng);
   }
   const needBoard = 5 - board.length;
   let win = 0;
@@ -114,7 +116,7 @@ export function equityVsRange(
   let valid = 0;
 
   for (let it = 0; it < iterations; it++) {
-    const opp = sampleCombo(table);
+    const opp = sampleCombo(table, rng);
     if (!opp) continue;
     // build a fresh deck excluding hero, board, opp
     const used = [...hero, ...board, opp[0], opp[1]];
@@ -123,7 +125,7 @@ export function equityVsRange(
     const fullBoard = board.slice();
     let top = deck.length;
     for (let b = 0; b < needBoard; b++) {
-      const j = Math.floor(Math.random() * top);
+      const j = Math.floor(rng() * top);
       fullBoard.push(deck[j]);
       deck[j] = deck[top - 1];
       top--;
@@ -154,9 +156,10 @@ export function equityVsField(
   board: Card[],
   oppRanges: WeightedRange[],
   iterations = 1500,
+  rng: () => number = Math.random,
 ): EquityResult {
   if (hero.length < 2 || oppRanges.length === 0) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
-  if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations);
+  if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations, rng);
 
   const dead0 = [...hero, ...board];
   const tables = oppRanges.map((r) => buildSampleTable(r, dead0));
@@ -178,16 +181,16 @@ export function equityVsField(
       let combo: Card[] | null = null;
       // sample from this opponent's range, rejecting cards already dealt
       for (let t = 0; t < 12 && table.total > 0; t++) {
-        const c = sampleCombo(table);
+        const c = sampleCombo(table, rng);
         if (c && !collides(c[0], used) && !collides(c[1], used)) { combo = c; break; }
       }
       if (!combo) {
         // range blocked out — fall back to two random live cards
         const deck = makeDeck().filter((d) => !collides(d, used));
         if (deck.length < 2) { ok = false; break; }
-        const a = deck[Math.floor(Math.random() * deck.length)];
+        const a = deck[Math.floor(rng() * deck.length)];
         let b = a;
-        while (sameCard(a, b)) b = deck[Math.floor(Math.random() * deck.length)];
+        while (sameCard(a, b)) b = deck[Math.floor(rng() * deck.length)];
         combo = [a, b];
       }
       oppHands.push(combo);
@@ -199,7 +202,7 @@ export function equityVsField(
     const fullBoard = board.slice();
     let top = deck.length;
     for (let b = 0; b < needBoard; b++) {
-      const j = Math.floor(Math.random() * top);
+      const j = Math.floor(rng() * top);
       fullBoard.push(deck[j]);
       deck[j] = deck[top - 1];
       top--;

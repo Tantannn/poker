@@ -24,7 +24,9 @@
       "PowerShell(npx tsc --noEmit)",
       "Bash(rtk read *)",
       "Bash(npx tsx *)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)"
     ]
   }
 }

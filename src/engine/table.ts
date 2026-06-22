@@ -74,6 +74,10 @@ export interface GameState {
   winners: Winner[];
   message: string;
   lastAggressor: number;
+  // Per-hand PRNG seed. Bots derive a deterministic random stream from this so a
+  // repeated/replayed hand reproduces the SAME bot actions (given the same hero
+  // line) instead of rolling fresh every time. Set fresh each startHand.
+  seed: number;
 }
 
 export interface LegalActions {
@@ -132,6 +136,7 @@ export function createGame(
     winners: [],
     message: 'Press Deal to start.',
     lastAggressor: -1,
+    seed: 0,
   };
 }
 
@@ -154,6 +159,9 @@ export function startHand(state: GameState): GameState {
   state.buttonIndex = b;
 
   state.handNumber += 1;
+  // fresh seed per hand — captured in the "repeat hand" snapshot so a replay
+  // reproduces the bots' exact decisions.
+  state.seed = (Math.floor(Math.random() * 0xffffffff) >>> 0) || 1;
   state.deck = shuffle(makeDeck());
   state.board = [];
   state.street = 'preflop';
