@@ -12,6 +12,7 @@ import { ExploitTrainer } from './components/ExploitTrainer';
 import { Replay } from './components/Replay';
 import { EquityCalc } from './components/EquityCalc';
 import { EquityDrill } from './components/EquityDrill';
+import { BetSizingDrill } from './components/BetSizingDrill';
 
 // antd lives only in the Principles panel — lazy-load it so the main bundle stays lean.
 const PrinciplesPanel = lazy(() =>
@@ -20,7 +21,7 @@ const PrinciplesPanel = lazy(() =>
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'play' | 'charts' | 'trainer' | 'lab' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'analytics' | 'reference';
+type Tab = 'play' | 'charts' | 'trainer' | 'lab' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'sizing' | 'analytics' | 'reference';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'play', label: '♠ Play vs Bots' },
@@ -33,6 +34,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'principles', label: '📓 Principles' },
   { id: 'odds', label: 'Pot Odds' },
   { id: 'eqdrill', label: '🧠 Equity Drill' },
+  { id: 'sizing', label: '💰 Bet Sizing' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'reference', label: 'Reference' },
 ];
@@ -112,6 +114,11 @@ export default function App() {
         {tab === 'eqdrill' && (
           <div className="content-col">
             <EquityDrill />
+          </div>
+        )}
+        {tab === 'sizing' && (
+          <div className="content-col">
+            <BetSizingDrill />
           </div>
         )}
         {tab === 'analytics' && (

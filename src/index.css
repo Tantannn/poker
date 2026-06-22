@@ -1163,3 +1163,25 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .rd-truth { text-align: center; margin-top: 14px; }
 .rd-truth .stat-lbl { color: var(--muted); font-size: 13px; }
 .rd-tip { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.5; }
+
+/* ---- Bet-sizing drill ---- */
+.bsd-sizes { grid-template-columns: repeat(3, 1fr); }
+.bsd-sizes .rd-band { position: relative; overflow: hidden; gap: 5px; padding-bottom: 18px; }
+.bsd-sizes .la-ev { font-size: 13px; font-weight: 700; }
+.bsd-sizes .la-ev.pos { color: var(--raise); }
+.bsd-sizes .la-ev.neg { color: var(--red); }
+.bsd-sizes .la-bar { position: absolute; left: 0; bottom: 0; height: 4px; border-radius: 0 2px 2px 0; opacity: 0.9; }
+@media (max-width: 620px) { .bsd-sizes { grid-template-columns: repeat(3, 1fr); } }
+
+.bsd-cheat { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.bsd-cheat h4 { margin: 0 0 10px; font-size: 14px; color: var(--gold); }
+.bsd-cheat-grid { display: grid; gap: 8px; }
+.bsd-cheat-grid > div { font-size: 13px; color: var(--txt); line-height: 1.5; }
+.bsd-pill {
+  display: inline-block; font-size: 11px; font-weight: 700; border-radius: 5px;
+  padding: 1px 8px; margin-right: 6px; color: #14181c;
+}
+.bsd-pill.small { background: #3aa0e0; }
+.bsd-pill.big { background: var(--gold); }
+.bsd-pill.polar { background: var(--raise); }
+.bsd-note { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.55; }
