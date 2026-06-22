@@ -113,6 +113,40 @@ export const SCENARIOS: PreflopScenario[] = [
     ]),
   },
   {
+    id: 'bb-vs-utg',
+    label: 'BB vs UTG open (defense)',
+    short: 'BB v UTG',
+    facing: 'vsopen',
+    heroPos: 'BB',
+    villainPos: 'UTG',
+    bluffFreq: 0.35,
+    // vs the tightest open you defend tightest: 3-bet a narrow value range,
+    // a sprinkle of suited-ace bluffs, flat pairs + suited broadways for set/
+    // equity value. Trashy offsuit hands fold even at the BB price.
+    value: S(['QQ+', 'AKs', 'AKo', 'AQs']),
+    bluff: S(['A5s-A4s', 'KJs']),
+    call: S([
+      '22-JJ', 'ATs+', 'KTs+', 'QTs+', 'JTs', 'T9s', '98s', '87s', '76s', '65s',
+      'AJo+', 'KQo', 'KQs',
+    ]),
+  },
+  {
+    id: 'bb-vs-mp',
+    label: 'BB vs MP open (defense)',
+    short: 'BB v MP',
+    facing: 'vsopen',
+    heroPos: 'BB',
+    villainPos: 'MP',
+    bluffFreq: 0.4,
+    // a touch wider than vs UTG — MP opens a slightly looser range.
+    value: S(['TT+', 'AQs+', 'AKo', 'AJs']),
+    bluff: S(['A5s-A4s', 'KJs', 'KTs', '76s']),
+    call: S([
+      '22-99', 'A2s+', 'K9s+', 'Q9s+', 'J9s+', 'T9s', '98s', '87s', '76s', '65s', '54s',
+      'ATo+', 'KJo+', 'QJo', 'KQs',
+    ]),
+  },
+  {
     id: 'co-vs-mp',
     label: 'CO vs MP open',
     short: 'CO v MP',

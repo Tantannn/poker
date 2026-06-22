@@ -46,7 +46,15 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   const raiser = lastRaiser(state);
   const raiserPos = raiser >= 0 ? positionLabel(raiser, state.buttonIndex, state.players.length) : undefined;
   if (heroPos === 'BB') {
-    return { sc: getScenario(raiserPos === 'SB' ? 'bb-vs-sb' : 'bb-vs-btn'), level: 1 };
+    // pick the defense chart matching the ACTUAL opener, not always BTN.
+    const bbId =
+      raiserPos === 'SB' ? 'bb-vs-sb'
+      : raiserPos === 'BTN' ? 'bb-vs-btn'
+      : raiserPos === 'CO' ? 'bb-vs-co'
+      : raiserPos === 'MP' ? 'bb-vs-mp'
+      : raiserPos === 'UTG' ? 'bb-vs-utg'
+      : 'bb-vs-btn';
+    return { sc: getScenario(bbId), level: 1 };
   }
   if (heroPos === 'CO') return { sc: getScenario('co-vs-utg'), level: 1 };
   return { sc: getScenario('btn-vs-utg'), level: 1 };
@@ -55,7 +63,12 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
 function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
   const { sc, level } = pickPreflopScenario(state, heroIdx);
   const code = handCode(state.players[heroIdx].holeCards);
-  const charted = cellStrategy(sc, code);
+  // multiway = facing a raise AND 2+ opponents still live (opener + caller(s)).
+  // Heads-up charts over-bluff and over-defend multiway: a 3-bet bluff has no
+  // fold equity against a field, so squash bluff raises into call/fold.
+  const liveOpps = state.players.filter((p) => !p.folded && p.id !== heroIdx).length;
+  const multiway = level >= 1 && liveOpps >= 2;
+  const charted = multiway ? squashBluffsMultiway(cellStrategy(sc, code)) : cellStrategy(sc, code);
   const la = legalActions(state);
   const bb = state.bigBlind;
 
@@ -91,8 +104,8 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     bestEv: best.ev,
     bestId: best.id,
     source: 'preflop-chart',
-    note: `${sc.label}. Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
-    rangeNote: sc.label,
+    note: `${sc.label}.${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
+    rangeNote: `${sc.label}${multiway ? ' · multiway' : ''}`,
     heroCode: code,
     scenarioId: sc.id,
   };
@@ -181,6 +194,35 @@ function primaryVillain(state: GameState, heroIdx: number): number {
     if (!state.players[idx].folded) return idx;
   }
   return -1;
+}
+
+/** Multiway correction: a 3-bet bluff has no fold equity against a field, so
+ *  reassign bluff-raise weight to call (if the hand also flats) or fold. Value
+ *  raises and flats are kept — set-mining / equity calls still play multiway. */
+function squashBluffsMultiway(opts: ActionOption[]): ActionOption[] {
+  const canCall = opts.some((o) => o.id === 'call');
+  let foldAdd = 0;
+  let callAdd = 0;
+  const kept: ActionOption[] = [];
+  for (const o of opts) {
+    if (o.kind === 'bluff') {
+      if (canCall) callAdd += o.freq;
+      else foldAdd += o.freq;
+      continue;
+    }
+    kept.push({ ...o });
+  }
+  if (callAdd > 0) {
+    const c = kept.find((o) => o.id === 'call');
+    if (c) c.freq += callAdd;
+    else kept.push({ id: 'call', label: 'Call', freq: callAdd, ev: 0, kind: 'call' });
+  }
+  if (foldAdd > 0) {
+    const f = kept.find((o) => o.id === 'fold');
+    if (f) f.freq += foldAdd;
+    else kept.push({ id: 'fold', label: 'Fold', freq: foldAdd, ev: 0, kind: 'fold' });
+  }
+  return kept;
 }
 
 function lastRaiser(state: GameState): number {
