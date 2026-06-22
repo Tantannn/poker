@@ -432,6 +432,9 @@ td.num { font-variant-numeric: tabular-nums; color: var(--raise); font-weight: 7
 .hh-sd span { margin-right: 4px; }
 
 /* ---------- reference ---------- */
+.note-block { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--line, #2a3a32); border-radius: 8px; background: rgba(255,255,255,0.02); }
+.note-block h4 { margin: 0 0 8px; }
+.note-block table { margin-top: 8px; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
 ul.tips { margin: 6px 0; padding-left: 18px; }

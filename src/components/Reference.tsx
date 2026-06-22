@@ -103,19 +103,51 @@ export function Reference() {
             </p>
           </div>
           <div>
-            <h4>The equity ladder</h4>
+            <h4>The equity ladder <span className="sub">(POSTFLOP — your hand vs the board)</span></h4>
+            <p className="sub">
+              These rungs describe a <b>made hand relative to the community cards</b>. They only exist once
+              there's a flop — "top pair", "set", "two pair" all reference the board.
+            </p>
             <table>
+              <thead>
+                <tr><th>Hand strength</th><th className="num">Equity</th><th>Example (your cards → board)</th></tr>
+              </thead>
               <tbody>
-                <tr><td>Nuts / near-nuts</td><td className="num">85%+</td></tr>
-                <tr><td>Two pair, sets, strong made</td><td className="num">70–80%</td></tr>
-                <tr><td>Top pair good kicker</td><td className="num">55–65%</td></tr>
-                <tr><td>Middle / weak top pair</td><td className="num">40–50%</td></tr>
-                <tr><td>Flush or open-ender</td><td className="num">30–40%</td></tr>
-                <tr><td>Gutshot / two overcards</td><td className="num">15–25%</td></tr>
-                <tr><td>Air, no draw</td><td className="num">&lt;15% → fold</td></tr>
+                <tr><td>Nuts / near-nuts</td><td className="num">85%+</td><td>7♦7♠ → 7♣9♠2♦ (flopped set); nut flush</td></tr>
+                <tr><td>Two pair, sets, strong made</td><td className="num">70–80%</td><td>A♣K♦ → A♠K♣4♥ (two pair); T♥T♠ → 7♦5♣2♠ (overpair)</td></tr>
+                <tr><td>Top pair good kicker</td><td className="num">55–65%</td><td>A♣K♦ → K♠8♦3♣ (pairs the <b>highest</b> board card, ace kicker)</td></tr>
+                <tr><td>Middle / weak top pair</td><td className="num">40–50%</td><td>K♦J♠ → A♣J♦4♥ (pair <b>below</b> the top card); 7♦7♠ → 9♣4♦2♠ (underpair)</td></tr>
+                <tr><td>Flush or open-ender</td><td className="num">30–40%</td><td>A♥5♥ → K♥8♥2♣ (flush draw); 9♠8♠ → 7♦6♣2♥ (open-ended straight draw)</td></tr>
+                <tr><td>Gutshot / two overcards</td><td className="num">15–25%</td><td>J♠T♠ → Q♦8♣3♥ (gutshot, need a 9); A♦Q♣ → 9♠5♦2♣ (two overcards)</td></tr>
+                <tr><td>Air, no draw</td><td className="num">&lt;15% → fold</td><td>7♦2♣ → K♠9♦4♥ (missed everything)</td></tr>
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div className="note-block">
+          <h4>Pocket pairs: where do they land?</h4>
+          <p className="sub">
+            A pocket pair (e.g. <b>7♦7♠</b>) is <b>not</b> on the ladder by itself preflop — it's just one pair,
+            roughly a coin-flip vs a single hand and often <i>behind</i> a tight opening range (which is heavy with
+            bigger pairs and big aces). That's why 77 reads ~47% equity-vs-range preflop, not 70%. Which rung it
+            climbs to is decided by the <b>flop</b>:
+          </p>
+          <table>
+            <thead>
+              <tr><th>Flop vs 7♦7♠</th><th>Becomes</th><th className="num">Rung</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>a 7 hits — 7♣K♦4♠</td><td><b>Set</b></td><td className="num">85%+</td></tr>
+              <tr><td>all undercards — 5♣3♦2♠</td><td><b>Overpair</b></td><td className="num">70–80%</td></tr>
+              <tr><td>one overcard — 9♣4♦2♠</td><td>pair below top card</td><td className="num">40–50%</td></tr>
+              <tr><td>two+ overcards — K♠Q♦5♣</td><td><b>Underpair</b> (air-ish)</td><td className="num">&lt;40%</td></tr>
+            </tbody>
+          </table>
+          <p className="sub">
+            Same idea for "top pair good kicker": your hole card must pair the board's <b>highest</b> card. 77 can
+            only be top pair if the biggest card on the board is a 7.
+          </p>
         </div>
       </div>
 

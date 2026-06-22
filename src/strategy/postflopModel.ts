@@ -221,7 +221,9 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
 
   // ---- mix ----
   const evs = cands.map((c) => ({ id: c.id, ev: c.ev }));
-  const mix = mixFromEv(evs, 0.5, 1.4);
+  // temperature 0.3 (was 0.5): sharper mix — the top-EV line keeps most of the
+  // frequency and dominated lines fade faster, closer to "play the best line".
+  const mix = mixFromEv(evs, 0.3, 1.4);
   const bestEv = Math.max(...cands.map((c) => c.ev));
   // don't fold a +EV spot
   if (bestEv > 0.001) mix.set('fold', 0);

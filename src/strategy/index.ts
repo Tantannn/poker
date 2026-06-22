@@ -39,8 +39,24 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     const sc = SCENARIOS.find((s) => s.id === `rfi-${heroPos}`) ?? getScenario('rfi-BTN');
     return { sc, level: 0 };
   }
-  if (raises >= 2) {
-    return { sc: getScenario('btn-vs-3bet'), level: 2 };
+  if (raises >= 3) {
+    // facing a 4-bet (your re-raise got re-raised). Premium-only continue range,
+    // matched to your position. Only UTG/CO/BTN charts exist → MP↦CO, blinds↦BTN.
+    const fbId =
+      heroPos === 'UTG' ? 'utg-vs-4bet'
+      : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-4bet'
+      : 'btn-vs-4bet';
+    return { sc: getScenario(fbId), level: 3 };
+  }
+  if (raises === 2) {
+    // facing a 3-bet (you opened, someone re-raised). Pick the chart matching
+    // the position YOU opened from — not always BTN. Only UTG/CO/BTN vs-3bet
+    // charts exist, so MP maps to CO (next-tightest) and the blinds to BTN.
+    const tbId =
+      heroPos === 'UTG' ? 'utg-vs-3bet'
+      : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-3bet'
+      : 'btn-vs-3bet';
+    return { sc: getScenario(tbId), level: 2 };
   }
   // facing a single open
   const raiser = lastRaiser(state);
@@ -112,7 +128,7 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
 }
 
 function whyPreflop(kind: ActionOption['kind'], sc: PreflopScenario, code: string, freq: number): string {
-  const raiseWord = sc.facing === 'vs3bet' ? '4-bet' : sc.facing === 'rfi' ? 'open' : '3-bet';
+  const raiseWord = sc.facing === 'vs4bet' ? '5-bet' : sc.facing === 'vs3bet' ? '4-bet' : sc.facing === 'rfi' ? 'open' : '3-bet';
   switch (kind) {
     case 'value':
       return `${code} is a value ${raiseWord} in "${sc.short}" — strong enough to build the pot and get called by worse.`;

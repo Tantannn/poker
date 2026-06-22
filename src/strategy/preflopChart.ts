@@ -6,7 +6,7 @@ import type { Position } from '../engine/table';
 import { buildRange } from '../ai/preflop';
 import type { ActionId, ActionOption } from './types';
 
-export type Facing = 'rfi' | 'vsopen' | 'vs3bet';
+export type Facing = 'rfi' | 'vsopen' | 'vs3bet' | 'vs4bet';
 
 export interface PreflopScenario {
   id: string;
@@ -230,6 +230,43 @@ export const SCENARIOS: PreflopScenario[] = [
     bluff: S(['A5s']),
     call: S(['QQ-TT', 'AKo', 'AQs', 'AJs', 'KQs']),
   },
+  // ---- vs a 4-bet (you opened, got 3-bet, you 3-bet... i.e. you re-raised and
+  // now face a 4-bet). Stacks get committed fast — ranges collapse to premiums:
+  // 5-bet/jam the nuts, flat a sliver, fold everything else. Near position-
+  // independent at 100bb, so the three charts share almost the same range.
+  {
+    id: 'btn-vs-4bet',
+    label: 'BTN vs a 4-bet',
+    short: 'BTN v 4B',
+    facing: 'vs4bet',
+    heroPos: 'BTN',
+    bluffFreq: 0.5,
+    value: S(['QQ+', 'AKs']),
+    bluff: S(['A5s']),
+    call: S(['JJ', 'AKo', 'AQs']),
+  },
+  {
+    id: 'co-vs-4bet',
+    label: 'CO vs a 4-bet',
+    short: 'CO v 4B',
+    facing: 'vs4bet',
+    heroPos: 'CO',
+    bluffFreq: 0.4,
+    value: S(['KK+', 'AKs']),
+    bluff: S(['A5s']),
+    call: S(['QQ', 'AKo']),
+  },
+  {
+    id: 'utg-vs-4bet',
+    label: 'UTG vs a 4-bet',
+    short: 'UTG v 4B',
+    facing: 'vs4bet',
+    heroPos: 'UTG',
+    bluffFreq: 0.3,
+    value: S(['KK+']),
+    bluff: S([]),
+    call: S(['QQ', 'AKs', 'AKo']),
+  },
 ];
 
 export function getScenario(id: string): PreflopScenario {
@@ -248,7 +285,7 @@ export function cellStrategy(sc: PreflopScenario, code: string): ActionOption[] 
     return opts;
   }
   // vs open / vs 3bet
-  const raiseLabel = sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
+  const raiseLabel = sc.facing === 'vs4bet' ? '5-Bet' : sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
   if (sc.value?.has(code)) {
     opts.push(mk('raise', `${raiseLabel} (value)`, 1, 'value'));
   } else if (sc.bluff?.has(code)) {

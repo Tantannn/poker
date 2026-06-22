@@ -54,6 +54,11 @@ export function RangeGrid() {
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </optgroup>
+          <optgroup label="Versus a 4-bet">
+            {SCENARIOS.filter((s) => s.facing === 'vs4bet').map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </optgroup>
         </select>
       </div>
 
