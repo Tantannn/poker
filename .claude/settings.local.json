@@ -26,7 +26,8 @@
       "Bash(npx tsx *)",
       "WebFetch(domain:github.com)",
       "Bash(npx tsc *)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "Bash(grep -nE \"^\\\\.good|^\\\\.bad|\\\\.good\\\\s*\\\\{|\\\\.bad\\\\s*\\\\{|^\\\\s*\\\\.good,\" D:/Code/poker/src/index.css)"
     ]
   }
 }

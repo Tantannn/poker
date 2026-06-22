@@ -129,6 +129,8 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
             </div>
           )}
 
+          <DecisionGuide hud={hud} street={street} />
+
           {(street === 'flop' || street === 'turn') && (
             <div className="hud-outs">
               <div className="hud-row">
@@ -186,6 +188,71 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ---- live "what do I do?" guide ----
+// Turns the raw equity vs the price into a plain RAISE / CALL / CHECK / FOLD
+// call, with the one-line reason. Thresholds are deliberately simple & fixed so
+// they're memorable — the cheat-sheet tooltip spells out the exact same rules.
+type Verdict = { action: string; cls: 'good' | 'okv' | 'bad'; why: string };
+
+function deriveVerdict(hud: HudInfo, street: string): Verdict {
+  const e = hud.equity;
+  const drawHeavy = (street === 'flop' || street === 'turn') && hud.outs >= 8;
+
+  if (hud.toCall > 0) {
+    // facing a bet — compare equity to the price (required equity to call)
+    const margin = e - hud.requiredEquity;
+    if (e >= 0.7) return { action: 'RAISE (value)', cls: 'good', why: `You're a big favourite (${pct(e)}). Raise to build the pot — worse hands still call.` };
+    if (margin >= 0.12) return { action: 'CALL — maybe RAISE', cls: 'good', why: `Comfortably ahead of the price (${pct(e)} vs ${pct(hud.requiredEquity)} needed). Call always; raise if you're confident worse hands pay.` };
+    if (margin >= 0) return { action: 'CALL (thin)', cls: 'okv', why: `Just ahead of the price (${pct(e)} vs ${pct(hud.requiredEquity)}). Call — raising risks folding out the worse hands you beat.` };
+    if (drawHeavy) return { action: 'CALL / FOLD (draw)', cls: 'okv', why: `Behind the price on raw equity (${pct(e)} < ${pct(hud.requiredEquity)}), but ${hud.outs} outs. Peel only if you'll get paid when you hit (implied odds); otherwise fold.` };
+    return { action: 'FOLD', cls: 'bad', why: `Short of the price (${pct(e)} < ${pct(hud.requiredEquity)} needed) with no real draw. Calling burns chips — let it go.` };
+  }
+
+  // no bet to face — check or bet
+  if (e >= 0.62) return { action: 'BET (value)', cls: 'good', why: `You're ahead (${pct(e)}). Bet to grow the pot and charge their draws — checking lets them catch up free.` };
+  if (drawHeavy && e >= 0.35) return { action: 'BET (semi-bluff) or CHECK', cls: 'okv', why: `${hud.outs} outs (${pct(e)}). Betting gives two ways to win (fold now, or hit later); checking takes a free card.` };
+  if (e >= 0.45) return { action: 'CHECK', cls: 'okv', why: `Marginal (${pct(e)}) — not strong enough to bet for value. Check to control the pot and see a cheap showdown.` };
+  return { action: 'CHECK / give up', cls: 'bad', why: `Weak (${pct(e)}). Nothing to bet for value and little to draw to — check and fold to pressure.` };
+}
+
+function DecisionGuide({ hud, street }: { hud: HudInfo; street: string }) {
+  const v = deriveVerdict(hud, street);
+  return (
+    <div className="hud-guide">
+      <div className="hud-row">
+        <Tooltip
+          className="tip-label"
+          content={
+            <span className="tip-body">
+              <b className="tip-title">🧭 How to decide: raise / call / fold</b>
+              <span className="tip-what">Compare your <b>equity</b> (win share, top of HUD) to the <b>price</b> (equity needed to call):</span>
+              <code className="tip-formula">{[
+                'FACING A BET:',
+                '  equity ≥ 70% ............ RAISE for value',
+                '  equity ≥ need + 12% ..... CALL (raise if confident)',
+                '  equity ≥ need ........... CALL (thin)',
+                '  equity < need + 8 outs .. peel only w/ implied odds',
+                '  equity < need, no draw .. FOLD',
+                '',
+                'NO BET (you act first):',
+                '  equity ≥ 62% ............ BET for value',
+                '  strong draw ............. BET semi-bluff / or check',
+                '  equity 45–62% ........... CHECK (pot control)',
+                '  equity < 45% ............ CHECK / give up',
+              ].join('\n')}</code>
+              <span className="tip-remember"><b>Remember:</b> price = call ÷ (pot + call). Beat the price → continue; way ahead → raise; behind with no draw → fold.</span>
+            </span>
+          }
+        >
+          🧭 Decision logic
+        </Tooltip>
+        <b className={v.cls === 'good' ? 'good' : v.cls === 'bad' ? 'bad' : 'okv'}>{v.action}</b>
+      </div>
+      <div className={`hud-verdict ${v.cls === 'good' ? 'good' : v.cls === 'bad' ? 'bad' : ''}`}>{v.why}</div>
     </div>
   );
 }

@@ -10,6 +10,8 @@ import { Reference } from './components/Reference';
 import { LeakQuiz } from './components/LeakQuiz';
 import { ExploitTrainer } from './components/ExploitTrainer';
 import { Replay } from './components/Replay';
+import { EquityCalc } from './components/EquityCalc';
+import { EquityDrill } from './components/EquityDrill';
 
 // antd lives only in the Principles panel — lazy-load it so the main bundle stays lean.
 const PrinciplesPanel = lazy(() =>
@@ -18,7 +20,7 @@ const PrinciplesPanel = lazy(() =>
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'play' | 'charts' | 'trainer' | 'lab' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'analytics' | 'reference';
+type Tab = 'play' | 'charts' | 'trainer' | 'lab' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'analytics' | 'reference';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'play', label: '♠ Play vs Bots' },
@@ -30,6 +32,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'replay', label: 'Hand Review' },
   { id: 'principles', label: '📓 Principles' },
   { id: 'odds', label: 'Pot Odds' },
+  { id: 'eqdrill', label: '🧠 Equity Drill' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'reference', label: 'Reference' },
 ];
@@ -106,6 +109,11 @@ export default function App() {
             <PotOddsCalc />
           </div>
         )}
+        {tab === 'eqdrill' && (
+          <div className="content-col">
+            <EquityDrill />
+          </div>
+        )}
         {tab === 'analytics' && (
           <div className="content-col">
             <Analytics g={g} />
@@ -117,6 +125,8 @@ export default function App() {
           </div>
         )}
       </main>
+
+      <EquityCalc />
 
       <footer className="app-footer">
         Runs 100% locally · nothing leaves your machine · ranges &amp; feedback are training baselines,
