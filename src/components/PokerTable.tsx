@@ -38,6 +38,30 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   const [oppEnabled, setOppEnabled] = useState(true);
   const [supportsHidden, setSupportsHidden] = useState(false);
   const [showChart, setShowChart] = useState(false);
+  // Study mode: hide the ANSWER (solver mix + decision verdict) while it's your
+  // turn so you commit first, then the Feedback box reveals it after you act.
+  // Reads/math (equity, pot odds, outs, situation, opponent) stay visible — those
+  // you'd have at a real table. Per-node "peek" lets you give up and look.
+  const [studyMode, setStudyMode] = useState(() => {
+    try { return localStorage.getItem('poker.studyMode') !== '0'; } catch { return true; }
+  });
+  const [peeked, setPeeked] = useState(false);
+  // a new node = a fresh hero turn; drop any peek from the previous decision.
+  // Reset during render (not in an effect) on the turn-ends transition — avoids
+  // the cascading-render warning from setState-in-effect.
+  const [prevTurn, setPrevTurn] = useState(isHeroTurn);
+  if (isHeroTurn !== prevTurn) {
+    setPrevTurn(isHeroTurn);
+    if (!isHeroTurn) setPeeked(false);
+  }
+  const hideAnswer = studyMode && !peeked && isHeroTurn;
+  // Stamp whether the hero peeked at the solver onto each decision, so the
+  // feedback box can flag a peeked rep as not unaided.
+  const [lastDecisionPeeked, setLastDecisionPeeked] = useState(false);
+  const heroAct = (a: Parameters<typeof g.heroAct>[0]) => {
+    setLastDecisionPeeked(peeked);
+    g.heroAct(a);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -53,17 +77,19 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         return;
       }
       if (!isHeroTurn) return;
-      if (e.key === 'f' || e.key === 'F') g.heroAct({ type: 'fold' });
+      // mirror heroAct(): stamp the peek state, then act
+      const act = (a: Parameters<typeof g.heroAct>[0]) => { setLastDecisionPeeked(peeked); g.heroAct(a); };
+      if (e.key === 'f' || e.key === 'F') act({ type: 'fold' });
       else if (e.key === 'c' || e.key === 'C') {
-        if (legal.canCheck) g.heroAct({ type: 'check' });
-        else if (legal.canCall) g.heroAct({ type: 'call' });
+        if (legal.canCheck) act({ type: 'check' });
+        else if (legal.canCall) act({ type: 'call' });
       } else if (e.key === 'r' || e.key === 'R') {
-        if (legal.canRaise) g.heroAct({ type: legal.canCall ? 'raise' : 'bet', amount: legal.minRaiseTo });
+        if (legal.canRaise) act({ type: legal.canCall ? 'raise' : 'bet', amount: legal.minRaiseTo });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [g, legal, isHeroTurn, handOver, started]);
+  }, [g, legal, isHeroTurn, handOver, started, peeked]);
 
   return (
     <div className="play-layout">
@@ -152,7 +178,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               currentBet={game.currentBet}
               heroCommitted={hero.committed}
               bigBlind={BIG_BLIND}
-              onAction={g.heroAct}
+              onAction={heroAct}
               onSkip={g.skipHand}
             />
           ) : hero.folded && !handOver ? (
@@ -163,7 +189,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           ) : (
             <div className="waiting">Opponents acting…</div>
           )}
-          {!supportsHidden && <Feedback fb={feedback} />}
+          {!supportsHidden && <Feedback fb={feedback} peeked={lastDecisionPeeked} />}
         </div>
       </div>
 
@@ -184,6 +210,20 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           {supportsHidden ? '👁 Show all guides' : '🙈 Hide all guides (pure play)'}
         </button>
 
+        {!supportsHidden && (
+          <button
+            className={`study-toggle ${studyMode ? 'on' : ''}`}
+            onClick={() => {
+              const next = !studyMode;
+              setStudyMode(next);
+              try { localStorage.setItem('poker.studyMode', next ? '1' : '0'); } catch { /* ignore */ }
+            }}
+            title="Hide the solver's answer until you act — you keep equity, pot odds, situation & opponent reads, but decide for yourself first. The answer reveals after every move."
+          >
+            {studyMode ? '🎓 Study mode: ON — answer hidden until you act' : '🎓 Study mode: OFF — answer shown live'}
+          </button>
+        )}
+
         {supportsHidden ? (
           <div className="guides-hidden-note">
             Pure-play mode — HUD, solver, situation &amp; opponent reads hidden. Decide blind like a real table.
@@ -192,14 +232,14 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           </div>
         ) : (
           <>
-            <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} strategy={strategy} />
+            <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} strategy={strategy} hideAnswer={hideAnswer} onPeek={() => setPeeked(true)} />
             {hudEnabled && hud && (
               <DecisionCurve
                 equity={hud.equity}
                 pot={hud.pot}
                 toCall={hud.toCall}
-                solverVerdict={solverBest ? (solverBest.id === 'fold' ? 'fold' : 'continue') : undefined}
-                solverLabel={solverBest?.label}
+                solverVerdict={hideAnswer ? undefined : solverBest ? (solverBest.id === 'fold' ? 'fold' : 'continue') : undefined}
+                solverLabel={hideAnswer ? undefined : solverBest?.label}
               />
             )}
             <SituationPanel board={game.board} heroCards={hero.holeCards} street={game.street} active={isHeroTurn} villain={villain} />
@@ -211,6 +251,8 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               onToggle={() => setInfoEnabled((v) => !v)}
               heroStack={hero.stack}
               heroCommitted={hero.committed}
+              hideAnswer={hideAnswer}
+              onPeek={() => setPeeked(true)}
             />
             <OpponentPanel
               villain={villain}
@@ -227,6 +269,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
             <li><b>🧠 Solver</b> = per-action frequency &amp; EV; <b>ⓘ Explain</b> shows the reason + EV calc. The <b>📊 Range chart — your seat</b> button under the table opens the range.</li>
             <li><b>🎭 Opponent</b> = archetype tendencies, IP/OOP read, and how to exploit them.</li>
             <li><b>RNG roll</b> picks which branch of a mixed strategy to take; each action is scored by <b>EV loss</b> (bb).</li>
+            <li><b>🎓 Study mode</b> (on by default) hides the <i>answer</i> — the solver mix &amp; the 🧭 decision verdict — until you act, so you commit your own read first. You keep equity, pot odds, situation &amp; opponent. The answer reveals in the feedback box the moment you move; hit <b>👁 Reveal</b> to peek (peeking is flagged so your score stays honest). Toggle it off to see everything live.</li>
           </ul>
           <h4>Bet types (in the Explain text)</h4>
           <ul>

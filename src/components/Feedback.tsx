@@ -4,7 +4,7 @@ import { RangeChartModal } from './RangeChartModal';
 import { KIND_COLOR } from './chartColors';
 import { CalcLabel } from './CalcTip';
 
-export function Feedback({ fb }: { fb: NodeFeedback | null }) {
+export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boolean }) {
   const [explain, setExplain] = useState(false);
   const [showChart, setShowChart] = useState(false);
   const [prevFb, setPrevFb] = useState(fb);
@@ -45,6 +45,10 @@ export function Feedback({ fb }: { fb: NodeFeedback | null }) {
           </button>
         </div>
       </div>
+
+      {peeked && (
+        <div className="fb-peeked">👁 You revealed the solver before acting — this rep isn't unaided. Counts in your score, but don't read it as a clean solve.</div>
+      )}
 
       <div className="fb-line">
         You <b>{fb.chosenLabel}</b> · solver line <b>{fb.bestLabel}</b>

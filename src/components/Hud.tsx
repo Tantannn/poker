@@ -11,9 +11,11 @@ interface Props {
   enabled: boolean;
   onToggle: () => void;
   strategy?: NodeStrategy | null;
+  hideAnswer?: boolean; // study mode: hide the solver verdict until the hero acts
+  onPeek?: () => void;
 }
 
-export function Hud({ hud, loading, street, enabled, onToggle, strategy }: Props) {
+export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAnswer, onPeek }: Props) {
   // The solver's recommended line — the SAME object the Solver panel renders. The
   // 🧭 Decision logic + the pot-odds verdict both defer to it postflop, so the HUD
   // can never contradict the solver (it used to, ignoring implied odds / fold
@@ -182,17 +184,32 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy }: Props
                 </Tooltip>
                 <b>{pct(hud.requiredEquity)}</b>
               </div>
-              <div className={`hud-verdict ${hud.equity >= hud.requiredEquity ? 'good' : solverContinues ? 'okv' : 'bad'}`}>
+              <div className={`hud-verdict ${hud.equity >= hud.requiredEquity ? 'good' : solverContinues && !hideAnswer ? 'okv' : hideAnswer ? '' : 'bad'}`}>
                 {hud.equity >= hud.requiredEquity
                   ? `✓ Calling is +EV on raw equity (${pct(hud.equity)} vs ${pct(hud.requiredEquity)} needed)`
-                  : solverContinues
-                    ? `~ Immediate pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)}), but the solver's best line is ${solverBest?.label} — implied odds / fold equity tip it. See 🧭 below.`
-                    : `✗ Pure pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed)`}
+                  : hideAnswer
+                    ? `Raw pot odds: ${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed — a pure call is short. Implied odds / fold equity may still continue. Decide, then reveal.`
+                    : solverContinues
+                      ? `~ Immediate pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)}), but the solver's best line is ${solverBest?.label} — implied odds / fold equity tip it. See 🧭 below.`
+                      : `✗ Pure pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed)`}
               </div>
             </div>
           )}
 
-          <DecisionGuide hud={hud} street={street} best={solverBest} />
+          {hideAnswer ? (
+            <div className="hud-guide locked">
+              <div className="hud-row">
+                <span className="tip-label">🧭 Decision logic</span>
+                <button className="peek-btn" onClick={onPeek}>👁 Reveal</button>
+              </div>
+              <div className="hud-verdict">
+                🎓 Study mode — call it yourself first. The solver's raise / call / fold + reasoning reveals after you act
+                (or hit Reveal to peek).
+              </div>
+            </div>
+          ) : (
+            <DecisionGuide hud={hud} street={street} best={solverBest} />
+          )}
 
           {(street === 'flop' || street === 'turn') && (
             <div className="hud-outs">

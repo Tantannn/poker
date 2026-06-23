@@ -22,9 +22,11 @@ interface Props {
   loading: boolean;
   heroStack: number; // chips behind (for the % -of-stack risk on each action)
   heroCommitted: number; // chips already in this street
+  hideAnswer?: boolean; // study mode: hide the mix/EV until the hero acts
+  onPeek?: () => void;
 }
 
-export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroStack, heroCommitted }: Props) {
+export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroStack, heroCommitted, hideAnswer, onPeek }: Props) {
   return (
     <div className="strat-panel">
       <div className="strat-head">
@@ -42,6 +44,11 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
         <div className="strat-hidden">Solving node…</div>
       ) : !strategy ? (
         <div className="strat-hidden">Waiting for your turn…</div>
+      ) : hideAnswer ? (
+        <div className="strat-locked">
+          <p>🎓 <b>Study mode</b> — the solver's mix &amp; EVs are hidden so you commit first. They reveal the moment you act (the Feedback box grades you), or peek now.</p>
+          <button className="peek-btn" onClick={onPeek}>👁 Reveal the solver mix</button>
+        </div>
       ) : (
         <>
           {rng && (
