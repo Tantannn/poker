@@ -14,13 +14,14 @@ import {
   startHand,
 } from '../engine/table';
 import type { Card } from '../engine/cards';
-import { countOuts, equityVsRange, equityVsField, ruleOf2and4 } from '../engine/equity';
+import { makeRng } from '../engine/cards';
+import { countOuts, equityVsRange, equityVsField, ruleOf2and4, exactOutsEquity } from '../engine/equity';
 import { potOdds } from '../engine/potOdds';
 import { decideAction } from '../ai/decide';
 import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
 import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
 import type { NodeStrategy } from '../strategy';
-import { buildVillainRange, getNodeStrategy, primaryVillainIdx } from '../strategy';
+import { buildVillainRange, getNodeStrategy, primaryVillainIdx, summarizeRange } from '../strategy';
 import { getProfile } from '../ai/profiles';
 import type { ActionId } from '../strategy/types';
 import { rngPrescription } from '../strategy/types';
@@ -70,8 +71,14 @@ export interface HudInfo {
   pot: number;
   requiredEquity: number;
   oddsRatio: number;
-  ruleEstimate: number;
+  ruleEstimate: number; // outs × 2/4 shortcut
+  trueEstimate: number; // exact hypergeometric hit %, what the shortcut approximates
   rangeNote: string;
+  // ---- villain range read (board + action aware) ----
+  equityRaw: number; // equity vs his UNconditioned opening/continuing range
+  conditioned: boolean; // true when facing a bet postflop → "betting range" applies
+  villainShape: { label: string; pct: number }[]; // what he's repping on this board
+  villainAhead: number; // mass-fraction of his range that beats you right now
   // ---- risk / commitment lens ----
   effStackBB: number; // effective stack (min of you vs live opponents), in bb
   spr: number; // stack-to-pot ratio (effective stack ÷ pot)
@@ -360,23 +367,42 @@ export function useGame(initialProfiles: string[]) {
   useEffect(() => {
     if (!isHeroTurn) return;
     const id = setTimeout(() => {
-      const { range, note } = buildVillainRange(game, 0);
-      const strat = getNodeStrategy(game, 0, 1100);
+      const { range, note, comboWeight } = buildVillainRange(game, 0);
       // count opponents still live — in a multiway pot you must beat ALL of them,
       // so equity is materially lower than the heads-up (single-villain) number.
       const liveOpps = game.players.filter((p) => !p.isHero && !p.folded).length;
-      // Always run a real Monte-Carlo so the HUD's win/tie/equity have a concrete,
-      // explainable source (the raw won/tied/lost tally) — not a solver number with
-      // a faked tie=0. Multiway sims against the whole live field.
+      // ONE Monte-Carlo equity, SEEDED and SHARED by both the HUD pot-odds panel
+      // and the solver strategy panel. Two independent unseeded sims used to land
+      // on different equities and CONTRADICT each other (one folds, one calls) on
+      // break-even spots. Seed is stable per node (hand seed + street/board/pot), so
+      // the number no longer flickers between renders of the same decision.
+      const eqSeed =
+        (((game.seed ?? 0) >>> 0) ^
+          Math.imul(game.board.length + 1, 0x9e3779b1) ^
+          Math.imul(Math.round(potTotal(game)) + 1, 0x85ebca6b)) >>>
+        0;
+      const eqRng = makeRng(eqSeed);
       const sim =
         liveOpps > 1
-          ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400)
-          : equityVsRange(hero.holeCards, game.board, range, 1400);
+          ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400, eqRng, comboWeight)
+          : equityVsRange(hero.holeCards, game.board, range, 1400, eqRng, comboWeight);
       const trials = sim.trials;
       const win = trials > 0 ? sim.wins / trials : 0;
       const tie = trials > 0 ? sim.ties / trials : 0;
       // decomposition shown in the HUD tooltip matches this exactly
       const eq = { equity: win + tie / 2, win, tie };
+      // solver reads the SAME equity number — no second, independent MC run.
+      const strat = getNodeStrategy(game, 0, 1100, eq.equity);
+      // Raw equity vs his UNconditioned opening range — for the side-by-side
+      // "vs opening range → vs betting range" read. Same seed → the gap is the
+      // conditioning (he bet this board), not Monte-Carlo noise.
+      const rawSim =
+        liveOpps > 1
+          ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400, makeRng(eqSeed))
+          : equityVsRange(hero.holeCards, game.board, range, 1400, makeRng(eqSeed));
+      const equityRaw = rawSim.equity;
+      const shape = summarizeRange(hero.holeCards, range, game.board, comboWeight);
+      const conditioned = !!comboWeight && game.board.length >= 3 && legal.callAmount > 0;
       const multiwayNote = liveOpps > 1 ? ` · vs ${liveOpps} opponents (multiway)` : '';
       const outsInfo = countOuts(hero.holeCards, game.board);
       const pot = potTotal(game);
@@ -439,7 +465,12 @@ export function useGame(initialProfiles: string[]) {
         requiredEquity: po.requiredEquity,
         oddsRatio: po.oddsRatio,
         ruleEstimate: ruleOf2and4(outsInfo.outs, cardsToCome),
+        trueEstimate: exactOutsEquity(outsInfo.outs, cardsToCome),
         rangeNote: note + multiwayNote,
+        equityRaw,
+        conditioned,
+        villainShape: shape.buckets,
+        villainAhead: shape.aheadPct,
         effStackBB: effStack / BIG_BLIND,
         spr,
         callStackPct,

@@ -4,7 +4,7 @@ import type { Card } from './cards';
 import { makeDeck, sameCard } from './cards';
 import { evaluate7, HAND_CATEGORIES } from './evaluator';
 import type { HandCategory } from './evaluator';
-import type { WeightedRange } from './range';
+import type { WeightedRange, ComboWeight } from './range';
 import { buildSampleTable, sampleCombo } from './range';
 
 export interface EquityResult {
@@ -102,10 +102,11 @@ export function equityVsRange(
   oppRange: WeightedRange,
   iterations = 1500,
   rng: () => number = Math.random,
+  comboWeight?: ComboWeight,
 ): EquityResult {
   if (hero.length < 2) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
   const dead = [...hero, ...board];
-  const table = buildSampleTable(oppRange, dead);
+  const table = buildSampleTable(oppRange, dead, comboWeight);
   if (table.total <= 0) {
     // range fully blocked — fall back to vs one random hand
     return monteCarloEquity(hero, board, 1, iterations, rng);
@@ -157,12 +158,13 @@ export function equityVsField(
   oppRanges: WeightedRange[],
   iterations = 1500,
   rng: () => number = Math.random,
+  comboWeight?: ComboWeight,
 ): EquityResult {
   if (hero.length < 2 || oppRanges.length === 0) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
-  if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations, rng);
+  if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations, rng, comboWeight);
 
   const dead0 = [...hero, ...board];
-  const tables = oppRanges.map((r) => buildSampleTable(r, dead0));
+  const tables = oppRanges.map((r) => buildSampleTable(r, dead0, comboWeight));
   const needBoard = 5 - board.length;
   let win = 0;
   let tie = 0;
@@ -299,4 +301,28 @@ export function ruleOf2and4(outs: number, cardsToCome: number): number {
   let pct = cardsToCome >= 2 ? outs * 4 : outs * 2;
   if (cardsToCome >= 2 && outs >= 9) pct -= outs - 8; // small correction
   return Math.max(0, Math.min(100, pct));
+}
+
+/**
+ * The EXACT probability of hitting at least one of `outs` by the river — the true
+ * number the Rule of 2 & 4 only approximates. Pure hypergeometric, no shortcut.
+ * Standard unseen-card counts from the hero's seat: 47 on the flop (turn AND river
+ * still to come), 46 on the turn (river only). Returns a percentage 0..100.
+ *
+ *   flop (2 cards): 1 − P(miss both) = 1 − (47−o)/47 · (46−o)/46
+ *   turn (1 card):  o / 46
+ *
+ * e.g. 9-out flush draw on the flop → 34.97% (Rule of 4 says ~36%).
+ */
+export function exactOutsEquity(outs: number, cardsToCome: number): number {
+  if (cardsToCome >= 2) {
+    const o = Math.max(0, Math.min(outs, 47));
+    const missBoth = ((47 - o) / 47) * ((46 - o) / 46);
+    return (1 - missBoth) * 100;
+  }
+  if (cardsToCome === 1) {
+    const o = Math.max(0, Math.min(outs, 46));
+    return (o / 46) * 100;
+  }
+  return 0;
 }

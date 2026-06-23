@@ -31,7 +31,9 @@ export interface Player {
   totalCommitted: number; // chips this hand
   hasActed: boolean; // acted since last aggression this street
   lastAction: string;
-  startStack: number;
+  startStack: number; // stack at the start of the current hand (for P/L this hand)
+  buyIn: number; // standard buy-in (chips) — busted players rebuy to THIS, not to
+  // the chip leader, so the table looks like a real cash game (most seats ~100bb).
 }
 
 export interface ActionRecord {
@@ -117,6 +119,7 @@ export function createGame(
       hasActed: false,
       lastAction: '',
       startStack: startingStackBB * bigBlind,
+      buyIn: startingStackBB * bigBlind,
     });
   }
   return {
@@ -147,9 +150,14 @@ function activeForButton(state: GameState): number[] {
 
 export function startHand(state: GameState): GameState {
   const n = state.players.length;
-  // top up any busted players to keep a full 6-handed practice table
+  // Rebuy busted players to their STANDARD buy-in (~100bb), exactly like a real
+  // cash game — a busted player tops up a normal stack, they do NOT auto-match the
+  // chip leader. So a hero who has run up to 800bb stays deep, but most seats sit
+  // ~100bb, the effective stack vs them is ~100bb, and you never get your whole
+  // 800bb in against a short stack. Deep pots happen only vs a bot that itself ran
+  // up. Falls back to 100bb for games persisted before `buyIn` existed.
   for (const p of state.players) {
-    if (p.stack <= 0) p.stack = p.startStack;
+    if (p.stack <= 0) p.stack = p.buyIn || state.bigBlind * 100;
   }
 
   // advance button to next seat with chips

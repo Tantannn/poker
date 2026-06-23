@@ -5,6 +5,7 @@
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
 import { makeRng } from '../engine/cards';
+import type { Card } from '../engine/cards';
 import { equityVsRange, equityVsField } from '../engine/equity';
 import { buildVillainRange } from '../strategy';
 import { potOdds } from '../engine/potOdds';
@@ -47,22 +48,48 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
 
   // helper to make a raise/bet to a pot fraction, clamped to legal bounds.
   // `shove` opts out of the commitment guard for deliberate all-ins.
-  const sizeTo = (fractionOfPot: number, isBet: boolean, shove = false): Action => {
+  const sizeTo = (
+    fractionOfPot: number,
+    isBet: boolean,
+    opts: { shove?: boolean; willCommit?: boolean } = {},
+  ): Action => {
+    const shove = opts.shove ?? false;
+    // willCommit = "this hand is worth playing for stacks". Only then does a
+    // committing sized bet get upgraded to a clean all-in; a marginal hand sizes
+    // down instead, so the bot never punts its whole (possibly 800bb) stack on
+    // one street with a hand not strong enough to stack off.
+    const willCommit = opts.willCommit ?? false;
     const base = isBet ? p.committed : state.currentBet;
     let target = Math.round(base + fractionOfPot * (pot + (isBet ? 0 : la.callAmount)));
     target = Math.max(target, la.minRaiseTo);
 
-    // Commitment guard: a normal bet/raise must never silently balloon into an
-    // all-in just because the pot-fraction math (or a re-raise war) crossed the
-    // stack. Cap a single action at ~60% of the remaining stack. Pots still grow
-    // street by street — but the human isn't surprise-jammed on a deep stack.
+    // Commitment guard. By the turn/river the pot is large, so a "normal"
+    // pot-fraction is already most of the remaining stack — the spot is committing.
     if (!shove) {
-      const softCap = p.committed + Math.round(p.stack * 0.6);
-      if (target > softCap) {
-        // if the cap would leave only crumbs behind, jam cleanly instead of
-        // leaving an unplayable sub-8bb stack; otherwise pull back to the cap.
-        const leftover = la.maxRaiseTo - softCap;
-        target = leftover <= state.bigBlind * 8 ? la.maxRaiseTo : Math.max(softCap, la.minRaiseTo);
+      const added = target - p.committed; // chips this action puts in
+      const behindAfter = p.stack - added; // stack left behind after it
+      const potRef = pot + (isBet ? 0 : la.callAmount);
+      const potAfter = potRef + added;
+      const crumbs = behindAfter <= state.bigBlind * 8; // unplayable nub left
+      const committing = crumbs || (potAfter > 0 && behindAfter / potAfter < 0.4);
+      if (committing) {
+        if (willCommit || crumbs) {
+          // Strong enough to play for stacks (or only a <8bb nub would remain) →
+          // jam clean instead of an awkward 91%-of-stack fraction.
+          target = la.maxRaiseTo;
+        } else {
+          // MARGINAL hand at low SPR: real players don't risk their whole stack on
+          // one street with a hand not worth stacking off. Size DOWN to the biggest
+          // bet that still leaves ~half-pot behind — keep pot control and a fold
+          // option later rather than committing the stack now.
+          const maxAdd = Math.max(0, p.stack - Math.round(0.5 * potRef));
+          target = Math.max(la.minRaiseTo, Math.min(target, p.committed + maxAdd));
+        }
+      } else {
+        // deep-stack guard: never let one action silently balloon past ~60% of a
+        // deep stack on a surprise re-raise war.
+        const softCap = p.committed + Math.round(p.stack * 0.6);
+        if (target > softCap) target = Math.max(softCap, la.minRaiseTo);
       }
     }
 
@@ -145,7 +172,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // their position + preflop action), not vs random cards. This is the core
   // smartness upgrade — bots now fold weak hands to strong ranges and value-bet
   // correctly, instead of treating every opponent as a random hand.
-  const { range: villainRange } = buildVillainRange(state, i);
+  const { range: villainRange, comboWeight } = buildVillainRange(state, i);
   const eqRes =
     liveOpponents > 1
       ? equityVsField(
@@ -154,8 +181,9 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
           Array.from({ length: liveOpponents }, () => villainRange),
           diff.iters,
           r,
+          comboWeight,
         )
-      : equityVsRange(p.holeCards, state.board, villainRange, diff.iters, r);
+      : equityVsRange(p.holeCards, state.board, villainRange, diff.iters, r, comboWeight);
   // difficulty: weaker bots misread their equity (noise); strong bots read true.
   let equity = eqRes.equity;
   if (diff.equityNoise > 0) {
@@ -179,6 +207,13 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     if (aggF > 1.6) callWiden += diff.adapt * 0.07; // hero over-aggressive → call lighter
   }
 
+  // Board-texture sizing (realism): bet small on dry/static boards, big on
+  // wet/draw-heavy ones, instead of one fixed fraction regardless of board.
+  // `textureMult` scales the role fraction (value / c-bet / bluff), so intent is
+  // preserved — a value bet is still a value bet, just sized to the texture.
+  const textureMult = boardSizeMult(state.board);
+  const tFrac = (base: number): number => jitter(base * textureMult);
+
   if (la.callAmount > 0) {
     // facing a bet
     const odds = potOdds(pot, la.callAmount);
@@ -189,11 +224,13 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     // value raise with strong hands — but sometimes just flat to trap (slowplay)
     if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7 * mood) {
       if (equity > 0.85 && r() < 0.25) return { type: 'call' }; // trap the monster
-      return sizeTo(jitter(0.7), false);
+      // only stack off with a genuinely strong hand (sets/strong two pair+)
+      return sizeTo(tFrac(0.7), false, { willCommit: equity > 0.8 });
     }
     // semi-bluff raise with aggression (not into a jam we can't profitably inflate)
     if (!bigBet && margin > 0 && equity < 0.55 && la.canRaise && r() < profile.bluffFreq * 0.5 * mood * bluffTilt) {
-      return sizeTo(jitter(0.8), false);
+      // commit only on a strong draw (decent equity when called); weak draws size down
+      return sizeTo(tFrac(0.8), false, { willCommit: equity > 0.5 });
     }
     // vs a shove / overbet: only continue with a clear edge. Marginal made hands
     // and draws fold — so a hero who jams has fold equity and isn't auto-called.
@@ -221,17 +258,38 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   if (equity > 0.85 && canSlowplay && r() < 0.3) {
     return { type: 'check' };
   }
-  // value bet
+  // value bet — only the strong end (overpair+/top-pair-strong-kicker and up) is
+  // willing to get stacks in; thin value sizes down instead of punting.
   if (equity > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt) {
-    return sizeTo(jitter(equity > 0.8 ? 0.75 : 0.55), true);
+    return sizeTo(tFrac(equity > 0.8 ? 0.75 : 0.55), true, { willCommit: equity > 0.78 });
   }
   // c-bet as the aggressor on many boards
   if (wasAggressor && r() < profile.cbetFreq * mood * bluffTilt && state.street === 'flop') {
-    return sizeTo(jitter(0.5), true);
+    return sizeTo(tFrac(0.5), true, { willCommit: equity > 0.78 });
   }
   // pure bluff
   if (equity < 0.4 && r() < profile.bluffFreq * 0.5 * mood * bluffTilt) {
-    return sizeTo(jitter(0.6), true);
+    return sizeTo(tFrac(0.6), true);
   }
   return { type: 'check' };
+}
+
+/** Bet-size multiplier from board wetness over the FULL board (so turn/river
+ *  flush/straight completers count, not just the flop). Dry/static boards bet
+ *  small (range bets); wet/draw-heavy boards bet big to charge the draws. Returns
+ *  a multiplier applied to the role fraction (≈0.66 dry … 1.3 very wet). */
+function boardSizeMult(board: Card[]): number {
+  if (board.length < 3) return 1;
+  const suitCounts = new Map<number, number>();
+  for (const c of board) suitCounts.set(c.suit, (suitCounts.get(c.suit) ?? 0) + 1);
+  const maxSuit = Math.max(...suitCounts.values());
+  const ranks = [...new Set(board.map((c) => c.rank))].sort((a, b) => a - b);
+  let straighty = false;
+  for (let i = 0; i + 1 < ranks.length; i++) if (ranks[i + 1] - ranks[i] <= 2) straighty = true;
+  const span = ranks[ranks.length - 1] - ranks[0];
+  let wet = 0;
+  if (maxSuit >= 3) wet += 2; // flush out there
+  else if (maxSuit === 2) wet += 1; // flush draw live
+  if (straighty || span <= 4) wet += 1; // connected / straight-draw heavy
+  return wet >= 3 ? 1.3 : wet === 2 ? 1.15 : wet === 1 ? 1.0 : 0.66;
 }

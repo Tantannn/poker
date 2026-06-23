@@ -3,8 +3,11 @@
 // strategy. NOT a Nash solve — a fast, transparent approximation.
 
 import type { Card } from '../engine/cards';
-import type { WeightedRange } from '../engine/range';
-import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
+import { makeDeck, sameCard, makeRng } from '../engine/cards';
+import type { WeightedRange, ComboWeight } from '../engine/range';
+import { buildSampleTable, sampleCombo } from '../engine/range';
+import { equityVsRange, equityVsField, countOuts, exactOutsEquity } from '../engine/equity';
+import { evaluate7 } from '../engine/evaluator';
 import { requiredEquityForBet } from '../engine/potOdds';
 import { classifyFlop } from '../engine/board';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
@@ -83,6 +86,19 @@ export interface PostflopInput {
   heroCode?: string;
   /** hero's position vs the villain — affects equity realisation & fold equity. */
   position?: 'ip' | 'oop';
+  /** effective stack BEHIND (chips still wagerable), in chips = min(hero, villain).
+   *  Drives implied odds (draws win more on later streets) and the all-in risk
+   *  premium (a deep shove risks far more than a shallow one). Falls back to the
+   *  hero's remaining stack when omitted. */
+  effStack?: number;
+  /** precomputed hero equity (0..1). When provided, the model reuses it instead of
+   *  running its OWN Monte-Carlo — so the solver panel and the HUD pot-odds panel
+   *  read the identical number and can't contradict each other on a thin spot. */
+  precomputedEquity?: number;
+  /** board+action range conditioning. Used to discount implied odds by how often a
+   *  draw that hits actually WINS vs the villain's *conditioned* betting range
+   *  (clean outs), instead of crediting every raw out as a winner. */
+  comboWeight?: ComboWeight;
 }
 
 interface Candidate {
@@ -104,10 +120,13 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const nOpp = ranges.length;
   const iters = inp.iterations ?? 1200;
   // multiway: hero must beat the whole field, so equity is lower than heads-up.
-  const eqRes = nOpp > 1
-    ? equityVsField(inp.hero, inp.board, ranges, iters)
-    : equityVsRange(inp.hero, inp.board, inp.oppRange, iters);
-  const e = eqRes.equity;
+  // Reuse the caller's equity when supplied (shared with the HUD); otherwise run
+  // our own Monte-Carlo (drills call this directly without a precomputed number).
+  const e =
+    inp.precomputedEquity ??
+    (nOpp > 1
+      ? equityVsField(inp.hero, inp.board, ranges, iters).equity
+      : equityVsRange(inp.hero, inp.board, inp.oppRange, iters).equity);
   const P = inp.pot;
   const C = inp.toCall;
   const bb = inp.bigBlind;
@@ -130,6 +149,32 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const realize = ip ? 1.06 : oop ? 0.9 : 1.0;
   const feMult = ip ? 1.1 : oop ? 0.9 : 1.0;
   const eReal = Math.min(1, e * realize);
+
+  // ---- depth: effective stack behind + SPR ----
+  // The thing the pure pot-odds EV ignores. effStack = chips still wagerable
+  // (min of hero vs villain). SPR drives implied odds for draws and the all-in
+  // risk premium below — so the SAME spot plays differently 100bb vs 800bb deep.
+  const effStack = inp.effStack ?? Math.max(0, inp.maxRaiseTo - inp.heroCommitted);
+  const cardsToCome = inp.board.length === 3 ? 2 : inp.board.length === 4 ? 1 : 0;
+  const spr = P > 0 ? effStack / P : 0;
+  // Implied odds for a CALL with a draw: when it completes on a later street hero
+  // wins EXTRA chips beyond today's pot — future bets villain pays off. That money
+  // is bounded by the stack behind, so deeper stacks = bigger implied odds. Only
+  // credited for real draws (>=4 outs) not already ahead, on flop/turn (the river
+  // has no "later street", so depth correctly adds nothing there).
+  let implied = 0;
+  let cleanFrac = 1; // share of outs that, when they hit, actually WIN vs his range
+  if (cardsToCome > 0 && C > 0 && outs >= 4 && e < 0.55) {
+    const pHit = Math.min(0.9, exactOutsEquity(outs, cardsToCome) / 100);
+    const behind = Math.max(0, effStack - C); // wagerable after the call
+    const futureBet = Math.min(behind, 0.6 * (P + C)); // ~⅔-pot payoff, capped by stack
+    // CLEAN OUTS: not every out is a winner. On a wet board a draw to two pair can
+    // hit and still lose to a flush / better two pair, and a "scary" card may stop
+    // villain paying. Scale implied odds by how often hitting actually wins vs his
+    // (conditioned) range — so optimistic draw-calls get pulled back toward fold.
+    cleanFrac = winIfHit(inp.hero, inp.board, inp.oppRange, inp.comboWeight);
+    implied = pHit * futureBet * realize * cleanFrac;
+  }
 
   const cands: Candidate[] = [];
 
@@ -159,12 +204,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     cands.push({
       id: 'call',
       label: `Call ${C}`,
-      ev: (eReal * (P + C) - C) / bb,
+      ev: (eReal * (P + C) - C + implied) / bb,
       kind: 'passive',
-      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${eReal >= need ? 'profitable' : 'marginal/-EV'}.${
+      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${eReal >= need || implied > 0 ? 'profitable' : 'marginal/-EV'}.${
         oop ? ' Out of position you realise less of that equity, so call tighter.' : ip ? ' In position you realise it well.' : ''
-      }`,
-      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call = ${pct1(eReal)} × ${P + C} − ${C} = ${(eReal * (P + C) - C).toFixed(1)} chips ≈ ${((eReal * (P + C) - C) / bb).toFixed(2)} bb`,
+      }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}`,
+      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(eReal)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(eReal * (P + C) - C + implied).toFixed(1)} chips ≈ ${((eReal * (P + C) - C + implied) / bb).toFixed(2)} bb`,
     });
   }
 
@@ -201,8 +246,11 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     const cls = classifyBet(e, outs);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
-    // apply a small risk premium — all-in only "wins" when it's clearly best.
-    const RISK = 0.5;
+    // apply a risk premium — all-in only "wins" when it's clearly best. SCALES
+    // WITH SPR: a sub-1-SPR jam is standard and barely a gamble, while a deep
+    // (high-SPR) shove risks a huge earned stack on one runout, so demand a far
+    // clearer edge before all-in becomes the top line.
+    const RISK = Math.max(0.1, Math.min(2.0, 0.3 + 0.25 * spr));
     const rawEv = d.ev / bb;
     const adjEv = rawEv - RISK;
     cands.push({
@@ -214,8 +262,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       kind: classKind(cls),
       why:
         whyBet(cls, e, d, outs, true, isRiver, allinFrac) +
-        ` Note: a ${RISK}bb risk premium is applied — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
-      math: `EV = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A}) = ${rawEv.toFixed(2)} bb\n   − ${RISK} bb high-variance risk premium → ${adjEv.toFixed(2)} bb`,
+        ` Note: a ${RISK.toFixed(1)}bb risk premium is applied (scaled to SPR ${spr.toFixed(1)} — deeper stacks risk more, so the premium is bigger) — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
+      math: `EV = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A}) = ${rawEv.toFixed(2)} bb\n   − ${RISK.toFixed(1)} bb risk premium (SPR ${spr.toFixed(1)}) → ${adjEv.toFixed(2)} bb`,
     });
   }
 
@@ -225,8 +273,11 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   // frequency and dominated lines fade faster, closer to "play the best line".
   const mix = mixFromEv(evs, 0.3, 1.4);
   const bestEv = Math.max(...cands.map((c) => c.ev));
-  // don't fold a +EV spot
-  if (bestEv > 0.001) mix.set('fold', 0);
+  // Only zero out fold when some line CLEARLY beats folding (> 0.1bb). A razor-thin
+  // +EV — a spot sitting right on the pot-odds line — stays a CALL/FOLD *mix* rather
+  // than snapping to 100%, so a break-even hand reads as "mostly call, sometimes
+  // fold" instead of flip-flopping between 100% fold and 100% call on tiny noise.
+  if (bestEv > 0.1) mix.set('fold', 0);
   // renormalise
   let sum = 0;
   mix.forEach((v) => (sum += v));
@@ -253,7 +304,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     bestEv: round2(bestEv),
     bestId: best.id,
     source: 'postflop-model',
-    note: `Equity ${(e * 100).toFixed(1)}% ${nOpp > 1 ? `vs the ${nOpp}-way field (you must beat all)` : 'vs villain range'}. EVs are heuristic estimates (fold-equity model), not a solver.`,
+    note: `Equity ${(e * 100).toFixed(1)}% ${nOpp > 1 ? `vs the ${nOpp}-way field (you must beat all)` : 'vs villain range'}.${inp.effStack != null ? ` Effective stack ${effStack} (SPR ${spr.toFixed(1)}) — depth-aware: draws get implied odds, deep shoves a bigger risk premium.` : ''} EVs are heuristic estimates (fold-equity model), not a solver.`,
     equity: e,
     rangeNote: inp.rangeNote,
     heroCode: inp.heroCode,
@@ -307,6 +358,53 @@ function computeAggro(
   const calledPot = P + A + R;
   const ev = fe * P + (1 - fe) * (e2 * calledPot - A);
   return { ev, fe, e2, calledPot, A };
+}
+
+/**
+ * Probability hero WINS at showdown GIVEN the draw completes, vs the (conditioned)
+ * villain range — the "clean outs" factor. On a wet board a draw can hit and still
+ * lose (flush over your two pair, a higher two pair, a counterfeiting river), so
+ * implied odds must be scaled by this rather than crediting every raw out.
+ *
+ * Seeded deterministically from hero+board so the discount (and the EV / HUD
+ * verdict that read it) stay stable across re-renders of the same node.
+ */
+function winIfHit(hero: Card[], board: Card[], oppRange: WeightedRange, comboWeight?: ComboWeight, iters = 300): number {
+  if (board.length >= 5) return 1;
+  const outs = countOuts(hero, board).cards;
+  if (!outs.length) return 1;
+  const dead = [...hero, ...board];
+  const table = buildSampleTable(oppRange, dead, comboWeight);
+  if (table.total <= 0) return 1;
+  let seed = 0x1a2b3c >>> 0;
+  for (const c of dead) seed = (seed ^ Math.imul(c.rank * 4 + c.suit + 1, 0x9e3779b1)) >>> 0;
+  const rng = makeRng(seed >>> 0 || 1);
+  let wins = 0;
+  let n = 0;
+  for (let i = 0; i < iters; i++) {
+    const out = outs[Math.floor(rng() * outs.length)]; // condition on a hit
+    const opp = sampleCombo(table, rng);
+    if (!opp) continue;
+    if (sameCard(opp[0], out) || sameCard(opp[1], out)) continue; // villain holds the out
+    const b2 = [...board, out];
+    const used = [...hero, ...b2, opp[0], opp[1]];
+    const deck = makeDeck().filter((d) => !used.some((u) => sameCard(u, d)));
+    const need = 5 - b2.length;
+    const fb = b2.slice();
+    let top = deck.length;
+    for (let k = 0; k < need; k++) {
+      const j = Math.floor(rng() * top);
+      fb.push(deck[j]);
+      deck[j] = deck[top - 1];
+      top--;
+    }
+    const hs = evaluate7([...hero, ...fb]).score;
+    const os = evaluate7([opp[0], opp[1], ...fb]).score;
+    n++;
+    if (hs > os) wins += 1;
+    else if (hs === os) wins += 0.5;
+  }
+  return n > 0 ? wins / n : 1;
 }
 
 function round2(x: number): number {

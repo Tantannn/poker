@@ -74,12 +74,12 @@ export function recommend(state: GameState): Recommendation & {
 
   // postflop — equity vs the opponent's actual range (not random cards), so this
   // advice lines up with the HUD, solver and bots.
-  const { range } = buildVillainRange(state, p.id);
+  const { range, comboWeight } = buildVillainRange(state, p.id);
   const opps = liveOpp(state, p.id);
   const eq =
     opps > 1
-      ? equityVsField(p.holeCards, state.board, Array.from({ length: opps }, () => range), 2000).equity
-      : equityVsRange(p.holeCards, state.board, range, 2000).equity;
+      ? equityVsField(p.holeCards, state.board, Array.from({ length: opps }, () => range), 2000, Math.random, comboWeight).equity
+      : equityVsRange(p.holeCards, state.board, range, 2000, Math.random, comboWeight).equity;
   const outsInfo = countOuts(p.holeCards, state.board);
 
   if (la.callAmount > 0) {

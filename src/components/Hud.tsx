@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { HudInfo } from '../hooks/useGame';
+import type { NodeStrategy, ActionOption } from '../strategy/types';
 import { CalcLabel, Tooltip } from './CalcTip';
 import { CALC } from './CalConstant';
 
@@ -9,9 +10,19 @@ interface Props {
   street: string;
   enabled: boolean;
   onToggle: () => void;
+  strategy?: NodeStrategy | null;
 }
 
-export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
+export function Hud({ hud, loading, street, enabled, onToggle, strategy }: Props) {
+  // The solver's recommended line — the SAME object the Solver panel renders. The
+  // 🧭 Decision logic + the pot-odds verdict both defer to it postflop, so the HUD
+  // can never contradict the solver (it used to, ignoring implied odds / fold
+  // equity that the solver counts). Preflop keeps the chart-based heuristic.
+  const solverBest =
+    strategy && strategy.source === 'postflop-model'
+      ? strategy.options.find((o) => o.id === strategy.bestId) ?? null
+      : null;
+  const solverContinues = !!solverBest && solverBest.id !== 'fold';
   return (
     <div className="hud">
       <div className="hud-head">
@@ -78,6 +89,56 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
           </div>
           <div className="hud-range">vs {hud.rangeNote}</div>
 
+          {hud.villainShape.length > 0 && (
+            <div className="hud-read">
+              <div className="hud-read-head">
+                <Tooltip
+                  className="tip-label"
+                  content={
+                    <span className="tip-body">
+                      <b className="tip-title">What villain is repping</b>
+                      <span className="tip-what">
+                        His preflop range, re-weighted by the board and the action he took. When he bets — especially
+                        big on a wet board — air is thinned and made hands (flushes, straights, sets) become a bigger
+                        share. The bars are that conditioned mix; "{`beats you`}" is how much of it is ahead of your hand
+                        right now.
+                      </span>
+                      <span className="tip-remember"><b>Remember:</b> a bet on a scary board means a stronger range — bluff-catch accordingly.</span>
+                    </span>
+                  }
+                >
+                  🔍 Villain range read
+                </Tooltip>
+                <b className={hud.villainAhead >= 0.5 ? 'bad' : hud.villainAhead <= 0.3 ? 'good' : 'okv'}>
+                  {pct(hud.villainAhead)} beats you
+                </b>
+              </div>
+
+              {hud.conditioned && (
+                <div className="read-compare">
+                  Equity: <span className="muted">{pct(hud.equityRaw)}</span> vs his opening range →{' '}
+                  <b className={hud.equity < hud.equityRaw - 0.01 ? 'bad' : 'good'}>{pct(hud.equity)}</b> vs his betting
+                  range
+                  {hud.equity < hud.equityRaw - 0.01 && (
+                    <span className="read-drop"> (−{((hud.equityRaw - hud.equity) * 100).toFixed(1)}pts — he bet, so he has it more often)</span>
+                  )}
+                </div>
+              )}
+
+              <div className="read-shape">
+                {hud.villainShape.map((s) => (
+                  <div className="shape-row" key={s.label}>
+                    <span className="shape-lbl">{s.label}</span>
+                    <span className="shape-bar">
+                      <span className={`shape-fill ${strongBucket(s.label) ? 'strong' : ''}`} style={{ width: `${Math.max(2, Math.round(s.pct * 100))}%` }} />
+                    </span>
+                    <span className="shape-pct">{Math.round(s.pct * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="hud-risk">
             <div className="hud-row">
               <CalcLabel id="spr">Effective stack · SPR</CalcLabel>
@@ -121,15 +182,17 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
                 </Tooltip>
                 <b>{pct(hud.requiredEquity)}</b>
               </div>
-              <div className={`hud-verdict ${hud.equity >= hud.requiredEquity ? 'good' : 'bad'}`}>
+              <div className={`hud-verdict ${hud.equity >= hud.requiredEquity ? 'good' : solverContinues ? 'okv' : 'bad'}`}>
                 {hud.equity >= hud.requiredEquity
-                  ? `✓ Calling is +EV (you have ${pct(hud.equity)} vs ${pct(hud.requiredEquity)} needed)`
-                  : `✗ Pure pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed)`}
+                  ? `✓ Calling is +EV on raw equity (${pct(hud.equity)} vs ${pct(hud.requiredEquity)} needed)`
+                  : solverContinues
+                    ? `~ Immediate pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)}), but the solver's best line is ${solverBest?.label} — implied odds / fold equity tip it. See 🧭 below.`
+                    : `✗ Pure pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed)`}
               </div>
             </div>
           )}
 
-          <DecisionGuide hud={hud} street={street} />
+          <DecisionGuide hud={hud} street={street} best={solverBest} />
 
           {(street === 'flop' || street === 'turn') && (
             <div className="hud-outs">
@@ -149,13 +212,20 @@ export function Hud({ hud, loading, street, enabled, onToggle }: Props) {
                           ? `≈ outs × 4 = ${hud.outs} × 4 = ${hud.ruleEstimate}%`
                           : `≈ outs × 2 = ${hud.outs} × 2 = ${hud.ruleEstimate}%`}
                       </code>
+                      <code className="tip-formula">
+                        {street === 'flop'
+                          ? `true = 1 − (${47 - hud.outs}/47)(${46 - hud.outs}/46) = ${hud.trueEstimate.toFixed(1)}%`
+                          : `true = ${hud.outs}/46 = ${hud.trueEstimate.toFixed(1)}%`}
+                      </code>
                       <span className="tip-remember"><b>Remember:</b> {CALC.ruleOf24.remember}</span>
                     </span>
                   }
                 >
                   Rule of 2 &amp; 4 estimate
                 </Tooltip>
-                <b>{hud.ruleEstimate}%</b>
+                <b>
+                  {hud.ruleEstimate}% <small className="hud-true">· true {hud.trueEstimate.toFixed(1)}%</small>
+                </b>
               </div>
               {hud.ruleEstimate / 100 - hud.equity > 0.1 && (
                 <div className="out-caveat">
@@ -219,8 +289,19 @@ function deriveVerdict(hud: HudInfo, street: string): Verdict {
   return { action: 'CHECK / give up', cls: 'bad', why: `Weak (${pct(e)}). Nothing to bet for value and little to draw to — check and fold to pressure.` };
 }
 
-function DecisionGuide({ hud, street }: { hud: HudInfo; street: string }) {
-  const v = deriveVerdict(hud, street);
+// Turn the solver's best option into the headline verdict — identical action to
+// what the Solver panel shows, so the two are synced by construction. Includes
+// the solver's own reason (which already mentions implied odds / fold equity).
+function solverVerdict(best: ActionOption): Verdict {
+  const mixed = best.freq > 0 && best.freq < 0.85;
+  const action = best.label.toUpperCase() + (mixed ? ` (${Math.round(best.freq * 100)}%)` : '');
+  const cls: Verdict['cls'] = best.id === 'fold' ? 'bad' : best.ev >= 0.5 ? 'good' : best.ev > 0.05 ? 'okv' : 'bad';
+  return { action, cls, why: best.why ?? `Highest-EV line (${best.ev.toFixed(2)} bb).` };
+}
+
+function DecisionGuide({ hud, street, best }: { hud: HudInfo; street: string; best: ActionOption | null }) {
+  // postflop: defer to the solver so HUD == Solver panel; else chart heuristic.
+  const v = best ? solverVerdict(best) : deriveVerdict(hud, street);
   return (
     <div className="hud-guide">
       <div className="hud-row">
@@ -268,6 +349,11 @@ function Stat({ label, value, big, highlight }: { label: ReactNode; value: strin
 
 function pct(x: number): string {
   return (x * 100).toFixed(1) + '%';
+}
+
+// buckets that beat a typical bluff-catcher — coloured to pop in the read box.
+function strongBucket(label: string): boolean {
+  return label === 'Flush+' || label === 'Straight' || label === 'Set / trips';
 }
 
 // "soft" outs — ones that only make a (weak) pair/two-pair. They improve your

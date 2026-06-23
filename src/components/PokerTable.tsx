@@ -25,6 +25,12 @@ interface Props {
 
 export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain } = g;
+  // the solver's recommended line — shared by the HUD verdict and the decision
+  // curve so every panel reads one authoritative source (postflop only).
+  const solverBest =
+    strategy && strategy.source === 'postflop-model'
+      ? strategy.options.find((o) => o.id === strategy.bestId) ?? null
+      : null;
   const reveal = game.street === 'complete' || game.street === 'showdown';
   const winnerIds = new Set(game.winners.map((w) => w.playerId));
   const started = game.handNumber > 0;
@@ -186,8 +192,16 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           </div>
         ) : (
           <>
-            <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} />
-            {hudEnabled && hud && <DecisionCurve equity={hud.equity} pot={hud.pot} toCall={hud.toCall} />}
+            <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} strategy={strategy} />
+            {hudEnabled && hud && (
+              <DecisionCurve
+                equity={hud.equity}
+                pot={hud.pot}
+                toCall={hud.toCall}
+                solverVerdict={solverBest ? (solverBest.id === 'fold' ? 'fold' : 'continue') : undefined}
+                solverLabel={solverBest?.label}
+              />
+            )}
             <SituationPanel board={game.board} heroCards={hero.holeCards} street={game.street} active={isHeroTurn} villain={villain} />
             <StrategyPanel
               strategy={strategy}

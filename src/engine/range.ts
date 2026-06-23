@@ -57,7 +57,14 @@ export interface SampleTable {
   total: number;
 }
 
-export function buildSampleTable(range: WeightedRange, dead: Card[]): SampleTable {
+/** Optional per-CONCRETE-combo multiplier (0..n) applied on top of the 169-code
+ *  weight. This is how board+action conditioning enters: e.g. on a 3-flush board a
+ *  villain who bets is far more likely to hold the two cards that MAKE the flush
+ *  than the same code's non-flush suits — a distinction the per-code weight can't
+ *  express, but this can. */
+export type ComboWeight = (a: Card, b: Card) => number;
+
+export function buildSampleTable(range: WeightedRange, dead: Card[], comboWeight?: ComboWeight): SampleTable {
   const combos: [Card, Card][] = [];
   const cum: number[] = [];
   let total = 0;
@@ -65,7 +72,9 @@ export function buildSampleTable(range: WeightedRange, dead: Card[]): SampleTabl
     if (w <= 0) return;
     for (const combo of codeToCombos(code)) {
       if (dead.some((d) => sameCard(d, combo[0]) || sameCard(d, combo[1]))) continue;
-      total += w;
+      const wq = comboWeight ? w * comboWeight(combo[0], combo[1]) : w;
+      if (wq <= 0) continue;
+      total += wq;
       combos.push(combo);
       cum.push(total);
     }

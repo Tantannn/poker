@@ -9,6 +9,10 @@ interface Props {
   equity: number; // hero equity 0..1
   pot: number; // total pot incl. the bet faced
   toCall: number; // chips to call (0 = can check)
+  // the solver's verdict, so the curve's PURE-pot-odds read can be reconciled with
+  // it instead of contradicting (the curve ignores implied odds / fold equity).
+  solverVerdict?: 'continue' | 'fold';
+  solverLabel?: string;
 }
 
 const F_MAX = 2; // x-axis runs 0 .. 2× pot
@@ -24,7 +28,7 @@ const X_TICKS: { f: number; label: string }[] = [
 ];
 const Y_TICKS = [0, 0.25, 0.5, 0.75, 1];
 
-export function DecisionCurve({ equity, pot, toCall }: Props) {
+export function DecisionCurve({ equity, pot, toCall, solverVerdict, solverLabel }: Props) {
   const W = 280;
   const H = 178;
   const padL = 30;
@@ -51,6 +55,9 @@ export function DecisionCurve({ equity, pot, toCall }: Props) {
   const fNow = toCall > 0 ? toCall / potBefore : 0;
   const need = requiredEquityForBet(Math.min(fNow, F_MAX));
   const isCall = equity >= need;
+  // pure pot odds vs the solver's fuller verdict — flag a mismatch so we explain it.
+  const disagree =
+    !!solverVerdict && ((isCall && solverVerdict === 'fold') || (!isCall && solverVerdict === 'continue'));
 
   return (
     <div className="dcurve-panel">
@@ -93,7 +100,13 @@ export function DecisionCurve({ equity, pot, toCall }: Props) {
           <span>
             Facing ~{fNow.toFixed(1)}× pot — need <b>{Math.round(need * 100)}%</b>, you have{' '}
             <b>{Math.round(equity * 100)}%</b> →{' '}
-            <b className={isCall ? 'good' : 'bad'}>{isCall ? 'call is +EV' : 'pot odds say fold'}</b>
+            <b className={disagree ? 'okv' : isCall ? 'good' : 'bad'}>{isCall ? 'pot odds: call' : 'pot odds: fold'}</b>
+            {disagree &&
+              (solverVerdict === 'continue' ? (
+                <> · but solver says <b className="okv">{solverLabel}</b> (implied odds / fold equity)</>
+              ) : (
+                <> · but solver <b className="bad">folds</b></>
+              ))}
           </span>
         ) : (
           <span>No bet to call. The curve shows the equity each bet size needs — green calls, red folds.</span>

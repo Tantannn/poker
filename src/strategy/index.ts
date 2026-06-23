@@ -4,8 +4,12 @@
 
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
-import type { WeightedRange } from '../engine/range';
-import { rangeFromSet } from '../engine/range';
+import type { Card } from '../engine/cards';
+import { sameCard } from '../engine/cards';
+import type { WeightedRange, ComboWeight } from '../engine/range';
+import { rangeFromSet, codeToCombos } from '../engine/range';
+import { evaluate7 } from '../engine/evaluator';
+import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, handCode } from '../ai/preflop';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { cellStrategy, getScenario, SCENARIOS } from './preflopChart';
@@ -24,9 +28,16 @@ const BASE_EV: Record<NonNullable<ActionOption['kind']>, number> = {
   aggressive: 0.6,
 };
 
-export function getNodeStrategy(state: GameState, heroIdx: number, iterations?: number): NodeStrategy {
+export function getNodeStrategy(
+  state: GameState,
+  heroIdx: number,
+  iterations?: number,
+  /** precomputed equity (0..1) to reuse instead of an independent MC run, so the
+   *  HUD and the solver panel agree exactly. Postflop only; preflop uses charts. */
+  equityOverride?: number,
+): NodeStrategy {
   if (state.street === 'preflop') return preflopStrategy(state, heroIdx);
-  return postflopStrategy(state, heroIdx, iterations);
+  return postflopStrategy(state, heroIdx, iterations, equityOverride);
 }
 
 // ----------------- preflop -----------------
@@ -144,33 +155,156 @@ function whyPreflop(kind: ActionOption['kind'], sc: PreflopScenario, code: strin
 }
 
 // ----------------- postflop -----------------
-export function buildVillainRange(state: GameState, heroIdx: number): { range: WeightedRange; note: string } {
+export function buildVillainRange(
+  state: GameState,
+  heroIdx: number,
+): { range: WeightedRange; note: string; comboWeight?: ComboWeight } {
+  // The preflop range is the STARTING set; comboWeight then conditions it on the
+  // board + this street's action (see villainActionWeight). Both panels and the
+  // bots run their equity through it, so "he bet a 3-flush board" actually shifts
+  // his range toward flushes instead of treating every preflop combo as a bettor.
+  const comboWeight = villainActionWeight(state, heroIdx);
   const villain = primaryVillain(state, heroIdx);
   if (villain < 0) {
-    return { range: rangeFromSet(RFI_RANGES.BTN), note: 'a generic continuing range' };
+    return { range: rangeFromSet(RFI_RANGES.BTN), note: 'a generic continuing range', comboWeight };
   }
   const pos = positionLabel(villain, state.buttonIndex, state.players.length);
   // was this villain the preflop aggressor?
   const wasAggressor = state.log.some(
     (l) => l.handNumber === state.handNumber && l.street === 'preflop' && l.playerId === villain && (l.type === 'raise' || l.type === 'bet'),
   );
+  let range: WeightedRange;
+  let note: string;
   if (pos === 'BB' && !wasAggressor) {
-    return { range: rangeFromSet(BB_DEFEND_RANGE), note: `${pos}'s wide defend range` };
+    range = rangeFromSet(BB_DEFEND_RANGE);
+    note = `${pos}'s wide defend range`;
+  } else {
+    const set = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
+    range = rangeFromSet(set);
+    note = `${pos}'s ~${pctOf(set)}% ${wasAggressor ? 'raising' : 'continuing'} range`;
   }
-  const set = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
-  return { range: rangeFromSet(set), note: `${pos}'s ~${pctOf(set)}% ${wasAggressor ? 'raising' : 'continuing'} range` };
+  const facingBet = state.currentBet > state.players[heroIdx].committed;
+  if (comboWeight && facingBet && state.board.length >= 3) {
+    note += ' · narrowed to the hands that bet this board (flushes/straights/sets up, air down)';
+  }
+  return { range, note, comboWeight };
 }
 
-function postflopStrategy(state: GameState, heroIdx: number, iterations?: number): NodeStrategy {
+export interface RangeShapeBucket {
+  label: string;
+  pct: number; // mass fraction 0..1
+}
+
+/** What the villain is "repping": the composition of his (conditioned) range on
+ *  the current board, plus the share of that range currently AHEAD of the hero.
+ *  Mass-weighted by code weight × comboWeight, blocker-aware. Used by the HUD so
+ *  the player can SEE why their bluff-catcher is good or bad here. */
+export function summarizeRange(
+  hero: Card[],
+  range: WeightedRange,
+  board: Card[],
+  comboWeight?: ComboWeight,
+): { buckets: RangeShapeBucket[]; aheadPct: number } {
+  if (board.length < 3 || hero.length < 2) return { buckets: [], aheadPct: 0 };
+  const dead = [...hero, ...board];
+  const heroScore = evaluate7([...hero, ...board]).score;
+  const mass = new Map<string, number>();
+  let total = 0;
+  let ahead = 0;
+  range.forEach((w, code) => {
+    if (w <= 0) return;
+    for (const [a, b] of codeToCombos(code)) {
+      if (dead.some((d) => sameCard(d, a) || sameCard(d, b))) continue;
+      const m = w * (comboWeight ? comboWeight(a, b) : 1);
+      if (m <= 0) continue;
+      const res = evaluate7([a, b, ...board]);
+      const outs = board.length < 5 ? countOuts([a, b], board).outs : 0;
+      let label: string;
+      if (res.categoryRank >= 5) label = 'Flush+';
+      else if (res.categoryRank === 4) label = 'Straight';
+      else if (res.categoryRank === 3) label = 'Set / trips';
+      else if (res.categoryRank === 2) label = 'Two pair';
+      else if (res.categoryRank === 1) label = 'One pair';
+      else if (outs >= 4) label = 'Draw';
+      else label = 'Air';
+      mass.set(label, (mass.get(label) ?? 0) + m);
+      total += m;
+      if (res.score > heroScore) ahead += m;
+    }
+  });
+  if (total <= 0) return { buckets: [], aheadPct: 0 };
+  const order = ['Flush+', 'Straight', 'Set / trips', 'Two pair', 'One pair', 'Draw', 'Air'];
+  const buckets = order.filter((l) => mass.has(l)).map((l) => ({ label: l, pct: (mass.get(l) as number) / total }));
+  return { buckets, aheadPct: ahead / total };
+}
+
+/** Builds the per-combo multiplier that conditions a villain's preflop range on
+ *  the current board + the action they just took. Returns undefined preflop (the
+ *  charts already model that). */
+function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | undefined {
+  const board = state.board;
+  if (board.length < 3) return undefined;
+  const hero = state.players[heroIdx];
+  const pot = potTotal(state);
+  const toCall = Math.max(0, state.currentBet - hero.committed);
+  const facingBet = toCall > 0;
+  // bet size as a fraction of the pot (pot already includes the villain's bet) —
+  // a size proxy that drives how POLARIZED the conditioned range becomes.
+  const betFrac = pot > 0 ? toCall / pot : 0;
+  return (a: Card, b: Card) => betConditionedWeight(a, b, board, facingBet, betFrac);
+}
+
+/** Likelihood (relative weight) that a villain holding this concrete combo would
+ *  take the action they took, given the board. Value/strong-draw hands bet; air
+ *  mostly gives up — and a bigger bet thins the weak end harder (polarization). */
+function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolean, betFrac: number): number {
+  const cat = evaluate7([a, b, ...board]).categoryRank; // 0 high card .. 8 straight flush
+  const outs = board.length < 5 ? countOuts([a, b], board).outs : 0; // draws (flop/turn)
+  if (!facingBet) {
+    // Villain CHECKED to us → capped range: the strongest hands usually would have
+    // bet, so down-weight them slightly. (Hero is the aggressor in this branch.)
+    return cat >= 6 ? 0.6 : cat >= 4 ? 0.85 : 1;
+  }
+  // Villain BET → value-weighted, polarized. Made-hand strength sets the base.
+  let w: number;
+  if (cat >= 5) w = 1.3; // flush / full house / quads / straight flush
+  else if (cat === 4) w = 1.2; // straight
+  else if (cat === 3) w = 1.15; // trips / set
+  else if (cat === 2) w = 1.0; // two pair
+  else if (cat === 1) w = 0.55; // one pair — bets some, checks some
+  else w = 0.18; // high card / air — mostly gives up (a few bluffs)
+  // strong draws semi-bluff too (flop/turn only; the river has no draws)
+  if (outs >= 8) w = Math.max(w, 0.85);
+  else if (outs >= 4) w = Math.max(w, 0.45);
+  // A bigger bet polarizes: it thins the weak/air part of the range harder, so the
+  // value (and the flushes) become a LARGER share — exactly why a big bet on a
+  // 3-flush board should tank a bluff-catcher's equity.
+  const polar = Math.min(1, betFrac / 0.75); // 0 (tiny) .. 1 (¾-pot or bigger)
+  if (w < 0.7) w *= 1 - 0.55 * polar;
+  return w;
+}
+
+function postflopStrategy(
+  state: GameState,
+  heroIdx: number,
+  iterations?: number,
+  equityOverride?: number,
+): NodeStrategy {
   const hero = state.players[heroIdx];
   const la = legalActions(state);
   const pot = potTotal(state);
-  const { range, note } = buildVillainRange(state, heroIdx);
+  const { range, note, comboWeight } = buildVillainRange(state, heroIdx);
 
   // every still-live opponent — in a multiway pot hero must beat all of them, so
   // the EV model gets the whole field (approximated as each holding `range`).
   const liveOpps = state.players.filter((p) => !p.folded && p.id !== heroIdx).length;
   const oppRanges = Array.from({ length: Math.max(1, liveOpps) }, () => range);
+
+  // Effective stack BEHIND = min(hero's remaining, the live opponents'). You can
+  // only win/lose the smaller, so a deep hero vs a short villain is a SHORT game.
+  // Feeds implied odds + the SPR risk premium so the model is depth-aware.
+  const oppStacks = state.players.filter((p) => !p.folded && p.id !== heroIdx).map((p) => p.stack);
+  const effStack = Math.min(hero.stack, ...(oppStacks.length ? oppStacks : [hero.stack]));
 
   return solvePostflop({
     hero: hero.holeCards,
@@ -189,6 +323,9 @@ function postflopStrategy(state: GameState, heroIdx: number, iterations?: number
     iterations,
     rangeNote: note,
     heroCode: handCode(hero.holeCards),
+    effStack,
+    precomputedEquity: equityOverride,
+    comboWeight,
   });
 }
 

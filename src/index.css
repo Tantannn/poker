@@ -467,6 +467,26 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 
 /* ---------- HUD range note ---------- */
 .hud-range { font-size: 11.5px; color: var(--muted); margin-top: 6px; font-style: italic; }
+.hud-true { color: var(--muted); font-weight: 500; font-size: 11px; }
+
+/* ---------- HUD villain range read ---------- */
+.hud-read { margin-top: 8px; padding: 9px 10px; background: var(--chip); border: 1px solid var(--line); border-radius: 9px; }
+.hud-read-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.hud-read-head b { color: var(--gold); }
+.hud-read-head b.good { color: var(--raise); }
+.hud-read-head b.bad { color: var(--red); }
+.hud-read-head b.okv { color: var(--gold); }
+.read-compare { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.read-compare b.good { color: var(--raise); }
+.read-compare b.bad { color: var(--red); }
+.read-drop { color: var(--red); }
+.read-shape { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.shape-row { display: grid; grid-template-columns: 78px 1fr 34px; align-items: center; gap: 7px; font-size: 11.5px; }
+.shape-lbl { color: var(--muted); white-space: nowrap; }
+.shape-bar { background: #0d1812; border-radius: 4px; height: 9px; overflow: hidden; }
+.shape-fill { display: block; height: 100%; background: #3a5a48; border-radius: 4px; }
+.shape-fill.strong { background: var(--red); }
+.shape-pct { text-align: right; color: var(--gold); font-variant-numeric: tabular-nums; }
 
 /* ---------- strategy panel ---------- */
 .strat-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
@@ -499,6 +519,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .dcurve-legend { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
 .dcurve-legend .good { color: var(--raise); }
 .dcurve-legend .bad { color: var(--red); }
+.dcurve-legend .okv { color: var(--gold); }
 .strat-rows { display: flex; flex-direction: column; gap: 6px; }
 .strat-row { display: flex; align-items: center; gap: 10px; }
 .strat-row.prescribed { outline: 1px dashed var(--gold); outline-offset: 2px; border-radius: 6px; }
