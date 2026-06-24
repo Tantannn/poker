@@ -12,23 +12,62 @@ import { rangeFromSet } from '../engine/range';
 import type { WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
 import { classifyHandClass } from '../strategy/handClass';
+import type { HandClass } from '../strategy/handClass';
 import { PlayingCard } from './PlayingCard';
 
 interface RangeOpt {
   id: string;
   label: string;
   note: string;
+  /** how wide the range is — the other half of the equity read. */
+  width: 'wide' | 'tight';
   range: WeightedRange;
 }
 
 // Static villain ranges (built once). These are the spots you face constantly.
 const RANGES: RangeOpt[] = [
-  { id: 'btn', label: 'BTN open', note: "Button opening range — wide steal", range: rangeFromSet(RFI_RANGES.BTN) },
-  { id: 'co', label: 'CO open', note: 'Cutoff open — fairly wide', range: rangeFromSet(RFI_RANGES.CO) },
-  { id: 'utg', label: 'UTG open', note: 'Early-position open — tight & strong', range: rangeFromSet(RFI_RANGES.UTG) },
-  { id: '3bet', label: '3-bet value', note: 'Re-raise range — QQ+/AK heavy', range: rangeFromSet(THREEBET_RANGE) },
-  { id: 'bbdef', label: 'BB defend', note: 'BB calling a button open — very wide', range: rangeFromSet(BB_DEFEND_RANGE) },
+  { id: 'btn', label: 'BTN open', note: "Button opening range — wide steal", width: 'wide', range: rangeFromSet(RFI_RANGES.BTN) },
+  { id: 'co', label: 'CO open', note: 'Cutoff open — fairly wide', width: 'wide', range: rangeFromSet(RFI_RANGES.CO) },
+  { id: 'utg', label: 'UTG open', note: 'Early-position open — tight & strong', width: 'tight', range: rangeFromSet(RFI_RANGES.UTG) },
+  { id: '3bet', label: '3-bet value', note: 'Re-raise range — QQ+/AK heavy', width: 'tight', range: rangeFromSet(THREEBET_RANGE) },
+  { id: 'bbdef', label: 'BB defend', note: 'BB calling a button open — very wide', width: 'wide', range: rangeFromSet(BB_DEFEND_RANGE) },
 ];
+
+// Plain-English, no-math reason for the equity read. Equity vs a range is driven
+// by two things you can eyeball: how strong YOUR hand is, and how WIDE their
+// range is (wide = lots of air you beat; tight = lots of strength you don't).
+// Each rule ends with a short memory hook.
+function whyRange(hc: HandClass, width: 'wide' | 'tight'): string {
+  const isDraw = /draw|over-ender|open-end|gutshot|overcards/i.test(hc.label);
+  const s = hc.strength;
+
+  const hand =
+    s >= 4 ? `You have a strong made hand (${hc.label})`
+    : isDraw ? `You have a draw (${hc.label}) — outs, but nothing made yet`
+    : s >= 3 ? `You have a solid made hand (${hc.label})`
+    : s === 0 ? `You have air (${hc.label}) — no pair, no draw`
+    : `You have a weak made hand (${hc.label})`;
+
+  const range =
+    width === 'wide'
+      ? `Their range is wide — mostly unpaired air and weak hands`
+      : `Their range is tight — big pairs and strong aces, few weak hands`;
+
+  const rule =
+    isDraw
+      ? `A draw is outs, not a made hand — you're the underdog until it hits. 💡 Outs ≠ ahead.`
+    : s === 0
+      ? `Air beats almost nothing. 💡 No pair, no draw = behind.`
+    : s >= 3
+      ? (width === 'wide'
+          ? `A strong hand vs a wide range beats most of it → big edge. 💡 Wider range → more equity for you.`
+          : `Even a strong hand shrinks vs a tight range — they're rarely weak. 💡 Tighter range → less equity for you.`)
+    : (width === 'wide'
+        ? `A weak pair still beats their air, but it's only a small edge. 💡 Any pair vs a wide range ≈ ahead but thin.`
+        : `A weak pair vs a tight range is in trouble — they out-pair or out-kick you. 💡 Weak hand + tight range = behind.`);
+
+  return `${hand}. ${range}. ${rule}`;
+}
 
 // Buckets = how you actually think at the table. Boundaries are [lo, hi).
 const BANDS = [
@@ -53,13 +92,13 @@ function dealHero(): Card[] {
   return [a, b];
 }
 
-interface Spot { hero: Card[]; board: Card[]; label: string }
+interface Spot { hero: Card[]; board: Card[]; hc: HandClass }
 
 function genSpot(): Spot {
   const hero = dealHero();
   let board = randomFlop('any', hero);
   if (Math.random() < 0.5) board = [...board, randomCard([...hero, ...board])]; // sometimes a turn
-  return { hero, board, label: classifyHandClass(hero, board).label };
+  return { hero, board, hc: classifyHandClass(hero, board) };
 }
 
 export function RangeDrill() {
@@ -108,7 +147,7 @@ export function RangeDrill() {
 
       <div className="lab-board">
         <div className="lab-hero">
-          <span className="lab-tag">Your hand · {spot.label}</span>
+          <span className="lab-tag">Your hand · {spot.hc.label}</span>
           <div className="lab-cards">{spot.hero.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
         </div>
         <div className="lab-flop">
@@ -140,9 +179,13 @@ export function RangeDrill() {
           </div>
           <div className={`lab-feedback ${correct ? 'good' : 'bad'}`}>
             {correct
-              ? `✓ Right read — ${spot.label} is ${BANDS[trueBand].lbl.toLowerCase()} here (${equity.toFixed(1)}%).`
+              ? `✓ Right read — ${spot.hc.label} is ${BANDS[trueBand].lbl.toLowerCase()} here (${equity.toFixed(1)}%).`
               : `✗ You said ${BANDS[chosen!].lbl}, but it's ${BANDS[trueBand].lbl} (${equity.toFixed(1)}%).`}
             <button className="btn btn-deal lab-next" onClick={next}>Next spot →</button>
+          </div>
+          <div className="drill-hook">
+            <span className="drill-hook-tag">💡 Why</span>
+            <p>{whyRange(spot.hc, ropt.width)}</p>
           </div>
           <div className="rd-tip">
             Tip: switch the villain range above (same hand) to feel how much the <i>range</i> moves your

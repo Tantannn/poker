@@ -740,13 +740,14 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 /* ---------- lab meta + playout log ---------- */
 .lab-meta { font-size: 13px; color: var(--gold); font-weight: 700; margin: 6px 0 10px; }
 .play-log { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 12px; }
-.play-log-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 5px 9px; border-radius: 7px; background: var(--bg2); border-left: 4px solid var(--line); }
+.play-log-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; padding: 5px 9px; border-radius: 7px; background: var(--bg2); border-left: 4px solid var(--line); }
 .play-log-row.good { border-left-color: var(--raise); }
 .play-log-row.okv { border-left-color: var(--gold); }
 .play-log-row.bad { border-left-color: var(--red); }
 .pl-street { text-transform: uppercase; font-weight: 800; font-size: 10px; letter-spacing: 0.5px; color: var(--muted); flex: 0 0 48px; }
 .pl-act { flex: 1; }
 .pl-loss { font-weight: 700; font-variant-numeric: tabular-nums; }
+.pl-hook { flex: 0 0 100%; font-size: 11.5px; color: var(--muted); line-height: 1.45; padding-left: 58px; }
 
 /* ---------- leak quiz ---------- */
 .leak-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
@@ -1215,4 +1216,11 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .bsd-pill.small { background: #3aa0e0; }
 .bsd-pill.big { background: var(--gold); }
 .bsd-pill.polar { background: var(--raise); }
+.bsd-pill.check { background: #6b7a72; color: #e8efe9; }
+.bsd-pill.pos { background: #8a6fd6; color: #f2eefc; }
 .bsd-note { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.55; }
+.bsd-rule {
+  margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 13px; line-height: 1.5;
+  background: rgba(46, 194, 126, 0.1); border: 1px solid rgba(46, 194, 126, 0.3); color: var(--txt);
+}
+.bsd-rule b { color: var(--gold); }

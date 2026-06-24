@@ -7,16 +7,18 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { randomFlop, randomCard } from '../engine/board';
+import { randomFlop, randomCard, describeTexture } from '../engine/board';
 import type { TextureFilter } from '../engine/board';
 import { TEXTURE_LABELS } from '../engine/board';
 import { rangeFromSet } from '../engine/range';
 import type { WeightedRange } from '../engine/range';
 import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE } from '../ai/preflop';
 import { solvePostflop } from '../strategy/postflopModel';
+import { classifyHandClass } from '../strategy/handClass';
 import { evLoss, rngPrescription } from '../strategy/types';
 import type { ActionId } from '../strategy/types';
 import { PlayingCard } from './PlayingCard';
+import { InfoTip } from './CalcTip';
 
 const BB = 2;
 type Street = 'flop' | 'turn' | 'river';
@@ -67,6 +69,35 @@ const KIND_COLOR: Record<string, string> = {
   aggressive: '#2ec27e',
 };
 
+// One-line memorable rule per action — the recallable takeaway, no equation. The
+// solver's `why` still explains the specific spot; this is the rule it instances.
+const ACTION_HOOK: Record<string, string> = {
+  fold: 'Not enough equity for the price — folding risks nothing more. 💡 Bad price + weak hand → fold.',
+  check: 'No value bet and no fold-equity case — take a free card, control the pot. 💡 No edge → check.',
+  call: 'Right price with outs or showdown value — call, don\'t bloat with a marginal hand. 💡 Price good, hand thin → call.',
+  bet33: 'Dry, static board / range advantage — bet small, bet often. 💡 Dry board → small.',
+  bet75: 'Wet, dynamic board — charge their draws and build the pot. 💡 Wet board → big.',
+  betpot: 'Nut edge / polar range — max value and max fold equity. 💡 Nut edge → pot.',
+  allin: 'Low SPR or a clear nut edge — just get it in. 💡 Low SPR → commit.',
+  raise: 'Strong enough to raise villain\'s bet for value/protection. 💡 Ahead of their bet → raise.',
+};
+
+// Texture-read tooltip for a board — same read the newer drills surface.
+function TextureTip({ board }: { board: Card[] }) {
+  const tex = describeTexture(board);
+  return (
+    <InfoTip
+      content={
+        <span className="tip-body">
+          <b className="tip-title">Texture read · {tex.label}</b>
+          <span className="tip-what">{tex.sentence}</span>
+          {tex.favours && <span className="tip-remember"><b>Edge:</b> {tex.favours}</span>}
+        </span>
+      }
+    />
+  );
+}
+
 function randCard(): Card {
   return { rank: 2 + Math.floor(Math.random() * 13), suit: Math.floor(Math.random() * 4) };
 }
@@ -111,7 +142,7 @@ interface PlayState {
   behind: number;
   vBehind: number;
   done: boolean;
-  log: { street: Street; chosen: string; best: string; loss: number }[];
+  log: { street: Street; chosen: string; best: string; bestId: ActionId; loss: number }[];
   total: number;
 }
 
@@ -224,7 +255,7 @@ export function PostflopLab() {
       if (!opt) return;
       const l = evLoss(poStrategy, id);
       const bestLabel = poStrategy.options.find((o) => o.id === poStrategy.bestId)?.label ?? '';
-      const log = [...po.log, { street: po.street, chosen: opt.label, best: bestLabel, loss: l }];
+      const log = [...po.log, { street: po.street, chosen: opt.label, best: bestLabel, bestId: poStrategy.bestId, loss: l }];
 
       let { pot, behind, vBehind, board, street: st } = po;
       let done = false;
@@ -365,11 +396,11 @@ function SingleMode(props: {
       <div className="lab-meta">{potLabel} · pot {pot} ({(pot / BB).toFixed(1)}bb) · SPR {spr}</div>
       <div className="lab-board">
         <div className="lab-hero">
-          <span className="lab-tag">Your hand</span>
+          <span className="lab-tag">Your hand · {classifyHandClass(spot.hero, spot.board).label}</span>
           <div className="lab-cards">{spot.hero.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
         </div>
         <div className="lab-flop">
-          <span className="lab-tag">Board</span>
+          <span className="lab-tag">Board · {describeTexture(spot.board).label}<TextureTip board={spot.board} /></span>
           <div className="lab-cards">{spot.board.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
         </div>
         <div className="lab-eq">
@@ -411,13 +442,14 @@ function SingleMode(props: {
             <div className="lab-why-row">
               <span className="lab-why-tag best">Best · {bestLabel}</span>
               {bestOpt?.why && <p>{bestOpt.why}</p>}
-              {bestOpt?.math && <div className="se-math">{bestOpt.math}</div>}
+              {ACTION_HOOK[strategy.bestId] && (
+                <div className="bsd-rule"><b>💡 Rule:</b> {ACTION_HOOK[strategy.bestId]}</div>
+              )}
             </div>
             {chosen !== strategy.bestId && chosenOpt && (
               <div className="lab-why-row">
                 <span className="lab-why-tag you">Your pick · {chosenOpt.label}</span>
                 {chosenOpt.why && <p>{chosenOpt.why}</p>}
-                {chosenOpt.math && <div className="se-math">{chosenOpt.math}</div>}
               </div>
             )}
           </div>
@@ -452,11 +484,11 @@ function PlayoutMode(props: {
       </div>
       <div className="lab-board">
         <div className="lab-hero">
-          <span className="lab-tag">Your hand</span>
+          <span className="lab-tag">Your hand · {classifyHandClass(po.hero, po.board).label}</span>
           <div className="lab-cards">{po.hero.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
         </div>
         <div className="lab-flop">
-          <span className="lab-tag">Board</span>
+          <span className="lab-tag">Board · {describeTexture(po.board).label}<TextureTip board={po.board} /></span>
           <div className="lab-cards">{po.board.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
         </div>
         <div className="lab-eq">
@@ -472,6 +504,7 @@ function PlayoutMode(props: {
               <span className="pl-street">{e.street}</span>
               <span className="pl-act">you {e.chosen}{e.chosen !== e.best ? ` · best ${e.best}` : ' ✓'}</span>
               <span className="pl-loss">{e.loss <= 0.04 ? 'on line' : `−${e.loss.toFixed(2)} bb`}</span>
+              {e.loss > 0.04 && ACTION_HOOK[e.bestId] && <span className="pl-hook">💡 {ACTION_HOOK[e.bestId]}</span>}
             </div>
           ))}
         </div>
