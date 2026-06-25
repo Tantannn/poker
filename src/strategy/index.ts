@@ -69,7 +69,11 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
       : 'btn-vs-3bet';
     return { sc: getScenario(tbId), level: 2 };
   }
-  // facing a single open
+  // facing a single open — pick the chart matching BOTH the hero's seat AND the
+  // ACTUAL opener, not always "vs UTG". Defence widens a lot vs a late (steal)
+  // open, so grading a BTN/SB hand against the tight vs-UTG range wrongly folds
+  // standard steal-defends. We only have a subset of pairings charted, so fall
+  // back to the nearest existing one (vs-UTG = tightest baseline).
   const raiser = lastRaiser(state);
   const raiserPos = raiser >= 0 ? positionLabel(raiser, state.buttonIndex, state.players.length) : undefined;
   if (heroPos === 'BB') {
@@ -83,7 +87,12 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
       : 'bb-vs-btn';
     return { sc: getScenario(bbId), level: 1 };
   }
-  if (heroPos === 'CO') return { sc: getScenario('co-vs-utg'), level: 1 };
+  // SB only has a vs-BTN (steal) defence chart — the 3-bet-or-fold shape is right
+  // for any steal and far closer than the flat-heavy vs-UTG chart it used before.
+  if (heroPos === 'SB') return { sc: getScenario('sb-vs-btn'), level: 1 };
+  if (heroPos === 'BTN') return { sc: getScenario(raiserPos === 'CO' ? 'btn-vs-co' : 'btn-vs-utg'), level: 1 };
+  if (heroPos === 'CO') return { sc: getScenario(raiserPos === 'MP' ? 'co-vs-mp' : 'co-vs-utg'), level: 1 };
+  // UTG/MP facing an open ahead of them — rare, and tight: keep the vs-UTG baseline.
   return { sc: getScenario('btn-vs-utg'), level: 1 };
 }
 

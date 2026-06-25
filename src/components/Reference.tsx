@@ -26,8 +26,8 @@ export function Reference() {
             <table>
               <thead><tr><th>Match-up</th><th>Equity</th></tr></thead>
               <tbody>
-                <tr><td>Pair vs 2 lower cards (88 vs JT)</td><td className="num">~53 / 47</td></tr>
-                <tr><td>Pair vs over+under (KQ vs JJ)</td><td className="num">~57 / 43</td></tr>
+                <tr><td>Pair vs 2 overcards (88 vs JT)</td><td className="num">~53 / 47</td></tr>
+                <tr><td>Pair vs over+under (JJ vs AT)</td><td className="num">~70 / 30</td></tr>
                 <tr><td>Overpair vs underpair (KK vs 88)</td><td className="num">~82 / 18</td></tr>
                 <tr><td>Two overs vs two unders (AK vs QJ)</td><td className="num">~60 / 40</td></tr>
                 <tr><td>Dominated (AK vs AQ)</td><td className="num">~72 / 28</td></tr>

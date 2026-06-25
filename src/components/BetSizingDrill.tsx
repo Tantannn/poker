@@ -245,11 +245,13 @@ export function BetSizingDrill() {
           <div><span className="bsd-pill polar">Pot</span> You have the nut advantage — strong, polar range. Max value / max fold equity. Also low SPR / commitment spots.</div>
           <div><span className="bsd-pill check">Check</span> Neither edge — marginal made hands and air with no value/fold-equity case. Pot control, realize equity for free. Drilled in <b>Bet or check</b> mode.</div>
           <div><span className="bsd-pill pos">Position</span> <b>In position</b> you realise equity well → bet smaller, bet more often, check back marginal hands. <b>Out of position</b> you realise less → check more, and go bigger / more polar when you do bet.</div>
+          <div><span className="bsd-pill polar">Don't over-bet value</span> A one-pair overpair is <i>not</i> a jam. Size to the <b>worst hand that still calls</b> — over-bet/shove and you fold out everything you beat and get called only by what beats you. Get the stack in across streets, not all at once. <b>Overbet/jam = polar nuts &amp; air, or low SPR — not a hand that wants calls.</b></div>
         </div>
         <p className="bsd-note">
           Core idea: <b>size follows board advantage</b>. Range advantage → small &amp; often · nut advantage →
           big &amp; polar · neither → check. Position layers on top: <b>IP smaller &amp; more often, OOP
           polarise</b>. Value and bluffs use the <i>same</i> size so villain can't tell them apart.
+          And a value hand wants <b>calls from worse</b> — don't confuse protection with the urge to shove.
         </p>
       </div>
     </div>
