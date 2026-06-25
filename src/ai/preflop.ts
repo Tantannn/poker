@@ -120,6 +120,13 @@ export const POSITION_NOTES: Record<Position, string> = {
 export const THREEBET_TOKENS = ['QQ+', 'AKs', 'AKo', 'A5s', 'A4s', 'KQs'];
 export const THREEBET_RANGE = buildRange(THREEBET_TOKENS);
 
+/** 3-bet BLUFF range vs an open: suited wheel aces + suited Broadway gappers.
+ *  These block villain's AA/AK and keep backup equity (flushes/straights) — the
+ *  opposite of random offsuit air. A5s/A4s live in the value range above, so the
+ *  net bluff adds are A3s–A2s and the suited gappers. */
+export const BLUFF_THREEBET_TOKENS = ['A5s', 'A4s', 'A3s', 'A2s', 'KJs', 'KTs', 'QTs', 'J9s'];
+export const BLUFF_THREEBET_RANGE = buildRange(BLUFF_THREEBET_TOKENS);
+
 /** BB defend (call) range vs a button open — wide. */
 export const BB_DEFEND_TOKENS = [
   '22+', 'A2s+', 'K2s+', 'Q4s+', 'J6s+', 'T6s+', '95s+', '85s+', '74s+', '64s+', '53s+', '43s',

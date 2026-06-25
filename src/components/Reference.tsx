@@ -204,8 +204,8 @@ export function Reference() {
               the final pot size, get thin value, and fold less to bets you saw coming.
             </p>
             <ul className="tips">
-              <li>Rough rule: in position a hand realizes <b>~110%</b> of its raw equity; out of position
-                <b> ~85%</b>. That swing is why late seats open so much wider.</li>
+              <li>Rough rule: in position a hand realizes <b>~106%</b> of its raw equity; out of position
+                <b> ~90%</b>. That swing is why late seats open so much wider.</li>
               <li>It's a ballpark, not a constant — but it's why <b>IP &gt; OOP</b> with the identical hand.</li>
             </ul>
           </div>
@@ -274,6 +274,15 @@ export function Reference() {
             <ul className="tips">
               <li>Suited connectors lose value (can't realize implied odds); pairs &amp; big cards gain.</li>
               <li>3-bet becomes <b>3-bet-or-fold</b>; open-<b>shoving</b> is correct under ~15bb.</li>
+            </ul>
+            <h4>Deep stack (150bb+)</h4>
+            <ul className="tips">
+              <li><b>Implied-odds hands gain:</b> suited connectors, suited aces, small pairs (set-mine) — big
+                stacks behind to win when you hit.</li>
+              <li><b>Offsuit broadways lose</b> (AQo/KQo/AJo): they flop top pair with a <b>reverse-implied</b>
+                problem — dominated by what stacks off. Size down, fold more OOP.</li>
+              <li><b>Position &amp; nut advantage matter more</b> — deeper = more streets to be outplayed. Lean on
+                IP and nutted hands; pot-control one pair.</li>
             </ul>
           </div>
         </div>
@@ -495,6 +504,134 @@ export function Reference() {
             </ul>
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <h3>Reverse implied odds — when hitting still loses</h3>
+        <p className="sub">
+          Implied odds = the extra you <i>win</i> when a draw hits. <b>Reverse</b> implied odds are the mirror:
+          the extra you <b>lose</b> when you make second-best, or a hand you then can't fold. They quietly turn
+          "good price" calls into long-term losers.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>The classic traps</h4>
+            <ul className="tips">
+              <li><b>Non-nut flush draws:</b> 7♥3♥ on a heart board — the flush comes and you still lose a stack
+                to a bigger one. The 9 outs are real; the payoff isn't.</li>
+              <li><b>Idiot-end straight draws:</b> 65 on 789 — a 5 makes the <i>low</i> end while a T makes the
+                higher straight. You bink your out and get stacked.</li>
+              <li><b>Dominated top pair OOP:</b> KJ on K-Q-x out of position — you pair, then pay off AK/KQ/sets
+                across three streets with no fold button.</li>
+              <li><b>Weak kickers:</b> A5o flopping an ace — every other ace has you out-kicked.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>How to adjust</h4>
+            <ul className="tips">
+              <li><b>Discount the draw</b> when it isn't to the nuts — a low flush draw is worth far less than its
+                9 outs suggest. Prefer draws with <b>nut potential</b> or clean overcards.</li>
+              <li><b>Position is the antidote</b> — IP you control the pot; OOP reverse-implied bites hardest, so
+                fold these more.</li>
+              <li><b>Don't stack off one pair on a dynamic board</b> — that's reverse-implied in action.</li>
+              <li>Hook: <b>"will I be happy stacking off when I hit?"</b> If hitting still leaves you guessing, the
+                implied odds are negative.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Range shape, capping &amp; two foundations</h3>
+        <div className="two-col">
+          <div>
+            <h4>3-bet shape: polar vs linear/merged</h4>
+            <ul className="tips">
+              <li><b>Polar</b> (value + blocker-bluffs, flat the middle): <b>in position</b>, where you can
+                profitably call the medium hands — so your 3-bet is nuts-or-air.</li>
+              <li><b>Linear / merged</b> (all your best hands, no flatting): <b>out of position</b>, from the
+                <b> SB</b>, and vs <b>weak / late opens</b> — flatting OOP realises poorly, so raise or fold.</li>
+              <li>Hook: <b>"can I comfortably flat here?"</b> Yes → 3-bet polar. No → 3-bet linear.</li>
+            </ul>
+            <h4>Capped vs uncapped ranges</h4>
+            <ul className="tips">
+              <li>A line that <b>can't hold the nuts</b> is <b>capped</b> — flat-calling preflop, checking back
+                the flop, limping. Capped ranges get <b>barreled / overbet</b> off their hands.</li>
+              <li>Stay <b>uncapped</b> by slowplaying a few strong hands in your checking/calling lines — and
+                attack villains whose line caps them.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Geometric sizing — getting stacks in</h4>
+            <p className="sub">
+              To be all-in by the river <i>and</i> charge max, bet the <b>same fraction of the pot</b> each street
+              instead of one huge bet. The pot grows geometrically, so equal fractions stack off smoothly and keep
+              worse hands calling.
+            </p>
+            <ul className="tips">
+              <li>Low SPR → one or two big bets. High SPR → three smaller, even bets.</li>
+              <li>Rough: ~⅔–¾ pot ×3 streets gets a ~6–8 SPR all-in by the river.</li>
+              <li>It's why a one-pair overbet shove is wrong — it skips the geometry and folds out worse.</li>
+            </ul>
+            <h4>Two foundations</h4>
+            <ul className="tips">
+              <li><b>Fundamental Theorem (Sklansky):</b> every time you'd play differently if you could see their
+                cards, you lose — and they lose when they misread you. Play closest to their <i>actual</i> range.</li>
+              <li><b>EV = Σ(outcome × probability)</b> — every decision is just each result times how often it
+                happens, summed. Positive total → do it.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>How the bots play (the opponent model)</h3>
+        <p className="sub">
+          The villains aren't random — they read the spot the same way this guide teaches. Knowing
+          their rules tells you exactly where their range is, and where they're exploitable.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Preflop</h4>
+            <ul className="tips">
+              <li><b>Open (RFI):</b> the seat charts above, but <i>mixed</i> — premiums open ~always,
+                borderline hands some of the time, a thin band steals. Looser archetypes widen it.</li>
+              <li><b>vs an open (3-bet):</b> value = <b>QQ+/AK/KQs + TT/JJ</b>; bluff-3bets are the
+                <b> A5s–A4s</b> blocker family. Small/medium pairs (≤99) <b>flat to set-mine</b>, not 3-bet.</li>
+              <li><b>vs a 3-bet (4-bet):</b> <b>KK+/AK only</b> for value — everything else flats or folds.
+                No light 4-bet spew.</li>
+              <li><b>Short (≤15bb effective):</b> pure <b>push/fold</b> — open-jam / 3-bet-jam by strength,
+                wider the shorter; no flatting or set-mining.</li>
+            </ul>
+            <h4>What it means for you</h4>
+            <ul className="tips">
+              <li>A bot 4-bet ≈ <b>KK+/AK</b>. Believe it — fold QQ/AK-marginal unless deep and set-mining.</li>
+              <li>A bot that just <b>calls</b> your open with position keeps medium pairs / suited Broadways —
+                low, connected flops are good for <i>them</i>.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Postflop</h4>
+            <ul className="tips">
+              <li><b>Equity vs your actual range</b> (their seat + your action), not vs random cards.</li>
+              <li><b>Realisation:</b> in position ×1.06, out of position ×0.90 — the same swing this page
+                teaches. OOP they fold &amp; check more; IP they continue and value-bet thinner.</li>
+              <li><b>Barrelling:</b> c-bet wide on the flop; turn/river barrel <i>less</i> often and only with
+                equity or fold equity — a bricked bluff gives up instead of firing every street.</li>
+              <li><b>Bluffs are heads-up only</b> (never into a field) and weighted by <b>blockers</b> — they
+                bluff more holding an ace or a card of a 3-flush suit, less with no blocker.</li>
+              <li><b>Draws use implied odds:</b> a ≥8-out draw with stacks behind calls a touch below raw pot
+                odds; it gets paid when it hits.</li>
+              <li><b>Stack-off discipline:</b> they only commit with genuine value — marginal hands size down
+                at low SPR rather than punt the stack.</li>
+            </ul>
+          </div>
+        </div>
+        <p className="sub">
+          <b>Difficulty</b> scales one skill knob: how often they err, how accurately they read equity, how
+          hard they adapt to <i>your</i> leaks, and how sharp their call/fold line is. <b>Easy</b> calls too
+          much and misreads hands; <b>Extreme</b> reads accurately and fully exploits your tendencies.
+        </p>
       </div>
     </>
   );

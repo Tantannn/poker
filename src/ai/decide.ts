@@ -6,10 +6,10 @@ import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
 import { makeRng } from '../engine/cards';
 import type { Card } from '../engine/cards';
-import { equityVsRange, equityVsField } from '../engine/equity';
+import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
 import { buildVillainRange } from '../strategy';
 import { potOdds } from '../engine/potOdds';
-import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE } from './preflop';
+import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE, BLUFF_THREEBET_RANGE } from './preflop';
 import { getProfile } from './profiles';
 import { rfiOpenFreq, limpedRaiseFreq, valueThreeBetFreq } from './blueprint';
 import { DIFFICULTIES, type DifficultyParams, type HeroReads } from './difficulty';
@@ -40,6 +40,13 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const reads = opts?.reads;
 
   const liveOpponents = state.players.filter((q) => !q.folded && q.id !== p.id).length;
+  // effective stack (bb): the shorter of hero vs the deepest live opponent — drives
+  // short-stack push/fold preflop and implied-odds depth postflop.
+  const effStackBB =
+    Math.min(
+      p.stack + p.committed,
+      Math.max(0, ...state.players.filter((q) => !q.folded && q.id !== p.id).map((q) => q.stack + q.committed)),
+    ) / state.bigBlind;
 
   // per-decision human "mood": a small streaky tilt so a bot isn't a fixed robot.
   const mood = 0.85 + r() * 0.3; // ~0.85..1.15
@@ -117,6 +124,19 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     const facingRaise = state.currentBet > state.bigBlind;
     const inRFI = RFI_RANGES[pos]?.has(code) ?? false;
 
+    // ---- short stack: push/fold (≤15bb) ----
+    // Too shallow to play postflop or realise implied odds. Open-jam or 3-bet-jam a
+    // range and fold the rest; the shorter we are, the wider we jam. Speculative
+    // suited connectors lose value here, pairs & big cards gain.
+    if (effStackBB <= 15) {
+      const shortness = Math.max(0, Math.min(1, (15 - effStackBB) / 12));
+      const pushFloor = (facingRaise ? 0.8 : 0.66) - shortness * 0.14;
+      if (strength >= pushFloor && la.canRaise) return { type: 'raise', amount: la.maxRaiseTo };
+      if (la.callAmount === 0) return { type: 'check' }; // free flop in the BB / limped pot
+      if (la.isAllInCall && strength >= pushFloor) return { type: 'call' }; // priced into an all-in call
+      return { type: 'fold' }; // no flat / set-mine when short
+    }
+
     if (!facingRaise) {
       // open opportunity (or BB option / limped pot)
       if (la.callAmount === 0) {
@@ -131,14 +151,27 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       return { type: 'fold' };
     }
 
-    // facing a raise: 3-bet / call / fold. Value 3-bets fire by blueprint
-    // frequency — premiums near always, borderline value hands mixed.
-    const threeBetWorthy = THREEBET_RANGE.has(code) || strength > 0.85;
+    // facing a raise: (re)raise / call / fold. Detect the raise level so a re-raise
+    // facing a 3-bet is treated as a 4-bet — far tighter than a 3-bet vs an open.
+    const facing4betPlus = preflopRaiseCount(state) >= 2; // open + 3-bet already in
+    const value4bet = code === 'AA' || code === 'KK' || code === 'AKs' || code === 'AKo';
+    // Value 3-bet floor: chart premiums + TT+ (strength > 0.90 ⇒ 99 out, TT in) —
+    // 3-betting 77/88/99 vs an open is a leak. Vs a 3-bet, only KK+/AK get it in;
+    // JJ/QQ/AQ flat or fold rather than spew a 4-bet.
+    const threeBetWorthy = facing4betPlus ? value4bet : THREEBET_RANGE.has(code) || strength > 0.9;
     if (threeBetWorthy && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq)) {
       return sizeTo(1.0, false);
     }
-    // occasional bluff 3-bet for aggressive types
-    if (la.canRaise && strength < 0.5 && r() < profile.bluffFreq * 0.25) {
+    // bluff 3-bet only the blocker family (suited wheel aces + suited Broadway
+    // gappers) — they block AA/AK and keep backup equity, unlike random offsuit
+    // air. Never a light 4-bet spaz vs a 3-bet.
+    if (
+      !facing4betPlus &&
+      !threeBetWorthy &&
+      BLUFF_THREEBET_RANGE.has(code) &&
+      la.canRaise &&
+      r() < profile.bluffFreq * 0.5
+    ) {
       return sizeTo(1.0, false);
     }
     const odds = potOdds(pot, la.callAmount);
@@ -214,12 +247,37 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const textureMult = boardSizeMult(state.board);
   const tFrac = (base: number): number => jitter(base * textureMult);
 
+  // Position & equity realisation: in position you realise ~106% of raw equity,
+  // out of position ~90% (the rule the solver and Reference teach). Marginal calls,
+  // thin value and bluffs key off REALISED equity; absolute monsters stay on raw.
+  // Bluffs only fire heads-up (bluffing a field is -EV) and lean on blockers.
+  const inPosition = inPositionPostflop(state, i);
+  const realize = inPosition ? 1.06 : 0.9;
+  const eqR = Math.min(1, equity * realize);
+  const heads = liveOpponents === 1;
+  const blockerMult = bluffBlockerMult(p.holeCards, state.board);
+  const cardsToCome = state.street === 'flop' || state.street === 'turn';
+  const maxOppStack = Math.max(0, ...state.players.filter((q) => !q.folded && q.id !== p.id).map((q) => q.stack));
+  const behindBB = Math.min(p.stack, maxOppStack) / state.bigBlind;
+  const potBB = pot / state.bigBlind;
+
   if (la.callAmount > 0) {
     // facing a bet
     const odds = potOdds(pot, la.callAmount);
-    const margin = equity - odds.requiredEquity;
     // a shove or a near-pot+ overbet — villains demand a real edge to stack off
     const bigBet = la.isAllInCall || la.callAmount > pot * 0.9;
+    // implied-odds credit: a genuine draw (≥8 outs) with stacks behind may call a
+    // touch below raw pot odds — it gets paid off when it completes. Only while more
+    // cards are coming, and never vs a shove (no implied chips left to win).
+    const outs = cardsToCome ? countOuts(p.holeCards, state.board).outs : 0;
+    // reverse implied odds: a non-nut draw gets paid less and pays off more when it
+    // loses, so it earns little/no implied credit even with the same out count.
+    const impliedCredit =
+      outs >= 8 && !bigBet
+        ? Math.min(0.12, (behindBB / Math.max(1, potBB)) * 0.05) * drawNutMult(p.holeCards, state.board)
+        : 0;
+    // decide on REALISED equity (+ implied odds) vs the price, not raw equity
+    const margin = eqR - odds.requiredEquity + impliedCredit;
 
     // value raise with strong hands — but sometimes just flat to trap (slowplay)
     if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7 * mood) {
@@ -227,8 +285,15 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       // only stack off with a genuinely strong hand (sets/strong two pair+)
       return sizeTo(tFrac(0.7), false, { willCommit: equity > 0.8 });
     }
-    // semi-bluff raise with aggression (not into a jam we can't profitably inflate)
-    if (!bigBet && margin > 0 && equity < 0.55 && la.canRaise && r() < profile.bluffFreq * 0.5 * mood * bluffTilt) {
+    // semi-bluff raise (heads-up only; not into a jam we can't profitably inflate)
+    if (
+      heads &&
+      !bigBet &&
+      margin > 0 &&
+      equity < 0.55 &&
+      la.canRaise &&
+      r() < profile.bluffFreq * 0.5 * mood * bluffTilt * blockerMult
+    ) {
       // commit only on a strong draw (decent equity when called); weak draws size down
       return sizeTo(tFrac(0.8), false, { willCommit: equity > 0.5 });
     }
@@ -259,16 +324,23 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     return { type: 'check' };
   }
   // value bet — only the strong end (overpair+/top-pair-strong-kicker and up) is
-  // willing to get stacks in; thin value sizes down instead of punting.
-  if (equity > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt) {
+  // willing to get stacks in; thin value sizes down instead of punting. Thin value
+  // keys off realised equity, so OOP bets a touch less thin than IP.
+  if (eqR > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt) {
     return sizeTo(tFrac(equity > 0.8 ? 0.75 : 0.55), true, { willCommit: equity > 0.78 });
   }
-  // c-bet as the aggressor on many boards
-  if (wasAggressor && r() < profile.cbetFreq * mood * bluffTilt && state.street === 'flop') {
-    return sizeTo(tFrac(0.5), true, { willCommit: equity > 0.78 });
+  // continuation / barrel as the aggressor (heads-up). Flop c-bet wide; turn & river
+  // barrel less often, and only with some equity or fold equity — a bricked bluff
+  // gives up instead of auto-firing every street.
+  if (wasAggressor && heads) {
+    const streetMult = state.street === 'flop' ? 1 : state.street === 'turn' ? 0.55 : 0.4;
+    const canBarrel = state.street === 'flop' || eqR > 0.32;
+    if (canBarrel && r() < profile.cbetFreq * streetMult * mood * bluffTilt * blockerMult) {
+      return sizeTo(tFrac(0.5), true, { willCommit: equity > 0.78 });
+    }
   }
-  // pure bluff
-  if (equity < 0.4 && r() < profile.bluffFreq * 0.5 * mood * bluffTilt) {
+  // pure bluff (heads-up only — bluffing into a field is -EV)
+  if (heads && equity < 0.4 && r() < profile.bluffFreq * 0.5 * mood * bluffTilt * blockerMult) {
     return sizeTo(tFrac(0.6), true);
   }
   return { type: 'check' };
@@ -292,4 +364,50 @@ function boardSizeMult(board: Card[]): number {
   else if (maxSuit === 2) wet += 1; // flush draw live
   if (straighty || span <= 4) wet += 1; // connected / straight-draw heavy
   return wet >= 3 ? 1.3 : wet === 2 ? 1.15 : wet === 1 ? 1.0 : 0.66;
+}
+
+/** True if the hero is last to act postflop among the live players (in position). */
+function inPositionPostflop(state: GameState, seat: number): boolean {
+  const n = state.players.length;
+  const orderIdx = (s: number) => (s - state.buttonIndex - 1 + n) % n; // 0 = first to act, n-1 = button (last)
+  const heroOrder = orderIdx(seat);
+  return state.players.every((q) => q.folded || q.id === seat || orderIdx(q.id) < heroOrder);
+}
+
+/** Preflop raises made so far this hand (the open counts as the 1st raise), so a
+ *  re-raise facing 2+ is a 4-bet. */
+function preflopRaiseCount(state: GameState): number {
+  return state.log.reduce(
+    (acc, l) => acc + (l.handNumber === state.handNumber && l.street === 'preflop' && l.type === 'raise' ? 1 : 0),
+    0,
+  );
+}
+
+/** Bluff-frequency multiplier from card removal: holding an Ace, or a card of a
+ *  3-flush board suit, blocks villain's strongest calls → bluff a bit more; holding
+ *  no relevant blocker into a flush board → bluff less. Clamped to ~0.5..1.4. */
+function bluffBlockerMult(hole: Card[], board: Card[]): number {
+  let m = 1;
+  if (hole.some((c) => c.rank === 14)) m += 0.18; // ace blocks Ax / top pairs / the nut flush
+  const suitCount = new Map<number, number>();
+  for (const c of board) suitCount.set(c.suit, (suitCount.get(c.suit) ?? 0) + 1);
+  const flushSuit = [...suitCount.entries()].find(([, cnt]) => cnt >= 3)?.[0];
+  if (flushSuit !== undefined) m += hole.some((c) => c.suit === flushSuit) ? 0.15 : -0.2;
+  return Math.max(0.5, Math.min(1.4, m));
+}
+
+/** Reverse-implied-odds multiplier (0..1) for a draw's implied-odds credit. A
+ *  NON-nut flush draw gets paid less and pays off more when it loses, so it earns
+ *  little implied credit; nut / 2nd-nut draws keep it. Only flush draws are graded
+ *  here (the canonical dominated-draw trap); other draws return 1. */
+function drawNutMult(hole: Card[], board: Card[]): number {
+  for (let s = 0; s < 4; s++) {
+    const boardOfSuit = board.filter((c) => c.suit === s).length;
+    const heroOfSuit = hole.filter((c) => c.suit === s);
+    if (boardOfSuit + heroOfSuit.length === 4 && heroOfSuit.length >= 1) {
+      const hi = Math.max(...heroOfSuit.map((c) => c.rank));
+      return hi === 14 ? 1 : hi === 13 ? 0.7 : hi === 12 ? 0.45 : hi >= 11 ? 0.3 : 0.2; // A,K,Q,J,else
+    }
+  }
+  return 1;
 }

@@ -30,7 +30,14 @@
       "Bash(grep -nE \"^\\\\.good|^\\\\.bad|\\\\.good\\\\s*\\\\{|\\\\.bad\\\\s*\\\\{|^\\\\s*\\\\.good,\" D:/Code/poker/src/index.css)",
       "mcp__ide__getDiagnostics",
       "Bash(echo \"exit: $?\")",
-      "Bash(rtk npx *)"
+      "Bash(rtk npx *)",
+      "PowerShell(npx eslint src/ai/decide.ts 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx tsx tmp_sim.ts 2>&1 | Select-Object -First 60)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20; npx eslint src/ai/decide.ts src/ai/preflop.ts 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx tsx tmp_sim.ts 2>&1 | Select-Object -Last 5)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20; npx eslint src/ai/decide.ts src/components/Reference.tsx 2>&1 | Select-Object -First 20)",
+      "mcp__plugin_context-mode_context-mode__ctx_doctor"
     ]
   }
 }
