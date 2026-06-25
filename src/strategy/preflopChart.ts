@@ -39,8 +39,8 @@ const RFI: Record<Position, string[]> = {
 
 const MIX_OPEN: Partial<Record<Position, string[]>> = {
   UTG: ['A8s', 'KJo', 'QJo', '76s'],
-  MP: ['A7s', 'A5o', 'K9o', '65s'],
-  CO: ['K7s', 'Q8s', 'A8o', 'J8o'],
+  MP: ['A7s', 'A9o', 'KTo', '65s'],
+  CO: ['K7s', 'Q8s', 'A8o', 'J9o'],
   BTN: ['Q4s', 'J6s', 'K6o', 'Q8o', '53s'],
   SB: ['Q5s', 'J6s', 'K7o', 'Q8o', '64s'],
 };
@@ -68,7 +68,7 @@ export const SCENARIOS: PreflopScenario[] = [
     bluffFreq: 0.5,
     value: S(['TT+', 'AQs+', 'AKo', 'AJs']),
     bluff: S(['A5s-A2s', 'KJs', 'QTs', 'J9s']),
-    call: S(['22-99', 'AJo', 'KQs', 'KQo', 'ATs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo']),
+    call: S(['22-99', 'AJo', 'KQs', 'KQo', 'ATs', 'KJs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo']),
   },
   {
     id: 'co-vs-utg',
@@ -168,7 +168,7 @@ export const SCENARIOS: PreflopScenario[] = [
     bluffFreq: 0.5,
     value: S(['TT+', 'AQs+', 'AKo', 'AJs', 'KQs']),
     bluff: S(['A5s-A2s', 'KJs', 'QTs', 'J9s', 'T9s']),
-    call: S(['22-99', 'ATs', 'KTs', 'QJs', 'JTs', '98s', 'AQo', 'KQo', 'AJo']),
+    call: S(['22-99', 'ATs', 'KJs', 'KTs', 'QJs', 'JTs', '98s', 'AQo', 'KQo', 'AJo']),
   },
   {
     id: 'bb-vs-co',
@@ -194,7 +194,7 @@ export const SCENARIOS: PreflopScenario[] = [
     villainPos: 'BTN',
     bluffFreq: 0.55,
     value: S(['99+', 'ATs+', 'KQs', 'AQo+']),
-    bluff: S(['A9s-A2s', 'K9s', 'Q9s', 'J9s', 'T9s', '98s']),
+    bluff: S(['A9s-A2s', 'KTs', 'K9s', 'QTs', 'Q9s', 'J9s', 'T9s', '98s']),
     call: S(['88-22', 'AJo', 'KQo', 'KJs', 'QJs', 'JTs']),
   },
   {
@@ -206,7 +206,7 @@ export const SCENARIOS: PreflopScenario[] = [
     bluffFreq: 0.5,
     value: S(['QQ+', 'AKs', 'AKo']),
     bluff: S(['A5s', 'A4s', 'KQs']),
-    call: S(['JJ-77', 'AQs', 'AJs', 'KQo', 'AQo', 'JTs', 'T9s']),
+    call: S(['JJ-77', 'AQs', 'AJs', 'KQs', 'KQo', 'AQo', 'JTs', 'T9s']),
   },
   {
     id: 'co-vs-3bet',

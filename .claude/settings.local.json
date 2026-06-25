@@ -37,7 +37,10 @@
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20; npx eslint src/ai/decide.ts src/ai/preflop.ts 2>&1 | Select-Object -First 20)",
       "PowerShell(npx tsx tmp_sim.ts 2>&1 | Select-Object -Last 5)",
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20; npx eslint src/ai/decide.ts src/components/Reference.tsx 2>&1 | Select-Object -First 20)",
-      "mcp__plugin_context-mode_context-mode__ctx_doctor"
+      "mcp__plugin_context-mode_context-mode__ctx_doctor",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 10)",
+      "PowerShell(npx tsx tmp_chartcheck.ts 2>&1 | Select-Object -First 120)",
+      "PowerShell(npx tsx tmp_chartcheck.ts 2>&1 | Select-Object -First 40)"
     ]
   }
 }
