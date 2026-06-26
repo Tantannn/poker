@@ -214,6 +214,30 @@ body {
   border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .btn-chart-seat:hover { border-color: var(--gold); background: var(--panel); }
+/* always-visible seat → 6-max range reminder (the seats-behind ladder) */
+.pos-hint {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  margin-top: 16px; padding: 8px 12px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-size: 12.5px; color: var(--muted);
+}
+.ph-size {
+  font-weight: 800; letter-spacing: .04em; color: var(--gold);
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 2px 8px; font-size: 11.5px;
+}
+.ph-seat { color: var(--txt); }
+.ph-seat b { color: var(--gold); }
+.ph-ladder { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.ph-end { font-size: 10.5px; color: var(--muted); opacity: .7; }
+.ph-rung {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  background: var(--bg2); border: 1px solid var(--line);
+  border-radius: 5px; padding: 2px 7px;
+}
+.ph-rung.active {
+  color: #0a0f0d; background: var(--gold); border-color: var(--gold);
+}
 .action-area { margin-top: 20px; }
 .deal-area { text-align: center; }
 .hand-result { margin-bottom: 10px; margin-top: 60px; color: var(--txt); font-weight: 600; }

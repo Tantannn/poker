@@ -27,6 +27,21 @@ export function tablePositions(n: number): Position[] {
   return POS_BY_OFFSET[n] ?? POS_BY_OFFSET[6];
 }
 
+// Opening ranges scale with SEATS BEHIND (players still to act), so a seat at a
+// short table borrows the 6-max range with the same behind-count: 5-max UTG (4
+// behind) opens like 6-max MP, etc. HU button opens widest (BTN). Returns null
+// for the BB (it never opens first-in). Single source for the solver
+// (strategy) and the live position hint, so the two can never disagree.
+const RFI_LADDER: Position[] = ['BB', 'SB', 'BTN', 'CO', 'MP', 'UTG']; // index = seats behind
+export function sixMaxRfiEquivalent(pos: Position, n: number): Position | null {
+  if (n === 2) return pos === 'BB' ? null : 'BTN';
+  const off = tablePositions(n).indexOf(pos);
+  if (off < 0) return null;
+  const behind = (2 - off + n) % n; // BB sits at offset 2 (tables with blinds)
+  if (behind === 0) return null; // BB — defends, never RFIs
+  return RFI_LADDER[Math.min(behind, 5)];
+}
+
 export function positionLabel(seat: number, button: number, n: number): Position {
   const table = tablePositions(n);
   const off = (seat - button + n) % n;

@@ -195,6 +195,53 @@ export function Reference() {
       </div>
 
       <div className="card">
+        <h3>Short-handed: one ladder, not new charts</h3>
+        <p className="sub">
+          A position isn't a name — it's <b>how many players still act behind you</b>. So you only ever
+          memorize the <b>6-max ladder once</b>; every shorter table (5-max down to heads-up) reads off the
+          <b> same ranges</b> by behind-count. The trainer does exactly this and tells you the equivalent in
+          the solver panel — e.g. <i>"UTG open (plays like MP)"</i>. <b>No new charts to learn.</b>
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>The ladder — players behind → how wide you open</h4>
+            <table>
+              <thead><tr><th className="num">Behind</th><th>Seat</th><th>Open width</th></tr></thead>
+              <tbody>
+                <tr><td className="num">0</td><td>BB</td><td>defends, never opens (last to act)</td></tr>
+                <tr><td className="num">1</td><td>SB</td><td>widest (no one behind)</td></tr>
+                <tr><td className="num">2</td><td>BTN</td><td>very wide</td></tr>
+                <tr><td className="num">3</td><td>CO</td><td>wide</td></tr>
+                <tr><td className="num">4</td><td>MP / HJ</td><td>medium</td></tr>
+                <tr><td className="num">5</td><td>UTG</td><td>tightest</td></tr>
+              </tbody>
+            </table>
+            <p className="sub">
+              Hook: <b>fewer players behind = open wider.</b> A short table just <b>deletes the front (early)
+              rungs</b> — it never changes the ranges themselves.
+            </p>
+          </div>
+          <div>
+            <h4>Your seat → which 6-max range you read</h4>
+            <table>
+              <thead><tr><th>Table</th><th>Mapping (BB always defends)</th></tr></thead>
+              <tbody>
+                <tr><td><b>6-max</b></td><td>identical — UTG · MP · CO · BTN · SB</td></tr>
+                <tr><td><b>5-max</b></td><td>UTG→<b>MP</b> · CO→CO · BTN→BTN · SB→SB</td></tr>
+                <tr><td><b>4-max</b></td><td>UTG→<b>CO</b> · BTN→BTN · SB→SB</td></tr>
+                <tr><td><b>3-max</b></td><td>BTN→BTN · SB→SB (button is first in)</td></tr>
+                <tr><td><b>HU</b></td><td>button(=SB)→<b>widest open</b> · other→BB defend</td></tr>
+              </tbody>
+            </table>
+            <p className="sub">
+              <b>HU caveat:</b> a real heads-up button opens even wider (~80%+) than a 6-max BTN. The trainer
+              uses the widest chart it has, so treat HU opens as <b>"even looser than the BTN range shows."</b>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
         <h3>Why position wins (and how to open)</h3>
         <div className="two-col">
           <div>

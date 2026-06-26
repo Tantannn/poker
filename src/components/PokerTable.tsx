@@ -3,6 +3,7 @@ import { useGame, BIG_BLIND } from '../hooks/useGame';
 import { positionLabel } from '../engine/table';
 import { getProfile } from '../ai/profiles';
 import { Seat } from './Seat';
+import { PositionHint } from './PositionHint';
 import { PlayingCard } from './PlayingCard';
 import { Controls } from './Controls';
 import { Hud } from './Hud';
@@ -135,6 +136,8 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
             </button>
           </div>
         )}
+
+        <PositionHint buttonIndex={game.buttonIndex} n={game.players.length} started={started} />
 
         <div className="action-area">
           {!started || handOver ? (

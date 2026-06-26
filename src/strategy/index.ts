@@ -3,7 +3,7 @@
 // helpers for EV-loss scoring and RNG prescriptions.
 
 import type { Action, GameState } from '../engine/table';
-import { legalActions, positionLabel, potTotal } from '../engine/table';
+import { legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
 import type { Card } from '../engine/cards';
 import { sameCard } from '../engine/cards';
 import type { WeightedRange, ComboWeight } from '../engine/range';
@@ -12,7 +12,7 @@ import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, handCode } from '../ai/preflop';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
-import { cellStrategy, getScenario, SCENARIOS } from './preflopChart';
+import { cellStrategy, getScenario } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
 import { solvePostflop } from './postflopModel';
 
@@ -54,17 +54,12 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   const facingRaise = state.currentBet > state.bigBlind;
 
   if (!facingRaise) {
-    // Open range is a function of SEATS BEHIND (players still to act), not the
-    // table size — so we read one 6-max ladder by behind-count instead of keeping
-    // a separate chart per size. 5-max UTG (4 behind) plays like 6-max MP, etc.
-    // (At 6-max this reproduces rfi-<pos> exactly.) Heads-up the button opens very
-    // wide, so map it to the widest charted open (BTN).
-    const bbIdx = (state.buttonIndex + (n === 2 ? 1 : 2)) % n;
-    const seatsBehind = (bbIdx - heroIdx + n) % n; // 0 = BB (never RFIs) .. n-1
-    const RFI_BY_BEHIND = ['rfi-BB', 'rfi-SB', 'rfi-BTN', 'rfi-CO', 'rfi-MP', 'rfi-UTG'];
-    const rung = n === 2 ? 'rfi-BTN' : RFI_BY_BEHIND[Math.min(seatsBehind, 5)];
-    const sc = SCENARIOS.find((s) => s.id === rung) ?? getScenario('rfi-BTN');
-    return { sc, level: 0 };
+    // Open range is a function of SEATS BEHIND, not table size — read one 6-max
+    // ladder by behind-count instead of a chart per size (5-max UTG plays like
+    // 6-max MP, etc.; at 6-max this is identity). sixMaxRfiEquivalent is the same
+    // mapping the live position hint shows, so solver and hint never disagree.
+    const equiv = sixMaxRfiEquivalent(heroPos, n) ?? 'BTN'; // BB never RFIs → harmless fallback
+    return { sc: getScenario(`rfi-${equiv}`), level: 0 };
   }
   if (raises >= 3) {
     // facing a 4-bet (your re-raise got re-raised). Premium-only continue range,
