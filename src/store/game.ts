@@ -66,6 +66,7 @@ export interface PersistSettings {
   speed: string;
   watchAfterFold: boolean;
   difficulty: string;
+  tableSize?: number;
 }
 
 export function saveSettings(s: PersistSettings): void {

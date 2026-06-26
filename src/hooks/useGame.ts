@@ -12,6 +12,7 @@ import {
   positionLabel,
   potTotal,
   startHand,
+  tablePositions,
 } from '../engine/table';
 import type { Card } from '../engine/cards';
 import { makeRng } from '../engine/cards';
@@ -101,15 +102,6 @@ export interface VillainInfo {
   heroInPosition: boolean;
 }
 
-const POS_TO_BUTTON: Record<Exclude<HeroPositionPref, 'random'>, number> = {
-  BTN: 0,
-  CO: 1,
-  MP: 2,
-  UTG: 3,
-  BB: 4,
-  SB: 5,
-};
-
 // persisted table settings, read once at module load and used only as the
 // initial mount defaults below (so a refresh resumes the same table/settings).
 const SAVED = loadSettings();
@@ -121,7 +113,7 @@ export function useGame(initialProfiles: string[]) {
 
   const [profiles, setProfiles] = useState<string[]>(initProfiles);
   const [game, setGame] = useState<GameState>(
-    () => loadGame() ?? createGame(NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles),
+    () => loadGame() ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles),
   );
   const [feedback, setFeedback] = useState<NodeFeedback | null>(null);
   const [hud, setHud] = useState<HudInfo | null>(null);
@@ -134,6 +126,7 @@ export function useGame(initialProfiles: string[]) {
   const [scenario, setScenario] = useState<HeroPositionPref>((SAVED?.scenario as HeroPositionPref) ?? 'random');
   const [speed, setSpeed] = useState<Speed>((SAVED?.speed as Speed) ?? '1x');
   const [stackDepth, setStackDepth] = useState<number>(SAVED?.stackDepth ?? STARTING_BB);
+  const [tableSize, setTableSize] = useState<number>(SAVED?.tableSize ?? NUM_PLAYERS);
   const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
   const [difficulty, setDifficulty] = useState<Difficulty>((SAVED?.difficulty as Difficulty) ?? 'normal');
 
@@ -158,19 +151,20 @@ export function useGame(initialProfiles: string[]) {
 
   const applyProfiles = useCallback((next: string[]) => {
     setProfiles(next);
-    setGame(createGame(NUM_PLAYERS, stackDepth, BIG_BLIND, next));
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, next));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
     setVillain(null);
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [stackDepth]);
+  }, [stackDepth, tableSize]);
 
-  // change starting stack depth (bb); rebuilds the table with fresh stacks
-  const applyStackDepth = useCallback((bb: number) => {
-    setStackDepth(bb);
-    setGame(createGame(NUM_PLAYERS, bb, BIG_BLIND, profiles));
+  // change the number of seats (2–6); rebuilds the table. Bots auto-fill from the
+  // profile list (createGame pads with 'tag'), so no profile resize is needed.
+  const applyTableSize = useCallback((size: number) => {
+    setTableSize(size);
+    setGame(createGame(size, stackDepth, BIG_BLIND, profiles));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -179,13 +173,34 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [profiles]);
+  }, [stackDepth, profiles]);
+
+  // change starting stack depth (bb); rebuilds the table with fresh stacks
+  const applyStackDepth = useCallback((bb: number) => {
+    setStackDepth(bb);
+    setGame(createGame(tableSize, bb, BIG_BLIND, profiles));
+    setFeedback(null);
+    setHud(null);
+    setStrategy(null);
+    setRng(null);
+    setVillain(null);
+    strategyRef.current = null;
+    lastDealtRef.current = null;
+    saveDealt(null);
+  }, [profiles, tableSize]);
 
   const deal = useCallback(() => {
     setGame((prev) => {
       const next = structuredClone(prev);
       if (scenario !== 'random') {
-        next.buttonIndex = (POS_TO_BUTTON[scenario] - 1 + NUM_PLAYERS) % NUM_PLAYERS;
+        // place the button so the hero (seat 0) lands on the requested seat — only
+        // if that position exists at this table size, else just deal random.
+        const n = next.players.length;
+        const off = tablePositions(n).indexOf(scenario);
+        if (off >= 0) {
+          const desiredButton = (n - off) % n;
+          next.buttonIndex = (desiredButton - 1 + n) % n;
+        }
       }
       startHand(next);
       // snapshot the freshly-dealt hand (same hole cards + deck) so "Repeat
@@ -226,7 +241,7 @@ export function useGame(initialProfiles: string[]) {
 
   // full reset: fresh 100bb stacks, hand 0 (stats kept — reset those separately)
   const resetGame = useCallback(() => {
-    setGame(createGame(NUM_PLAYERS, stackDepth, BIG_BLIND, profiles));
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -235,7 +250,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [profiles, stackDepth]);
+  }, [profiles, stackDepth, tableSize]);
 
   const heroAct = useCallback((action: Action) => {
     setGame((prev) => {
@@ -246,7 +261,7 @@ export function useGame(initialProfiles: string[]) {
       const fb = gradeNode(strat, action, la.callAmount, roll, { state: prev, heroIdx: 0 });
       setFeedback(fb);
 
-      const pos = positionLabel(0, prev.buttonIndex, NUM_PLAYERS);
+      const pos = positionLabel(0, prev.buttonIndex, prev.players.length);
       setStats((s) => {
         const updated = recordDecision(s, {
           street: prev.street,
@@ -360,8 +375,8 @@ export function useGame(initialProfiles: string[]) {
     saveGame(game);
   }, [game]);
   useEffect(() => {
-    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty]);
+    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize });
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize]);
 
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
@@ -435,11 +450,12 @@ export function useGame(initialProfiles: string[]) {
         );
         // postflop action runs from left-of-button (first/most OOP) to the
         // button (last/most IP); hero is IP if they act after this villain.
-        const orderRank = (seat: number) => (seat - (game.buttonIndex + 1) + NUM_PLAYERS) % NUM_PLAYERS;
+        const np = game.players.length;
+        const orderRank = (seat: number) => (seat - (game.buttonIndex + 1) + np) % np;
         const heroInPosition = orderRank(0) > orderRank(vIdx);
         setVillain({
           name: vp.name,
-          position: positionLabel(vIdx, game.buttonIndex, NUM_PLAYERS),
+          position: positionLabel(vIdx, game.buttonIndex, np),
           profileId: vp.profileId,
           tag: getProfile(vp.profileId).tag,
           wasAggressor,
@@ -656,6 +672,8 @@ export function useGame(initialProfiles: string[]) {
     speed,
     stackDepth,
     applyStackDepth,
+    tableSize,
+    applyTableSize,
     watchAfterFold,
     setWatchAfterFold,
     difficulty,

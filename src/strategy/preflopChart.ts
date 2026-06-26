@@ -171,6 +171,20 @@ export const SCENARIOS: PreflopScenario[] = [
     call: S(['22-99', 'ATs', 'KJs', 'KTs', 'QJs', 'JTs', '98s', 'AQo', 'KQo', 'AJo']),
   },
   {
+    id: 'btn-vs-mp',
+    label: 'BTN vs MP open',
+    short: 'BTN v MP',
+    facing: 'vsopen',
+    heroPos: 'BTN',
+    villainPos: 'MP',
+    bluffFreq: 0.5,
+    // MP opens looser than UTG, tighter than CO — BTN sits in position and can
+    // flat wide / 3-bet a polarized bluff range. Between the vs-UTG and vs-CO charts.
+    value: S(['TT+', 'AQs+', 'AKo', 'AJs', 'KQs']),
+    bluff: S(['A5s-A2s', 'KJs', 'QTs', 'J9s']),
+    call: S(['22-99', 'ATs', 'KJs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo', 'KQo', 'AJo']),
+  },
+  {
     id: 'bb-vs-co',
     label: 'BB vs CO open (defense)',
     short: 'BB v CO',

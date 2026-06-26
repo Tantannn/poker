@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useGame, type HeroPositionPref, type Speed } from '../hooks/useGame';
+import { tablePositions } from '../engine/table';
 import { PROFILE_LIST } from '../ai/profiles';
 import { DIFFICULTY_LIST } from '../ai/difficulty';
 
@@ -8,27 +9,55 @@ type G = ReturnType<typeof useGame>;
 const POSITIONS: HeroPositionPref[] = ['random', 'UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
 const SPEEDS: Speed[] = ['1x', '2x', 'instant'];
 const STACKS = [50, 100, 200];
+// seat counts: 6-max down to heads-up
+const TABLE_SIZES: { n: number; label: string }[] = [
+  { n: 6, label: '6-max' },
+  { n: 5, label: '5-max' },
+  { n: 4, label: '4-max' },
+  { n: 3, label: '3-max' },
+  { n: 2, label: 'HU' },
+];
 
 export function ScenarioBar({ g }: { g: G }) {
   const [open, setOpen] = useState(false);
   const handInProgress = g.game.handNumber > 0 && !g.handOver;
+  // which seat labels actually exist at the current table size
+  const validSeats = new Set(tablePositions(g.tableSize));
 
   return (
     <div className="scenario-bar">
       <div className="sc-row">
-        <span className="sc-label">Your seat:</span>
+        <span className="sc-label">Players:</span>
         <div className="sc-btns">
-          {POSITIONS.map((p) => (
+          {TABLE_SIZES.map((t) => (
             <button
-              key={p}
-              className={g.scenario === p ? 'active' : ''}
-              onClick={() => g.setScenario(p)}
+              key={t.n}
+              className={g.tableSize === t.n ? 'active' : ''}
+              onClick={() => g.applyTableSize(t.n)}
               disabled={handInProgress}
-              title={handInProgress ? 'Applies next hand' : ''}
+              title={handInProgress ? 'Applies after this hand' : ''}
             >
-              {p === 'random' ? 'Random' : p}
+              {t.label}
             </button>
           ))}
+        </div>
+        <span className="sc-label sc-speed-label">Your seat:</span>
+        <div className="sc-btns">
+          {POSITIONS.map((p) => {
+            // a position the current table size doesn't have (e.g. MP at 4-max)
+            const unavailable = p !== 'random' && !validSeats.has(p);
+            return (
+              <button
+                key={p}
+                className={g.scenario === p ? 'active' : ''}
+                onClick={() => g.setScenario(p)}
+                disabled={handInProgress || unavailable}
+                title={unavailable ? `No ${p} seat at ${g.tableSize}-handed` : handInProgress ? 'Applies next hand' : ''}
+              >
+                {p === 'random' ? 'Random' : p}
+              </button>
+            );
+          })}
         </div>
         <span className="sc-label sc-speed-label">Speed:</span>
         <div className="sc-btns">
@@ -96,7 +125,7 @@ export function ScenarioBar({ g }: { g: G }) {
             </button>
           </div>
           <div className="sc-seat-grid">
-            {g.profiles.map((pid, idx) => (
+            {g.profiles.slice(0, Math.max(0, g.tableSize - 1)).map((pid, idx) => (
               <label key={idx} className="sc-seat">
                 <span>Seat {idx + 1}</span>
                 <select

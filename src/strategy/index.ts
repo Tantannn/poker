@@ -28,6 +28,12 @@ const BASE_EV: Record<NonNullable<ActionOption['kind']>, number> = {
   aggressive: 0.6,
 };
 
+// EV (bb) for a LEGAL action the chart doesn't endorse for this hand (e.g.
+// limping/opening a hand the chart folds). Fold is the 0 baseline; an off-range
+// call/open is a small -EV leak. Below the "correct" tier (≤0.5bb loss) on
+// purpose so it grades "Wrong", not "Best" — playing outside the range is a leak.
+const OFF_CHART_EV = -0.75;
+
 export function getNodeStrategy(
   state: GameState,
   heroIdx: number,
@@ -42,12 +48,22 @@ export function getNodeStrategy(
 
 // ----------------- preflop -----------------
 function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopScenario; level: number } {
-  const heroPos = positionLabel(heroIdx, state.buttonIndex, state.players.length);
+  const n = state.players.length;
+  const heroPos = positionLabel(heroIdx, state.buttonIndex, n);
   const raises = state.log.filter((l) => l.handNumber === state.handNumber && (l.type === 'raise' || l.type === 'bet')).length;
   const facingRaise = state.currentBet > state.bigBlind;
 
   if (!facingRaise) {
-    const sc = SCENARIOS.find((s) => s.id === `rfi-${heroPos}`) ?? getScenario('rfi-BTN');
+    // Open range is a function of SEATS BEHIND (players still to act), not the
+    // table size — so we read one 6-max ladder by behind-count instead of keeping
+    // a separate chart per size. 5-max UTG (4 behind) plays like 6-max MP, etc.
+    // (At 6-max this reproduces rfi-<pos> exactly.) Heads-up the button opens very
+    // wide, so map it to the widest charted open (BTN).
+    const bbIdx = (state.buttonIndex + (n === 2 ? 1 : 2)) % n;
+    const seatsBehind = (bbIdx - heroIdx + n) % n; // 0 = BB (never RFIs) .. n-1
+    const RFI_BY_BEHIND = ['rfi-BB', 'rfi-SB', 'rfi-BTN', 'rfi-CO', 'rfi-MP', 'rfi-UTG'];
+    const rung = n === 2 ? 'rfi-BTN' : RFI_BY_BEHIND[Math.min(seatsBehind, 5)];
+    const sc = SCENARIOS.find((s) => s.id === rung) ?? getScenario('rfi-BTN');
     return { sc, level: 0 };
   }
   if (raises >= 3) {
@@ -90,7 +106,11 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   // SB only has a vs-BTN (steal) defence chart — the 3-bet-or-fold shape is right
   // for any steal and far closer than the flat-heavy vs-UTG chart it used before.
   if (heroPos === 'SB') return { sc: getScenario('sb-vs-btn'), level: 1 };
-  if (heroPos === 'BTN') return { sc: getScenario(raiserPos === 'CO' ? 'btn-vs-co' : 'btn-vs-utg'), level: 1 };
+  if (heroPos === 'BTN')
+    return {
+      sc: getScenario(raiserPos === 'CO' ? 'btn-vs-co' : raiserPos === 'MP' ? 'btn-vs-mp' : 'btn-vs-utg'),
+      level: 1,
+    };
   if (heroPos === 'CO') return { sc: getScenario(raiserPos === 'MP' ? 'co-vs-mp' : 'co-vs-utg'), level: 1 };
   // UTG/MP facing an open ahead of them — rare, and tight: keep the vs-UTG baseline.
   return { sc: getScenario('btn-vs-utg'), level: 1 };
@@ -99,10 +119,21 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
 function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
   const { sc, level } = pickPreflopScenario(state, heroIdx);
   const code = handCode(state.players[heroIdx].holeCards);
-  // multiway = facing a raise AND 2+ opponents still live (opener + caller(s)).
-  // Heads-up charts over-bluff and over-defend multiway: a 3-bet bluff has no
-  // fold equity against a field, so squash bluff raises into call/fold.
-  const liveOpps = state.players.filter((p) => !p.folded && p.id !== heroIdx).length;
+  const heroPos = positionLabel(heroIdx, state.buttonIndex, state.players.length);
+  // On a short table the seat name can differ from the 6-max chart we read by
+  // seats-behind (e.g. 5-max UTG uses the MP open range). Say so, don't mislabel.
+  const remapped = sc.facing === 'rfi' && sc.heroPos !== heroPos;
+  const seatLabel = remapped ? `${heroPos} open (plays like ${sc.short})` : sc.label;
+  // "Multiway" means 2+ opponents are ALREADY in the pot for this bet — the opener
+  // plus any callers/squeezers. Blinds still to act behind have only posted their
+  // forced blind (committed < currentBet), so they don't count yet: facing a lone
+  // open with the blinds still to act is a HEADS-UP spot where 3-bet bluffs keep
+  // their fold equity. Counting yet-to-act blinds wrongly flagged it multiway and
+  // squashed BTN's bluffs. Heads-up charts over-bluff/over-defend a real field, so
+  // squash bluff raises into call/fold only when opponents are actually in.
+  const liveOpps = state.players.filter(
+    (p) => !p.folded && p.id !== heroIdx && (p.committed >= state.currentBet || p.stack === 0),
+  ).length;
   const multiway = level >= 1 && liveOpps >= 2;
   const charted = multiway ? squashBluffsMultiway(cellStrategy(sc, code)) : cellStrategy(sc, code);
   const la = legalActions(state);
@@ -130,8 +161,36 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     };
   });
 
-  if (la.callAmount > 0 && !options.some((o) => o.id === 'fold')) {
-    options.push({ id: 'fold', label: 'Fold', freq: 0, ev: 0, kind: 'fold', why: `${code} is below the continue threshold here.` });
+  const aggrId: ActionId = sc.facing === 'rfi' ? 'open' : 'raise';
+  const raiseLabel = sc.facing === 'rfi' ? 'Open' : sc.facing === 'vs4bet' ? '5-Bet' : sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
+  const raiseWord = sc.facing === 'rfi' ? 'opening' : `${raiseLabel.toLowerCase()}ting`; // "4-bet" → "4-betting"
+  const ensure = (id: ActionId, label: string, kind: ActionOption['kind'], ev: number, why: string) => {
+    if (options.some((o) => o.id === id)) return;
+    options.push({ id, label, freq: 0, ev, kind, why, amount: id === aggrId ? raiseSize(id) : undefined });
+  };
+
+  // Surface EVERY legal action so the panel never hides a line — e.g. the 4-bet
+  // facing a 3-bet, or limping/opening a hand the chart folds. Charted actions
+  // keep their EV; an action the chart OMITS is a deviation we still score:
+  //   • playing a fold hand / over-aggression (4-betting a flat) → -EV leak.
+  //   • flatting a hand the chart raises → fine-but-worse, a small +EV.
+  // Without this, matchActionId resolves an off-chart action to an id missing
+  // from `options`, its EV defaults to 0, and a clear leak can grade as "Best".
+  const chartFolds = options.every((o) => o.id === 'fold');
+  const flatEv = round2(BASE_EV.call * 0.5); // a worse-but-not-losing alternative
+  if (la.canCheck) {
+    ensure('check', 'Check', 'passive', 0.1, `${code} can check here for free — never fold a free flop.`);
+  }
+  if (la.callAmount > 0) {
+    ensure('fold', 'Fold', 'fold', 0, `${code} is below the continue threshold here.`);
+    ensure('call', 'Call', 'call', chartFolds ? OFF_CHART_EV : flatEv,
+      chartFolds
+        ? `${code} isn't in the continue range here — calling plays a hand below threshold, usually dominated and out of position.`
+        : `${code} can flat, but the chart's line is to ${raiseLabel.toLowerCase()} or fold — flatting realizes less.`);
+  }
+  if (la.canRaise) {
+    ensure(aggrId, raiseLabel, 'aggressive', OFF_CHART_EV,
+      `${code} isn't in the ${raiseWord} range here — ${raiseWord} it is a loose, -EV play.`);
   }
 
   const best = options.reduce((a, b) => (b.ev > a.ev ? b : a), options[0]);
@@ -140,8 +199,8 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     bestEv: best.ev,
     bestId: best.id,
     source: 'preflop-chart',
-    note: `${sc.label}.${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
-    rangeNote: `${sc.label}${multiway ? ' · multiway' : ''}`,
+    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
+    rangeNote: `${seatLabel}${multiway ? ' · multiway' : ''}`,
     heroCode: code,
     scenarioId: sc.id,
   };

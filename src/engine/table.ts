@@ -10,12 +10,27 @@ export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
 export type Street = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'complete';
 export type ActionType = 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'post';
 
-// Position labels by offset from the button (6-max).
-const POS_BY_OFFSET: Position[] = ['BTN', 'SB', 'BB', 'UTG', 'MP', 'CO'];
+// Position labels by offset from the button (offset 0 = button), per table size.
+// A position is really "how many players act behind you", so short tables keep
+// BTN/SB/BB and trim the early seats (UTG/MP/CO) off the front. Heads-up: the
+// button posts the small blind, so the two seats are BTN(=SB) and BB.
+const POS_BY_OFFSET: Record<number, Position[]> = {
+  2: ['BTN', 'BB'],
+  3: ['BTN', 'SB', 'BB'],
+  4: ['BTN', 'SB', 'BB', 'UTG'],
+  5: ['BTN', 'SB', 'BB', 'UTG', 'CO'],
+  6: ['BTN', 'SB', 'BB', 'UTG', 'MP', 'CO'],
+};
+
+/** Ordered position labels for an n-handed table, indexed by offset from button. */
+export function tablePositions(n: number): Position[] {
+  return POS_BY_OFFSET[n] ?? POS_BY_OFFSET[6];
+}
 
 export function positionLabel(seat: number, button: number, n: number): Position {
+  const table = tablePositions(n);
   const off = (seat - button + n) % n;
-  return POS_BY_OFFSET[off] ?? 'MP';
+  return table[off] ?? 'MP';
 }
 
 export interface Player {
@@ -198,9 +213,11 @@ export function startHand(state: GameState): GameState {
     }
   }
 
-  // post blinds
-  const sbIdx = (b + 1) % n;
-  const bbIdx = (b + 2) % n;
+  // post blinds. Heads-up: the BUTTON posts the small blind (and acts first
+  // preflop, last postflop), so SB == button and BB is the other seat.
+  const heads = n === 2;
+  const sbIdx = heads ? b : (b + 1) % n;
+  const bbIdx = heads ? (b + 1) % n : (b + 2) % n;
   postBlind(state, sbIdx, state.smallBlind, 'SB');
   postBlind(state, bbIdx, state.bigBlind, 'BB');
   state.currentBet = state.bigBlind;

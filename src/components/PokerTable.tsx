@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useGame, NUM_PLAYERS, BIG_BLIND } from '../hooks/useGame';
+import { useGame, BIG_BLIND } from '../hooks/useGame';
 import { positionLabel } from '../engine/table';
 import { getProfile } from '../ai/profiles';
 import { Seat } from './Seat';
@@ -116,7 +116,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               <Seat
                 key={p.id}
                 player={p}
-                position={positionLabel(p.id, game.buttonIndex, NUM_PLAYERS)}
+                position={positionLabel(p.id, game.buttonIndex, game.players.length)}
                 isButton={p.id === game.buttonIndex && started}
                 isToAct={game.toAct === p.id && !handOver}
                 reveal={reveal && (!supportsHidden || !p.folded)}
