@@ -33,13 +33,13 @@ const RFI: Record<Position, string[]> = {
   MP: ['22+', 'A8s+', 'A5s-A4s', 'K9s+', 'QTs+', 'JTs', 'T9s', '98s', '87s', 'ATo+', 'KJo+', 'QJo'],
   CO: ['22+', 'A2s+', 'K8s+', 'Q9s+', 'J9s+', 'T8s+', '97s+', '86s+', '76s', '65s', '54s', 'A9o+', 'KTo+', 'QTo+', 'JTo'],
   BTN: ['22+', 'A2s+', 'K2s+', 'Q5s+', 'J7s+', 'T7s+', '96s+', '86s+', '75s+', '64s+', '54s', '43s', 'A2o+', 'K7o+', 'Q9o+', 'J9o+', 'T8o+', '98o', '87o'],
-  SB: ['22+', 'A2s+', 'K4s+', 'Q6s+', 'J7s+', 'T7s+', '96s+', '85s+', '75s+', '64s+', '54s', 'A4o+', 'K8o+', 'Q9o+', 'J9o+', 'T9o'],
+  SB: ['22+', 'A2s+', 'K4s+', 'Q6s+', 'J7s+', 'T7s+', '96s+', '85s+', '75s+', '65s', '54s', 'A4o+', 'K8o+', 'Q9o+', 'J9o+', 'T9o'],
   BB: [],
 };
 
 const MIX_OPEN: Partial<Record<Position, string[]>> = {
-  UTG: ['A8s', 'KJo', 'QJo', '76s'],
-  MP: ['A7s', 'A9o', 'KTo', '65s'],
+  UTG: ['A8s', 'KJo', 'QJo', '87s'],
+  MP: ['A7s', 'A9o', 'KTo', '76s'],
   CO: ['K7s', 'Q8s', 'A8o', 'J9o'],
   BTN: ['Q4s', 'J6s', 'K6o', 'Q8o', '53s'],
   SB: ['Q5s', 'J6s', 'K7o', 'Q8o', '64s'],
@@ -66,9 +66,9 @@ export const SCENARIOS: PreflopScenario[] = [
     heroPos: 'BTN',
     villainPos: 'UTG',
     bluffFreq: 0.5,
-    value: S(['TT+', 'AQs+', 'AKo', 'AJs']),
-    bluff: S(['A5s-A2s', 'KJs', 'QTs', 'J9s']),
-    call: S(['22-99', 'AJo', 'KQs', 'KQo', 'ATs', 'KJs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo']),
+    value: S(['QQ+', 'AKs', 'AKo', 'AQs']),
+    bluff: S(['A5s-A4s', 'KJs']),
+    call: S(['22-JJ', 'AJs', 'ATs', 'KQs', 'KJs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo', 'KQo', 'AJo']),
   },
   {
     id: 'co-vs-utg',
@@ -179,10 +179,12 @@ export const SCENARIOS: PreflopScenario[] = [
     villainPos: 'MP',
     bluffFreq: 0.5,
     // MP opens looser than UTG, tighter than CO — BTN sits in position and can
-    // flat wide / 3-bet a polarized bluff range. Between the vs-UTG and vs-CO charts.
-    value: S(['TT+', 'AQs+', 'AKo', 'AJs', 'KQs']),
-    bluff: S(['A5s-A2s', 'KJs', 'QTs', 'J9s']),
-    call: S(['22-99', 'ATs', 'KJs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo', 'KQo', 'AJo']),
+    // flat wide / 3-bet a polarized bluff range. A true middle: value JJ+ (vs-UTG
+    // is QQ+, vs-CO is TT+), one extra suited-wheel bluff + QTs over vs-UTG, but
+    // narrower than the vs-CO bluff fan (no J9s/T9s).
+    value: S(['JJ+', 'AQs+', 'AKo', 'AJs']),
+    bluff: S(['A5s-A3s', 'KJs', 'QTs']),
+    call: S(['22-TT', 'ATs', 'KQs', 'KJs', 'KTs', 'QJs', 'JTs', 'T9s', '98s', 'AQo', 'KQo', 'AJo']),
   },
   {
     id: 'bb-vs-co',

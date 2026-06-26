@@ -40,7 +40,8 @@
       "mcp__plugin_context-mode_context-mode__ctx_doctor",
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 10)",
       "PowerShell(npx tsx tmp_chartcheck.ts 2>&1 | Select-Object -First 120)",
-      "PowerShell(npx tsx tmp_chartcheck.ts 2>&1 | Select-Object -First 40)"
+      "PowerShell(npx tsx tmp_chartcheck.ts 2>&1 | Select-Object -First 40)",
+      "mcp__plugin_context-mode_context-mode__ctx_execute"
     ]
   }
 }
