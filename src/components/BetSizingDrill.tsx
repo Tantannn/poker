@@ -97,6 +97,9 @@ export function BetSizingDrill() {
   const [spot, setSpot] = useState<Spot>(() => genSpot(SIZE_IDS));
   const [chosen, setChosen] = useState<ActionId | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  // hide the equity number so you read the BOARD, not the solver. Still revealed
+  // after you answer, so it stays a teaching aid — just not a pre-answer spoiler.
+  const [hideEq, setHideEq] = useState(false);
 
   const best = spot.strategy.options.find((o) => o.id === spot.strategy.bestId);
   const optById = useMemo(() => {
@@ -138,6 +141,30 @@ export function BetSizingDrill() {
     return `✗ Best was ${best?.label} — ${lossTxt}`;
   }
 
+  // The "what to remember" lesson on a miss — ties the abstract rule to THIS
+  // board's texture and your seat, and names what your wrong pick actually costs.
+  function wrongLesson(): string {
+    const bestId = spot.strategy.bestId;
+    const posTip =
+      spot.pos === 'ip'
+        ? 'In position you realise equity well — lean smaller & more often.'
+        : 'Out of position you realise less — check more, and polarise when you bet.';
+
+    if (chosen === 'check')
+      return `You checked a spot the solver bets. A ${tex.label} board${tex.favours ? ` favours ${tex.favours}` : ''}, so ${best?.label} ${bestId === 'bet33' ? 'takes thin value and denies little' : 'charges their equity and builds the pot'}. Checking hands a free card and wins less. ${posTip} 💡 With an edge, bet — don't give free cards.`;
+
+    if (bestId === 'check')
+      return `You bet a spot with no edge. Worse hands won't call and better hands won't fold — the bet just bloats the pot while you're a bluff-catcher. Check, control the pot, realise your equity for free. ${posTip} 💡 No edge → check.`;
+
+    if (chosen && SIZE_RANK[chosen] != null && SIZE_RANK[bestId] != null) {
+      const tooSmall = SIZE_RANK[chosen] < SIZE_RANK[bestId];
+      return tooSmall
+        ? `Too small on a ${tex.label} board. A small bet lets their draws and overcards peel cheap — you fail to charge equity that's drawing against you. Size up to ${best?.label} to make them pay. ${posTip} 💡 Wet / dynamic board → bet big.`
+        : `Too big on a ${tex.label} board. Pot-sizing folds out the worse hands you want calls from — you get called only by what beats you. Drop to ${best?.label} to keep them in. ${posTip} 💡 Dry / static board → small & often; a value hand wants calls, not folds.`;
+    }
+    return `Best was ${best?.label}. ${posTip}`;
+  }
+
   return (
     <div className="card">
       <h2>Bet-Sizing Drill</h2>
@@ -152,6 +179,13 @@ export function BetSizingDrill() {
           <button className={mode === 'sizing' ? 'active' : ''} onClick={() => switchMode('sizing')}>💰 Sizing</button>
           <button className={mode === 'decide' ? 'active' : ''} onClick={() => switchMode('decide')}>🤔 Bet or check</button>
         </div>
+        <button
+          className={`bsd-eqtoggle ${hideEq ? 'on' : ''}`}
+          onClick={() => setHideEq((v) => !v)}
+          title="Hide the equity number before you answer, so you read the board — not the solver. Revealed after."
+        >
+          {hideEq ? '🙈 Equity hidden' : '👁 Equity shown'}
+        </button>
         <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
       </div>
 
@@ -182,8 +216,17 @@ export function BetSizingDrill() {
         </div>
         {spot.strategy.equity != null && (
           <div className="lab-eq">
-            <div className="big-stat gold">{(spot.strategy.equity * 100).toFixed(1)}%</div>
-            <div className="stat-lbl">equity vs range</div>
+            {hideEq && !revealed ? (
+              <>
+                <div className="big-stat dim">🙈</div>
+                <div className="stat-lbl">equity hidden — read the board</div>
+              </>
+            ) : (
+              <>
+                <div className="big-stat gold">{(spot.strategy.equity * 100).toFixed(1)}%</div>
+                <div className="stat-lbl">equity vs range</div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -234,6 +277,12 @@ export function BetSizingDrill() {
               : badMsg()}
             <button className="btn btn-deal lab-next" onClick={next}>Next spot →</button>
           </div>
+          {!good && (
+            <div className="bsd-lesson">
+              <span className="bsd-lesson-tag">📌 Remember</span>
+              <p>{wrongLesson()}</p>
+            </div>
+          )}
         </>
       )}
 

@@ -7,7 +7,6 @@ import { PositionHint } from './PositionHint';
 import { PlayingCard } from './PlayingCard';
 import { Controls } from './Controls';
 import { Hud } from './Hud';
-import { DecisionCurve } from './DecisionCurve';
 import { ScoreCard } from './ScoreCard';
 import { StrategyPanel } from './StrategyPanel';
 import { RangeChartModal } from './RangeChartModal';
@@ -15,6 +14,7 @@ import { SituationPanel } from './SituationPanel';
 import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
 import { ScenarioBar } from './ScenarioBar';
+import type { AggroWarning } from '../analysis/aggression';
 
 type G = ReturnType<typeof useGame>;
 
@@ -25,13 +25,7 @@ interface Props {
 }
 
 export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
-  const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain } = g;
-  // the solver's recommended line — shared by the HUD verdict and the decision
-  // curve so every panel reads one authoritative source (postflop only).
-  const solverBest =
-    strategy && strategy.source === 'postflop-model'
-      ? strategy.options.find((o) => o.id === strategy.bestId) ?? null
-      : null;
+  const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain, aggroWarning } = g;
   const reveal = game.street === 'complete' || game.street === 'showdown';
   const winnerIds = new Set(game.winners.map((w) => w.playerId));
   const started = game.handNumber > 0;
@@ -96,6 +90,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     <div className="play-layout">
       <div className="table-col">
         <ScenarioBar g={g} />
+        <AggroBanner w={aggroWarning} />
         <div className="poker-table">
           <div className="felt">
             <div className="table-center">
@@ -236,15 +231,6 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         ) : (
           <>
             <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} strategy={strategy} hideAnswer={hideAnswer} onPeek={() => setPeeked(true)} />
-            {hudEnabled && hud && (
-              <DecisionCurve
-                equity={hud.equity}
-                pot={hud.pot}
-                toCall={hud.toCall}
-                solverVerdict={hideAnswer ? undefined : solverBest ? (solverBest.id === 'fold' ? 'fold' : 'continue') : undefined}
-                solverLabel={hideAnswer ? undefined : solverBest?.label}
-              />
-            )}
             <SituationPanel board={game.board} heroCards={hero.holeCards} street={game.street} active={isHeroTurn} villain={villain} />
             <StrategyPanel
               strategy={strategy}
@@ -289,6 +275,28 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
       {showChart && strategy && (
         <RangeChartModal strategy={strategy} onClose={() => setShowChart(false)} />
       )}
+    </div>
+  );
+}
+
+// Rolling "your big bets keep getting called/raised and losing" warning. Shows
+// while the leak persists; dismiss hides it until the leak type changes or clears.
+function AggroBanner({ w }: { w: AggroWarning | null }) {
+  const [dismissed, setDismissed] = useState(false);
+  const [prevSig, setPrevSig] = useState<string | null>(null);
+  const sig = w ? w.headline : null;
+  if (sig !== prevSig) {
+    setPrevSig(sig);
+    setDismissed(false); // a new (or cleared) leak un-dismisses
+  }
+  if (!w || dismissed) return null;
+  return (
+    <div className={`aggro-banner ${w.level}`}>
+      <div className="aggro-text">
+        <div className="aggro-head">{w.headline}</div>
+        <p className="aggro-detail">{w.detail}</p>
+      </div>
+      <button className="aggro-dismiss" onClick={() => setDismissed(true)} title="Dismiss until it changes">✕</button>
     </div>
   );
 }

@@ -28,6 +28,7 @@ import type { ActionId } from '../strategy/types';
 import { rngPrescription } from '../strategy/types';
 import type { NodeFeedback } from '../analysis/grade';
 import { gradeNode, idToClass } from '../analysis/grade';
+import { aggressionWarning } from '../analysis/aggression';
 import type { SessionStats } from '../store/stats';
 import {
   findLeaks,
@@ -552,6 +553,13 @@ export function useGame(initialProfiles: string[]) {
 
   const leaks = useMemo(() => findLeaks(stats), [stats]);
 
+  // rolling "your big bets keep getting called/raised and losing" warning,
+  // recomputed as the log + per-hand results grow.
+  const aggroWarning = useMemo(
+    () => aggressionWarning(game.log, new Map(history.map((h) => [h.handNumber, h.deltaBB]))),
+    [game.log, history],
+  );
+
   const doResetStats = useCallback(() => {
     setStats(resetStats());
     setHistory([]);
@@ -665,6 +673,7 @@ export function useGame(initialProfiles: string[]) {
     removeJournalEntry,
     removeJournalEntries,
     leaks,
+    aggroWarning,
     clearHistory,
     removeHistoryHands,
     profiles,

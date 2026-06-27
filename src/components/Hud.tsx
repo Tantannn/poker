@@ -211,6 +211,16 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
             <DecisionGuide hud={hud} street={street} best={solverBest} />
           )}
 
+          {street === 'river' && hud.toCall > 0 && (
+            <div className="hud-river-note">
+              {hud.equity < 0.7 ? (
+                <>🎯 River = pure pot odds (no more cards), and a river bet is <b>polarized</b> — strong value + bluffs, little between. This is a <b>bluff-catch</b>: you beat his bluffs, never his value, and can't improve. Your <b>{pct(hud.equity)}</b> ≈ how often he's bluffing — call only if it clears the <b>{pct(hud.requiredEquity)}</b> price <i>and</i> he actually bluffs here.</>
+              ) : (
+                <>🎯 River value spot — your <b>{pct(hud.equity)}</b> beats enough of his value to call. Raising mostly folds out the bluffs you beat, so calling captures them.</>
+              )}
+            </div>
+          )}
+
           {(street === 'flop' || street === 'turn') && (
             <div className="hud-outs">
               <div className="hud-row">

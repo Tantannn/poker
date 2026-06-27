@@ -34,6 +34,17 @@ function riverBalance(frac: number): string {
   return ` River balance: this size wants ~${Math.round(bluffFrac * 100)}% bluffs (≈ ${ratio.toFixed(1)} : 1 value-to-bluff).`;
 }
 
+// River call wording. The river is a pure pot-odds spot (no more cards, no
+// implied odds) and a river BET is polarized — strong value + bluffs, little in
+// between. A medium hand is therefore a BLUFF-CATCHER: it beats only his bluffs,
+// never his value, and can't improve, so its equity ≈ how often he's bluffing.
+function riverCallNote(isRiver: boolean, e: number, need: number): string {
+  if (!isRiver) return '';
+  if (e >= 0.7)
+    return ` River read: your ~${Math.round(e * 100)}% beats enough of his value that this is a value call — raising mostly folds out the bluffs you beat, so calling captures them.`;
+  return ` River = pure pot odds (no more cards, no implied odds), and a river bet is POLARIZED — strong value + bluffs, little between. This is a BLUFF-CATCH: you beat his bluffs, never his value, and can't improve, so your ~${Math.round(e * 100)}% is really "how often is he bluffing?". Call only if that clears the ${Math.round(need * 100)}% price AND he actually bluffs here — vs a player who never bluffs, fold.`;
+}
+
 function whyBet(
   c: BetClass,
   e: number,
@@ -209,7 +220,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       kind: 'passive',
       why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${eReal >= need || implied > 0 ? 'profitable' : 'marginal/-EV'}.${
         oop ? ' Out of position you realise less of that equity, so call tighter.' : ip ? ' In position you realise it well.' : ''
-      }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}`,
+      }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}${riverCallNote(isRiver, e, need)}`,
       math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(eReal)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(eReal * (P + C) - C + implied).toFixed(1)} chips ≈ ${((eReal * (P + C) - C + implied) / bb).toFixed(2)} bb`,
     });
   }

@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
 import { randomFlop, randomCard } from '../engine/board';
-import { equityVsRange } from '../engine/equity';
+import { equityVsRange, countOuts } from '../engine/equity';
 import { rangeFromSet } from '../engine/range';
 import type { WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
@@ -33,40 +33,87 @@ const RANGES: RangeOpt[] = [
   { id: 'bbdef', label: 'BB defend', note: 'BB calling a button open — very wide', width: 'wide', range: rangeFromSet(BB_DEFEND_RANGE) },
 ];
 
-// Plain-English, no-math reason for the equity read. Equity vs a range is driven
-// by two things you can eyeball: how strong YOUR hand is, and how WIDE their
-// range is (wide = lots of air you beat; tight = lots of strength you don't).
-// Each rule ends with a short memory hook.
-function whyRange(hc: HandClass, width: 'wide' | 'tight'): string {
-  const isDraw = /draw|over-ender|open-end|gutshot|overcards/i.test(hc.label);
+// Reason for the equity read — now WITH the math, so the number isn't a mystery.
+// Equity vs a range is driven by two things you can eyeball: how strong YOUR hand
+// is, and how WIDE their range is. For draws we show the actual decomposition:
+//   raw draw equity (Rule of 2 & 4) + the slice of their air you beat unimproved
+//   = the % you saw. Each line ends with a memorizable anchor.
+function whyRange(
+  hc: HandClass,
+  width: 'wide' | 'tight',
+  equity: number,
+  outs: number,
+  street: 'Flop' | 'Turn',
+): string {
+  const isDrawLabel = /draw|over-ender|open-end|gutshot|overcards/i.test(hc.label);
+  // a PURE draw (no made pair) vs a made hand that also has draw outs
+  const isPureDraw = isDrawLabel && hc.strength < 4 && !/pair/i.test(hc.label);
   const s = hc.strength;
+  const eq = Math.round(equity);
 
   const hand =
-    s >= 4 ? `You have a strong made hand (${hc.label})`
-    : isDraw ? `You have a draw (${hc.label}) — outs, but nothing made yet`
+    isPureDraw ? `You have a draw (${hc.label}) — outs, but nothing made yet`
+    : s >= 4 ? `You have a strong made hand (${hc.label})`
     : s >= 3 ? `You have a solid made hand (${hc.label})`
     : s === 0 ? `You have air (${hc.label}) — no pair, no draw`
     : `You have a weak made hand (${hc.label})`;
 
   const range =
     width === 'wide'
-      ? `Their range is wide — mostly unpaired air and weak hands`
-      : `Their range is tight — big pairs and strong aces, few weak hands`;
+      ? `their range is wide — mostly unpaired air and weak hands`
+      : `their range is tight — big pairs and strong aces, few weak hands`;
 
-  const rule =
-    isDraw
-      ? `A draw is outs, not a made hand — you're the underdog until it hits. 💡 Outs ≠ ahead.`
+  // THE NUMBER — where this exact % comes from.
+  let math: string;
+  if (isPureDraw && outs > 0) {
+    const mult = street === 'Flop' ? 4 : 2; // Rule of 2 & 4
+    const hit = outs * mult; // % chance you complete by the river
+    const bump = eq - hit;
+    const bumpTxt =
+      bump >= 4
+        ? `Their air adds ~${bump} pts you scoop unimproved → about ${eq}%.`
+        : bump <= -4
+        ? `But you must actually hit — their made hands pull it to about ${eq}%.`
+        : `That lands right around ${eq}%.`;
+    math = `~${outs} outs → Rule of ${mult}: ${outs}×${mult} ≈ ${hit}% to hit. ${bumpTxt}`;
+  } else if (s === 0) {
+    math =
+      width === 'wide'
+        ? `You win only when you out-flop or bluff — about ${eq}% raw.`
+        : `Against strength you're near drawing dead — about ${eq}%.`;
+  } else if (s >= 4) {
+    math =
+      width === 'wide'
+        ? `You beat almost their whole range → ~${eq}%.`
+        : `Even a strong hand only beats the bottom of a tight value range → ~${eq}%.`;
+  } else if (s >= 3) {
+    math =
+      width === 'wide'
+        ? `You beat all their air and flip with their pairs → ~${eq}%.`
+        : `You're only ahead of the worst of a tight range → ~${eq}%.`;
+  } else {
+    math =
+      width === 'wide'
+        ? `You beat their air but lose to any pair → a thin ~${eq}%.`
+        : `They out-pair or out-kick you most of the time → ~${eq}%.`;
+  }
+  // made hand that ALSO has draw outs — note the backup equity
+  if (!isPureDraw && isDrawLabel && outs > 0) math += ` Plus ~${outs} outs of backup.`;
+
+  const hook =
+    isPureDraw
+      ? `💡 Draw% ≈ outs × ${street === 'Flop' ? 4 : 2}; a wide range adds a few points.`
     : s === 0
-      ? `Air beats almost nothing. 💡 No pair, no draw = behind.`
+      ? `💡 No pair, no draw = behind.`
     : s >= 3
       ? (width === 'wide'
-          ? `A strong hand vs a wide range beats most of it → big edge. 💡 Wider range → more equity for you.`
-          : `Even a strong hand shrinks vs a tight range — they're rarely weak. 💡 Tighter range → less equity for you.`)
+          ? `💡 Strong hand + wide range = crushing.`
+          : `💡 Tighter range → less equity for you.`)
     : (width === 'wide'
-        ? `A weak pair still beats their air, but it's only a small edge. 💡 Any pair vs a wide range ≈ ahead but thin.`
-        : `A weak pair vs a tight range is in trouble — they out-pair or out-kick you. 💡 Weak hand + tight range = behind.`);
+        ? `💡 Any pair vs a wide range ≈ ahead but thin.`
+        : `💡 Weak hand + tight range = behind.`);
 
-  return `${hand}. ${range}. ${rule}`;
+  return `${hand}; ${range}. ${math} ${hook}`;
 }
 
 // Buckets = how you actually think at the table. Boundaries are [lo, hi).
@@ -116,6 +163,7 @@ export function RangeDrill() {
     [spot, ropt],
   );
   const trueBand = bandOf(equity);
+  const outs = useMemo(() => countOuts(spot.hero, spot.board).outs, [spot]);
 
   const revealed = chosen != null;
   const correct = revealed && chosen === trueBand;
@@ -185,7 +233,7 @@ export function RangeDrill() {
           </div>
           <div className="drill-hook">
             <span className="drill-hook-tag">💡 Why</span>
-            <p>{whyRange(spot.hc, ropt.width)}</p>
+            <p>{whyRange(spot.hc, ropt.width, equity, outs, street)}</p>
           </div>
           <div className="rd-tip">
             Tip: switch the villain range above (same hand) to feel how much the <i>range</i> moves your
