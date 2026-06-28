@@ -29,6 +29,7 @@ import { rngPrescription } from '../strategy/types';
 import type { NodeFeedback } from '../analysis/grade';
 import { gradeNode, idToClass } from '../analysis/grade';
 import { aggressionWarning } from '../analysis/aggression';
+import { assessTilt } from '../analysis/tilt';
 import type { SessionStats } from '../store/stats';
 import {
   findLeaks,
@@ -560,6 +561,10 @@ export function useGame(initialProfiles: string[]) {
     [game.log, history],
   );
 
+  // tilt pressure read off the recent result shape + decision quality — drives
+  // the cool-off gate on the deal button after a big swing.
+  const tilt = useMemo(() => assessTilt(stats), [stats]);
+
   const doResetStats = useCallback(() => {
     setStats(resetStats());
     setHistory([]);
@@ -674,6 +679,7 @@ export function useGame(initialProfiles: string[]) {
     removeJournalEntries,
     leaks,
     aggroWarning,
+    tilt,
     clearHistory,
     removeHistoryHands,
     profiles,

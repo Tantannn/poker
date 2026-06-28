@@ -261,6 +261,54 @@ body {
 }
 .aggro-dismiss:hover { color: var(--txt); }
 
+/* ---- tilt guard: persistent banner + meter ---- */
+.tilt-banner {
+  display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px;
+  padding: 10px 12px; border-radius: 10px; line-height: 1.5;
+  background: rgba(224, 132, 58, 0.12); border: 1px solid rgba(224, 132, 58, 0.45);
+}
+.tilt-banner.high { background: rgba(224, 60, 60, 0.13); border-color: rgba(224, 60, 60, 0.55); }
+.tilt-text { flex: 1; }
+.tilt-head { font-weight: 800; font-size: 13.5px; color: var(--gold); margin-bottom: 5px; }
+.tilt-banner.high .tilt-head { color: var(--red); }
+.tilt-detail { margin: 6px 0 4px; font-size: 12.5px; color: var(--txt); }
+.tilt-meter {
+  position: relative; height: 14px; border-radius: 7px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.08); margin-bottom: 4px;
+}
+.tilt-meter-fill {
+  height: 100%; border-radius: 7px; transition: width 0.4s ease;
+  background: linear-gradient(90deg, var(--gold), var(--red));
+}
+.tilt-meter-num {
+  position: absolute; top: 0; right: 6px; font-size: 10px; font-weight: 800;
+  line-height: 14px; color: var(--txt);
+}
+.tilt-signals { margin: 4px 0 0; padding-left: 18px; font-size: 12px; color: var(--txt); }
+.tilt-signals li { margin: 1px 0; }
+.tilt-steps-wrap { margin-top: 6px; font-size: 12px; }
+.tilt-steps-wrap summary { cursor: pointer; color: var(--muted); font-weight: 700; }
+.tilt-steps { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--txt); }
+.tilt-steps li { margin: 3px 0; }
+.tilt-dismiss {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 4px; flex-shrink: 0;
+}
+.tilt-dismiss:hover { color: var(--txt); }
+
+/* ---- tilt cool-off gate (replaces the deal buttons after a big swing) ---- */
+.tilt-cooloff {
+  background: rgba(224, 60, 60, 0.1); border: 1px solid rgba(224, 60, 60, 0.5);
+  border-radius: 12px; padding: 14px 16px; margin: 0 auto; max-width: 460px; text-align: left;
+}
+.tilt-cooloff-head { font-weight: 800; font-size: 14px; color: var(--red); margin-bottom: 8px; }
+.tilt-cooloff .tilt-steps { font-size: 12.5px; }
+.tilt-cooloff-btns { display: flex; gap: 10px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+.btn-break { background: var(--panel); border: 1px solid var(--line); color: var(--txt); }
+.tilt-break { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 12px; }
+.tilt-break-timer { font-size: 34px; font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
+.tilt-break-msg { font-size: 12.5px; color: var(--muted); }
+
 .controls { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
 .controls.disabled { opacity: 0.6; pointer-events: none; }
 .ctrl-row { display: flex; gap: 10px; justify-content: center; }
@@ -572,6 +620,40 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .grid-cell { cursor: pointer; transition: outline 0.1s; color: #f3fff7; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
 .grid-cell.sel { outline: 3px solid var(--gold); outline-offset: -1px; z-index: 3; }
 .chart-legend { margin-top: 0; margin-bottom: 12px; }
+
+/* ---- range trainer: chart modal trigger ---- */
+.trainer-chart-btn { margin-top: 16px; }
+
+/* ---- reference: sticky jump nav + collapsible sections ---- */
+.ref-nav {
+  position: sticky; top: 0; z-index: 20; margin-bottom: 14px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.ref-nav-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ref-nav-label { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+.ref-nav-actions button {
+  background: var(--chip); color: var(--muted); border: 1px solid var(--line);
+  padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+}
+.ref-nav-actions button:hover { color: var(--txt); border-color: var(--raise2); }
+.ref-nav-links { display: flex; gap: 6px; flex-wrap: wrap; }
+.ref-nav-link {
+  background: var(--bg2); color: var(--muted); border: 1px solid var(--line);
+  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 600; transition: 0.15s;
+}
+.ref-nav-link:hover { color: var(--txt); border-color: var(--raise2); background: var(--chip); }
+
+.ref-section { scroll-margin-top: 130px; }
+.ref-sec-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer; padding: 0; color: inherit;
+}
+.ref-sec-head h2 { margin: 0; font-size: 19px; }
+.ref-sec-head:hover h2 { color: var(--gold); }
+.ref-caret { color: var(--muted); font-size: 13px; width: 14px; flex-shrink: 0; }
+.ref-section.closed .ref-sec-head { opacity: 0.85; }
+.ref-sec-body { margin-top: 14px; }
 .tally { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-weight: 700; font-size: 13px; }
 .cell-detail .cell-act { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
 .cell-act .dot { width: 12px; height: 12px; border-radius: 3px; }

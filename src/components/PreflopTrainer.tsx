@@ -3,6 +3,8 @@ import type { Position } from '../engine/table';
 import type { Card } from '../engine/cards';
 import { handCode, RFI_RANGES } from '../ai/preflop';
 import { PlayingCard } from './PlayingCard';
+import { MiniRangeGrid } from './MiniRangeGrid';
+import { KIND_COLOR } from './chartColors';
 
 const POSITIONS: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB'];
 
@@ -31,11 +33,13 @@ export function PreflopTrainer() {
   const [answered, setAnswered] = useState(false);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0, streak: 0 });
+  const [showChart, setShowChart] = useState(false);
 
   const deal = useCallback(() => {
     setCur(dealRandom(enabled));
     setAnswered(false);
     setLastCorrect(null);
+    setShowChart(false);
   }, [enabled]);
 
   const answer = useCallback(
@@ -155,6 +159,37 @@ export function PreflopTrainer() {
           Streak <b>{score.streak}</b>
         </div>
       </div>
+
+      {cur && (
+        <button className="btn-chart-seat trainer-chart-btn" onClick={() => setShowChart(true)}>
+          📊 Range chart — {cur.pos}
+        </button>
+      )}
+
+      {showChart && cur && (
+        <div className="modal-backdrop" onClick={() => setShowChart(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>RFI range — open from {cur.pos}</span>
+              <button className="modal-close" onClick={() => setShowChart(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <MiniRangeGrid scenarioId={`rfi-${cur.pos}`} highlight={cur.code} />
+              <div className="modal-side">
+                <p className="modal-note">
+                  Full opening range from <b>{cur.pos}</b>. Your hand <b>{cur.code}</b> is outlined in gold —
+                  its color shows the action.
+                </p>
+                <div className="legend chart-legend">
+                  <div><span className="sw" style={{ background: KIND_COLOR.value }} /> Open / raise</div>
+                  <div><span className="sw" style={{ background: `linear-gradient(to right, ${KIND_COLOR.value} 50%, ${KIND_COLOR.fold} 50%)` }} /> Mixed (≈50% open)</div>
+                  <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> Fold</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

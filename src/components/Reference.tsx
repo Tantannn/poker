@@ -1,8 +1,157 @@
+import { useState, type ReactNode } from 'react';
+
+// Section table-of-contents — drives the sticky jump nav and the collapse-all
+// control. Order here = render order below; each id matches a <Section id>.
+const SECTIONS: { id: string; title: string }[] = [
+  { id: 'tilt', title: '🧊 Tilt control — protect your stack' },
+  { id: 'rankings', title: 'Hand rankings & all-in match-ups' },
+  { id: 'equity', title: 'Reading equity fast' },
+  { id: 'memorize', title: 'Memorizing the charts by position' },
+  { id: 'shorthanded', title: 'Short-handed: one ladder' },
+  { id: 'position', title: 'Why position wins' },
+  { id: 'threebet', title: '3-betting & facing a 3-bet' },
+  { id: 'blinds', title: 'Blind defense, multiway & short stacks' },
+  { id: 'postflop', title: 'Postflop fundamentals & glossary' },
+  { id: 'texture', title: 'Board texture playbook' },
+  { id: 'turn', title: 'The turn: pivot street' },
+  { id: 'river', title: 'River: value, bluff, or fold' },
+  { id: 'bluffing', title: 'Bluff frequency & blockers' },
+  { id: 'coolers', title: 'Coolers: one pair in trouble' },
+  { id: 'reverse', title: 'Reverse implied odds' },
+  { id: 'shape', title: 'Range shape, capping & foundations' },
+  { id: 'bots', title: 'How the bots play' },
+];
+
+function Section({
+  id,
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className={`card ref-section ${open ? 'open' : 'closed'}`}>
+      <button type="button" className="ref-sec-head" onClick={onToggle} aria-expanded={open}>
+        <span className="ref-caret">{open ? '▾' : '▸'}</span>
+        <h2>{title}</h2>
+      </button>
+      {open && <div className="ref-sec-body">{children}</div>}
+    </section>
+  );
+}
+
 export function Reference() {
+  // collapsed ids; everything open by default. A Set keeps toggle/expand-all simple.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const isOpen = (id: string) => !collapsed.has(id);
+  const toggle = (id: string) =>
+    setCollapsed((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const expandAll = () => setCollapsed(new Set());
+  const collapseAll = () => setCollapsed(new Set(SECTIONS.map((s) => s.id)));
+  // jump nav: ensure the target is open, then scroll it into view.
+  const jump = (id: string) => {
+    setCollapsed((s) => {
+      const n = new Set(s);
+      n.delete(id);
+      return n;
+    });
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
   return (
     <>
-      <div className="card">
-        <h2>Reference</h2>
+      <nav className="ref-nav">
+        <div className="ref-nav-actions">
+          <span className="ref-nav-label">Jump to</span>
+          <button type="button" onClick={expandAll}>Expand all</button>
+          <button type="button" onClick={collapseAll}>Collapse all</button>
+        </div>
+        <div className="ref-nav-links">
+          {SECTIONS.map((s) => (
+            <button key={s.id} type="button" className="ref-nav-link" onClick={() => jump(s.id)}>
+              {s.title}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <Section id="tilt" title="🧊 Tilt control — protect your stack" open={isOpen('tilt')} onToggle={() => toggle('tilt')}>
+        <p className="sub">
+          Tilt is emotion overriding strategy after a swing — and it loses more money than any range leak.
+          The classic pattern: you double up, feel invincible (or get cracked and go on the chase), then
+          dump the whole stack in one hand trying to force a result. One bad ten minutes can erase a good
+          session. The math doesn't change when you're losing — <b>only your discipline does.</b>
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Spot it early — the tells</h4>
+            <ul className="tips">
+              <li><b>Speeding up:</b> snap-calling and auto-dealing the next hand without reading the spot.</li>
+              <li><b>Sizing up to get even:</b> firing bigger than the situation calls for to "win it back fast".</li>
+              <li><b>Curiosity calls:</b> paying off rivers "to see if he has it" — you already know.</li>
+              <li><b>Range creep:</b> opening junk, defending too wide, 4-betting light out of frustration.</li>
+              <li><b>Ignoring the reads:</b> the HUD/solver says fold, the gut says "not this time."</li>
+            </ul>
+            <h4>The sunk-cost trap</h4>
+            <p className="sub">
+              The single biggest tilt leak: <b>"I've lost so much, I have to win it back this hand."</b> You
+              can't. Last hand's chips are gone the instant the pot is pushed — they aren't on the table
+              anymore. Every hand is independent: a 200 call to win 1000 needs <b>17% equity</b> whether you're
+              up three buy-ins or down five. The pot doesn't know your session, and neither should you.
+            </p>
+          </div>
+          <div>
+            <h4>How to control it</h4>
+            <ul className="tips">
+              <li><b>Stop &amp; breathe:</b> 30–60 seconds away from the table breaks the impulse loop. Stand up.</li>
+              <li><b>Standard sizing:</b> never bet bigger to force action — that's spew wearing a value mask.</li>
+              <li><b>One hand at a time:</b> play the hand in front of you on its own merits. Read equity, pot
+                odds and the solver before you act — let the math drive, not the gut.</li>
+              <li><b>Set a stop-loss:</b> decide a number <i>before</i> you sit (e.g. 2–3 buy-ins). Hit it → quit
+                for the day. The money doesn't know you're stuck; chasing only deepens the hole.</li>
+              <li><b>Win-tilt is real too:</b> after a big win, players spew "house money." Treat your stack the
+                same whether you just doubled or just got stacked.</li>
+            </ul>
+            <p className="sub">
+              Hook: <b>"the result of the last hand is the worst possible input to the next one."</b> Reset to
+              zero every deal.
+            </p>
+          </div>
+        </div>
+
+        <div className="note-block">
+          <h4>The app's Tilt Guard (Play tab)</h4>
+          <p className="sub">
+            The trainer watches for tilt and steps in — so you practise the <i>discipline</i>, not just the
+            strategy. It reads four signals off your session:
+          </p>
+          <ul className="tips">
+            <li><b>A big single-hand loss</b> — you just got stacked or punted off a large pot.</li>
+            <li><b>A losing streak</b> — several losing hands in a row, frustration building.</li>
+            <li><b>A drawdown</b> — how far below your session peak you've dropped (in buy-ins).</li>
+            <li><b>Quality slipping</b> — your error rate spiking right after a loss. The real behavioural tell.</li>
+          </ul>
+          <p className="sub">
+            Those drive a <b>tilt meter</b> and a banner with a grounding checklist. After a big swing the
+            <b> cool-off gate</b> blocks the next deal: you either take a timed 30-second break or explicitly
+            choose to play on — so the next hand is a <i>decision</i>, not autopilot. Watch the
+            <b> Current downswing</b> line on the session scorecard for the same signal in numbers.
+          </p>
+        </div>
+      </Section>
+
+      <Section id="rankings" title="Hand rankings & all-in match-ups" open={isOpen('rankings')} onToggle={() => toggle('rankings')}>
         <div className="two-col">
           <div>
             <h3>Hand Rankings (high → low)</h3>
@@ -37,10 +186,9 @@ export function Reference() {
             </table>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Reading equity fast</h3>
+      <Section id="equity" title="Reading equity fast" open={isOpen('equity')} onToggle={() => toggle('equity')}>
         <p className="sub">
           Equity = your share of the pot if all chips went in now. The HUD gets it by dealing the
           run-out thousands of times and counting — but you can ballpark it at the table.
@@ -149,10 +297,9 @@ export function Reference() {
             only be top pair if the biggest card on the board is a 7.
           </p>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Remembering the charts vs each position</h3>
+      <Section id="memorize" title="Memorizing the charts by position" open={isOpen('memorize')} onToggle={() => toggle('memorize')}>
         <p className="sub">
           Don't memorize 169 cells per chart — memorize the <b>skeleton</b>, then adjust by who you're
           facing. Every chart is built from the same parts; only the width changes.
@@ -192,10 +339,9 @@ export function Reference() {
             </p>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Short-handed: one ladder, not new charts</h3>
+      <Section id="shorthanded" title="Short-handed: one ladder, not new charts" open={isOpen('shorthanded')} onToggle={() => toggle('shorthanded')}>
         <p className="sub">
           A position isn't a name — it's <b>how many players still act behind you</b>. So you only ever
           memorize the <b>6-max ladder once</b>; every shorter table (5-max down to heads-up) reads off the
@@ -239,10 +385,9 @@ export function Reference() {
             </p>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Why position wins (and how to open)</h3>
+      <Section id="position" title="Why position wins (and how to open)" open={isOpen('position')} onToggle={() => toggle('position')}>
         <div className="two-col">
           <div>
             <h4>Position = free equity</h4>
@@ -266,10 +411,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>3-betting & facing a 3-bet</h3>
+      <Section id="threebet" title="3-betting & facing a 3-bet" open={isOpen('threebet')} onToggle={() => toggle('threebet')}>
         <div className="two-col">
           <div>
             <h4>Why 3-bet light at all?</h4>
@@ -295,10 +439,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Blind defense, multiway & short stacks</h3>
+      <Section id="blinds" title="Blind defense, multiway & short stacks" open={isOpen('blinds')} onToggle={() => toggle('blinds')}>
         <div className="two-col">
           <div>
             <h4>Blind defense</h4>
@@ -333,9 +476,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
+      <Section id="postflop" title="Postflop fundamentals & glossary" open={isOpen('postflop')} onToggle={() => toggle('postflop')}>
         <div className="two-col">
           <div>
             <h3>Postflop in three questions</h3>
@@ -369,10 +512,9 @@ export function Reference() {
             <p><span className="pill">3-bet</span> A re-raise of the open.</p>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Board texture playbook</h3>
+      <Section id="texture" title="Board texture playbook" open={isOpen('texture')} onToggle={() => toggle('texture')}>
         <p className="sub">
           Before any flop decision, read the texture. It sets who has <b>range advantage</b> (more equity
           overall) and <b>nut advantage</b> (more of the very best hands) — which together set your size.
@@ -411,10 +553,9 @@ export function Reference() {
             </p>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>The turn: pivot street</h3>
+      <Section id="turn" title="The turn: pivot street" open={isOpen('turn')} onToggle={() => toggle('turn')}>
         <p className="sub">
           One question runs the turn: <b>did this card help my range or theirs?</b> Bet bigger than the flop
           (66–80%) — the pot's grown and you're charging draws with one street left.
@@ -446,10 +587,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>River: value, bluff, or fold</h3>
+      <Section id="river" title="River: value, bluff, or fold" open={isOpen('river')} onToggle={() => toggle('river')}>
         <p className="sub">
           No more cards — you have <b>0% equity unless you hold the best hand</b>. Only two reasons to bet:
           <b> value</b> (worse calls) or <b>bluff</b> (better folds). "Protection" and "for info" aren't reasons.
@@ -480,10 +620,9 @@ export function Reference() {
             </p>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Bluff frequency &amp; blockers</h3>
+      <Section id="bluffing" title="Bluff frequency & blockers" open={isOpen('bluffing')} onToggle={() => toggle('bluffing')}>
         <div className="two-col">
           <div>
             <h4>How often to bluff (river, balanced)</h4>
@@ -515,10 +654,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Coolers: when one pair is in trouble</h3>
+      <Section id="coolers" title="Coolers: when one pair is in trouble" open={isOpen('coolers')} onToggle={() => toggle('coolers')}>
         <p className="sub">
           The fastest way to lose a stack is paying off a <b>set</b> (a pocket pair that flopped trips)
           with one pair. You can't dodge every cooler — but you can stop them from costing 100bb.
@@ -551,10 +689,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Reverse implied odds — when hitting still loses</h3>
+      <Section id="reverse" title="Reverse implied odds — when hitting still loses" open={isOpen('reverse')} onToggle={() => toggle('reverse')}>
         <p className="sub">
           Implied odds = the extra you <i>win</i> when a draw hits. <b>Reverse</b> implied odds are the mirror:
           the extra you <b>lose</b> when you make second-best, or a hand you then can't fold. They quietly turn
@@ -586,10 +723,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>Range shape, capping &amp; two foundations</h3>
+      <Section id="shape" title="Range shape, capping & two foundations" open={isOpen('shape')} onToggle={() => toggle('shape')}>
         <div className="two-col">
           <div>
             <h4>3-bet shape: polar vs linear/merged</h4>
@@ -629,10 +765,9 @@ export function Reference() {
             </ul>
           </div>
         </div>
-      </div>
+      </Section>
 
-      <div className="card">
-        <h3>How the bots play (the opponent model)</h3>
+      <Section id="bots" title="How the bots play (the opponent model)" open={isOpen('bots')} onToggle={() => toggle('bots')}>
         <p className="sub">
           The villains aren't random — they read the spot the same way this guide teaches. Knowing
           their rules tells you exactly where their range is, and where they're exploitable.
@@ -679,7 +814,7 @@ export function Reference() {
           hard they adapt to <i>your</i> leaks, and how sharp their call/fold line is. <b>Easy</b> calls too
           much and misreads hands; <b>Extreme</b> reads accurately and fully exploits your tendencies.
         </p>
-      </div>
+      </Section>
     </>
   );
 }

@@ -139,6 +139,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     (nOpp > 1
       ? equityVsField(inp.hero, inp.board, ranges, iters).equity
       : equityVsRange(inp.hero, inp.board, inp.oppRange, iters).equity);
+  // Heads-up equity vs the villain's range — the number that matters WHEN HERO BETS.
+  // A value bet only has to beat the ONE opponent who calls, not the whole field, so
+  // equity-when-called is based on this, NOT the multiway field equity `e` (which is
+  // correctly lower because a checked-down showdown must beat everyone). Conflating
+  // the two made overpairs look like check-only semibluffs and graded a bet a blunder.
+  const eHU = nOpp > 1 ? equityVsRange(inp.hero, inp.board, inp.oppRange, iters).equity : e;
   const P = inp.pot;
   const C = inp.toCall;
   const bb = inp.bigBlind;
@@ -235,8 +241,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(e, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome);
-    const cls = classifyBet(e, outs);
+    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e);
+    const cls = classifyBet(eHU, outs);
     const sv = d.streetValue > 0.05;
     cands.push({
       id,
@@ -245,7 +251,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       amount: target,
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
       kind: classKind(cls),
-      why: whyBet(cls, e, d, outs, false, isRiver, frac),
+      why: whyBet(cls, eHU, d, outs, false, isRiver, frac),
       math: `EV = fold% × pot + called% × (eq-when-called × final pot − you invest)${sv ? ' + multi-street value' : ''}\n   = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A})${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${sv ? `\n   (~${Math.round(d.contFrac * 100)}% of his range calls this size; the rest folds — a smaller bet keeps more worse hands in to pay later streets)` : ''}`,
     });
   };
@@ -255,8 +261,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(e, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome);
-    const cls = classifyBet(e, outs);
+    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e);
+    const cls = classifyBet(eHU, outs);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
     // apply a risk premium — all-in only "wins" when it's clearly best. SCALES
@@ -274,7 +280,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       sizePct: Math.round((100 * (inp.maxRaiseTo - inp.currentBet)) / Math.max(1, potForSize)),
       kind: classKind(cls),
       why:
-        whyBet(cls, e, d, outs, true, isRiver, allinFrac) +
+        whyBet(cls, eHU, d, outs, true, isRiver, allinFrac) +
         ` Note: a ${RISK.toFixed(1)}bb risk premium is applied (scaled to SPR ${spr.toFixed(1)} — deeper stacks risk more, so the premium is bigger) — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
       math: `EV = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A}) = ${rawEv.toFixed(2)} bb\n   only ~${Math.round(d.contFrac * 100)}% of his range calls a shove (the strong part), so eq-when-called is just ${pct1(d.e2)}; and a jam forgoes all later-street value.\n   − ${RISK.toFixed(1)} bb risk premium (SPR ${spr.toFixed(1)}) → ${adjEv.toFixed(2)} bb`,
     });
@@ -317,7 +323,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     bestEv: round2(bestEv),
     bestId: best.id,
     source: 'postflop-model',
-    note: `Equity ${(e * 100).toFixed(1)}% ${nOpp > 1 ? `vs the ${nOpp}-way field (you must beat all)` : 'vs villain range'}.${inp.effStack != null ? ` Effective stack ${effStack} (SPR ${spr.toFixed(1)}) — depth-aware: draws get implied odds, deep shoves a bigger risk premium.` : ''} Bet EVs use a minimum-defence model (bigger size → tighter, stronger calling range → lower equity-when-called) plus a multi-street value term, so over-bets/jams aren't over-credited. Still a heuristic, not a Nash solve.`,
+    note: `Equity ${(e * 100).toFixed(1)}% ${nOpp > 1 ? `vs the ${nOpp}-way field (you must beat all)` : 'vs villain range'}.${inp.effStack != null ? ` Effective stack ${effStack} (SPR ${spr.toFixed(1)}) — depth-aware: draws get implied odds, deep shoves a bigger risk premium.` : ''} Bet EVs use a minimum-defence model (bigger size → tighter, stronger calling range → lower equity-when-called) plus a multi-street value term, so over-bets/jams aren't over-credited.${nOpp > 1 && !isRiver ? ` Equity-when-called is measured HEADS-UP vs the calling range (${(eHU * 100).toFixed(1)}%) — a bet only has to beat the one caller, not the whole ${nOpp}-way field — which is why a strong made hand bets even when its field equity is modest.` : ''}${isRiver ? ` On the river (no later street) bets are scored by the thin-value rule on the SAME field equity as the check — a bet gains only when MORE worse hands call than better — so a marginal made hand checks instead of taking a free heads-up upgrade.` : ''} Still a heuristic, not a Nash solve.`,
     equity: e,
     rangeNote: inp.rangeNote,
     heroCode: inp.heroCode,
@@ -351,10 +357,40 @@ function computeAggro(
   oppCount = 1,
   effStack = 0,
   cardsToCome = 0,
+  eField = e,
 ): AggroDetail {
   const R = target - currentBet; // pressure on top of a call
   const A = target - heroCommitted; // total hero invests now
   const s = R / Math.max(1, P + C); // raise size relative to the pot
+
+  // ---- RIVER: thin-value model (no more cards to come) ----
+  // Minimum-defence (below) answers "does villain fold enough vs a BLUFF?" — the
+  // wrong question for a made-hand VALUE bet on the river. On the river worse hands
+  // FOLD to a bet and better hands CALL, so a bet profits ONLY when more worse
+  // hands call than better do — the textbook thin-value rule:
+  //     EV(bet) − EV(check) = bet × (worse-that-call − better-that-call).
+  // Baseline is the MULTIWAY FIELD equity `eField` — the SAME number the CHECK uses
+  // — so a bet can't escape the field penalty by pretending it's heads-up. eHU is
+  // deliberately NOT used here: with no later street, isolating one caller earns
+  // nothing; you just show down for whatever the pot already is. There is also NO
+  // fe×pot term — hero already wins vs the folders at showdown, so crediting their
+  // folds again would double-count (the bug that made marginal made hands over-bet).
+  if (cardsToCome === 0 && !isAllIn) {
+    const base = Math.min(1, eField * realize); // showdown EV baseline, == the check
+    const worse = base; // hands hero beats vs the field
+    const better = 1 - base; // hands that beat hero
+    // cry-call rate: share of WORSE hands that still call, shrinking with size — a
+    // small bet buys a few crying calls, a pot bet buys almost none.
+    const cryCall = Math.max(0.05, Math.min(0.55, 0.55 - 0.45 * s));
+    const Cw = worse * cryCall; // worse hands that call (hero wins R off each)
+    const Cb = better; // better hands ~always call a bet (hero loses A to each)
+    const cont = Cw + Cb;
+    const e2r = cont > 0 ? Cw / cont : 0; // hero equity GIVEN called
+    const fer = Math.max(0.02, 1 - cont); // share that folds (worse, didn't cry-call)
+    const evr = base * P + R * Cw - A * Cb; // showdown + thin-value increment
+    return { ev: evr, fe: fer, e2: e2r, calledPot: P + A + R, A, streetValue: 0, contFrac: cont };
+  }
+
   // Fold equity rises with size but SATURATES fast and never folds everything.
   // A pot-sized bet already buys most of the folds; over-betting/shoving buys
   // almost none more — so a 10x-pot shove is not "free money". Position nudges

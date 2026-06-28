@@ -15,6 +15,7 @@ import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
 import { ScenarioBar } from './ScenarioBar';
 import type { AggroWarning } from '../analysis/aggression';
+import type { TiltState } from '../analysis/tilt';
 
 type G = ReturnType<typeof useGame>;
 
@@ -25,7 +26,7 @@ interface Props {
 }
 
 export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
-  const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain, aggroWarning } = g;
+  const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain, aggroWarning, tilt } = g;
   const reveal = game.street === 'complete' || game.street === 'showdown';
   const winnerIds = new Set(game.winners.map((w) => w.playerId));
   const started = game.handNumber > 0;
@@ -58,6 +59,17 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     g.heroAct(a);
   };
 
+  // Tilt cool-off gate: after a big swing, intercept the NEXT deal once and force
+  // a breath/break. Re-arms only when a fresh swing changes the signature, so it
+  // doesn't nag on every subsequent hand once you've acknowledged it.
+  const tiltSig = tilt?.gate ? `${Math.round(tilt.bigLossBB)}:${tilt.lossStreak}` : null;
+  const [tiltAck, setTiltAck] = useState<string | null>(null);
+  const gateActive = !!tiltSig && tiltSig !== tiltAck;
+  const passTilt = () => {
+    setTiltAck(tiltSig);
+    g.deal();
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -66,6 +78,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (handOver || !started) {
         if (e.key === ' ' || e.key === 'Enter') {
+          if (gateActive) return; // cool-off gate: must use the on-screen buttons
           e.preventDefault();
           g.deal();
         }
@@ -84,12 +97,13 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [g, legal, isHeroTurn, handOver, started, peeked]);
+  }, [g, legal, isHeroTurn, handOver, started, peeked, gateActive]);
 
   return (
     <div className="play-layout">
       <div className="table-col">
         <ScenarioBar g={g} />
+        <TiltBanner t={tilt} />
         <AggroBanner w={aggroWarning} />
         <div className="poker-table">
           <div className="felt">
@@ -155,16 +169,20 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                   })()}
                 </div>
               )}
-              <div className="deal-btns">
-                <button className="btn btn-deal" onClick={g.deal}>
-                  {started ? 'Next Hand' : 'Deal Hand'} <kbd>Space</kbd>
-                </button>
-                {started && (
-                  <button className="btn btn-repeat" onClick={g.repeatHand} title="Replay the same hole cards & board">
-                    ↺ Repeat Hand
+              {started && handOver && gateActive && tilt ? (
+                <TiltCoolOff t={tilt} onProceed={passTilt} />
+              ) : (
+                <div className="deal-btns">
+                  <button className="btn btn-deal" onClick={g.deal}>
+                    {started ? 'Next Hand' : 'Deal Hand'} <kbd>Space</kbd>
                   </button>
-                )}
-              </div>
+                  {started && (
+                    <button className="btn btn-repeat" onClick={g.repeatHand} title="Replay the same hole cards & board">
+                      ↺ Repeat Hand
+                    </button>
+                  )}
+                </div>
+              )}
               <button className="link-btn reset-game" onClick={g.resetGame}>
                 ⟲ Reset game (fresh 100bb stacks)
               </button>
@@ -297,6 +315,89 @@ function AggroBanner({ w }: { w: AggroWarning | null }) {
         <p className="aggro-detail">{w.detail}</p>
       </div>
       <button className="aggro-dismiss" onClick={() => setDismissed(true)} title="Dismiss until it changes">✕</button>
+    </div>
+  );
+}
+
+// Persistent tilt read: a meter + the signals that tripped it + a grounding
+// checklist. Shows for medium AND high; dismissible until the pressure changes.
+function TiltBanner({ t }: { t: TiltState | null }) {
+  const [dismissed, setDismissed] = useState(false);
+  const [prevSig, setPrevSig] = useState<string | null>(null);
+  const sig = t ? `${t.level}:${Math.round(t.bigLossBB)}:${t.lossStreak}` : null;
+  if (sig !== prevSig) {
+    setPrevSig(sig);
+    setDismissed(false); // a fresh / escalating swing un-dismisses
+  }
+  if (!t || dismissed) return null;
+  return (
+    <div className={`tilt-banner ${t.level}`}>
+      <div className="tilt-text">
+        <div className="tilt-head">{t.headline}</div>
+        <div className="tilt-meter" title={`Tilt pressure: ${t.score}/100`}>
+          <div className="tilt-meter-fill" style={{ width: `${t.score}%` }} />
+          <span className="tilt-meter-num">{t.score}</span>
+        </div>
+        <p className="tilt-detail">{t.detail}</p>
+        <ul className="tilt-signals">
+          {t.signals.map((s, i) => (
+            <li key={i}>{s}</li>
+          ))}
+        </ul>
+        <details className="tilt-steps-wrap">
+          <summary>How to reset</summary>
+          <ul className="tilt-steps">
+            {t.steps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </details>
+      </div>
+      <button className="tilt-dismiss" onClick={() => setDismissed(true)} title="Dismiss until it changes">
+        ✕
+      </button>
+    </div>
+  );
+}
+
+// The actual control: after a big swing, the next deal is gated behind this. You
+// either take a short timed break or explicitly choose to play on — either way
+// you pause and decide instead of auto-firing the next hand on tilt.
+function TiltCoolOff({ t, onProceed }: { t: TiltState; onProceed: () => void }) {
+  const BREAK_SECONDS = 30;
+  const [left, setLeft] = useState<number | null>(null); // null = not on a break
+  useEffect(() => {
+    if (left === null || left <= 0) return;
+    const id = setTimeout(() => setLeft((s) => (s === null ? null : s - 1)), 1000);
+    return () => clearTimeout(id);
+  }, [left]);
+  const onBreak = left !== null && left > 0;
+  const breakDone = left === 0;
+  return (
+    <div className="tilt-cooloff">
+      <div className="tilt-cooloff-head">{t.headline}</div>
+      <ul className="tilt-steps">
+        {t.steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ul>
+      {onBreak ? (
+        <div className="tilt-break">
+          <span className="tilt-break-timer">{left}s</span>
+          <span className="tilt-break-msg">Breathe. Eyes off the table.</span>
+        </div>
+      ) : (
+        <div className="tilt-cooloff-btns">
+          {!breakDone && (
+            <button className="btn btn-break" onClick={() => setLeft(BREAK_SECONDS)}>
+              ⏸ Take a 30s break
+            </button>
+          )}
+          <button className="btn btn-deal" onClick={onProceed}>
+            {breakDone ? '✓ Reset — deal next hand' : "I'm focused — deal anyway"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
