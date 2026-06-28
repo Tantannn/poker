@@ -169,3 +169,34 @@ export function randomCard(dead: Card[]): Card {
   const deck = shuffle(makeDeck().filter((d) => !dead.some((u) => sameCard(u, d))));
   return deck[0];
 }
+
+/**
+ * Draw-heaviness score over the FULL available board (flop/turn/river, so later
+ * flush/straight completers count, not just the flop):
+ *   +2 a flush is possible (3+ of one suit), +1 a flush draw is live (exactly 2),
+ *   +1 connected / straight-draw heavy. 0 = bone dry … 3+ = very wet.
+ * Single source of truth for "is this board dynamic?" — shared by the AI's
+ * sizing multiplier and the drill explanations so they can't disagree.
+ */
+export function boardWetScore(board: Card[]): number {
+  if (board.length < 3) return 0;
+  const suitCounts = new Map<number, number>();
+  for (const c of board) suitCounts.set(c.suit, (suitCounts.get(c.suit) ?? 0) + 1);
+  const maxSuit = Math.max(...suitCounts.values());
+  const ranks = [...new Set(board.map((c) => c.rank))].sort((a, b) => a - b);
+  let straighty = false;
+  for (let i = 0; i + 1 < ranks.length; i++) if (ranks[i + 1] - ranks[i] <= 2) straighty = true;
+  const span = ranks[ranks.length - 1] - ranks[0];
+  let wet = 0;
+  if (maxSuit >= 3) wet += 2; // flush out there
+  else if (maxSuit === 2) wet += 1; // flush draw live
+  if (straighty || span <= 4) wet += 1; // connected / straight-draw heavy
+  return wet;
+}
+
+/** Coarse wet/dry label for sizing-rule copy. wet = draw-heavy/dynamic (charge
+ *  draws), dry = rainbow & disconnected (range/value bets), semi = one draw axis. */
+export function boardWetness(board: Card[]): 'dry' | 'semi' | 'wet' {
+  const w = boardWetScore(board);
+  return w >= 2 ? 'wet' : w === 1 ? 'semi' : 'dry';
+}

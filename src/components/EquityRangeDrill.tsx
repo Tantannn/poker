@@ -14,6 +14,7 @@ import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
 import { classifyHandClass } from '../strategy/handClass';
 import type { HandClass } from '../strategy/handClass';
 import { PlayingCard } from './PlayingCard';
+import { PositionCheatSheet } from './PositionCheatSheet';
 
 interface RangeOpt {
   id: string;
@@ -153,6 +154,7 @@ export function RangeDrill() {
   const [spot, setSpot] = useState<Spot>(genSpot);
   const [chosen, setChosen] = useState<number | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [showCheat, setShowCheat] = useState(false);
 
   const ropt = RANGES.find((r) => r.id === rangeId)!;
 
@@ -188,7 +190,11 @@ export function RangeDrill() {
             {r.label}
           </button>
         ))}
+        <button className="rd-cheat" onClick={() => setShowCheat(true)} title="How position swings your equity">
+          📊 cheat sheet
+        </button>
       </div>
+      {showCheat && <PositionCheatSheet onClose={() => setShowCheat(false)} />}
       <div className="rd-rangenote">{ropt.note}</div>
 
       <div className="quiz-score rd-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>

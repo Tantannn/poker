@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { randomFlop, randomCard, describeTexture } from '../engine/board';
+import { randomFlop, randomCard, describeTexture, boardWetness } from '../engine/board';
 import { rangeFromSet } from '../engine/range';
 import { RFI_RANGES } from '../ai/preflop';
 import { solvePostflop } from '../strategy/postflopModel';
@@ -41,13 +41,28 @@ const SIZE_RANK: Record<string, number> = { bet33: 0, bet75: 1, betpot: 2 };
 const KIND_COLOR: Record<string, string> = { value: '#2ec27e', bluff: '#e0843a', passive: '#3aa0e0', aggressive: '#2ec27e', call: '#3aa0e0', fold: '#2a3a31' };
 
 // One-line memorable rule for why the solver picked this line — no math, the
-// kind of thing you can actually recall mid-hand.
-const SIZE_HOOK: Record<string, string> = {
-  bet33: 'Dry, static board — bet small, bet often. You can bet your whole range and deny little. 💡 Dry board → small.',
-  bet75: 'Wet, dynamic board — bet big to charge their draws and build the pot. 💡 Wet board → big.',
-  betpot: 'You hold the nut edge / a polar range — bet pot for max value and max fold equity. 💡 Nut edge → pot.',
-  check: 'No edge here — check, control the pot, take a free card and realize equity. 💡 No edge → check.',
-};
+// kind of thing you can actually recall mid-hand. The size rules read the BOARD:
+// a big bet is "charge their draws" on a wet board but "value, build the pot" on
+// a dry one, and a small bet is the classic range bet on a dry board but a
+// merge/cheap-deny bet on a wet one — so they branch on texture, not just size.
+function sizeRule(bestId: ActionId, board: Card[]): string | null {
+  const wet = boardWetness(board) !== 'dry';
+  switch (bestId) {
+    case 'bet33':
+      return wet
+        ? 'Range/merge bet — too connected to deny much, so bet your whole range cheaply and keep worse hands in rather than charge big. 💡 Bet small to bet often.'
+        : 'Dry, static board — bet small, bet often. Few draws to charge, so deny little and keep worse hands calling. 💡 Dry board → small.';
+    case 'bet75':
+      return wet
+        ? 'Wet, dynamic board — bet big to charge their draws and build the pot before a scary card lands. 💡 Wet board → big.'
+        : 'Dry board, but your hand is strong — bet big for value and build the pot now. Size follows your HAND here, not the texture. 💡 Strong made hand → big for value.';
+    case 'betpot':
+      return 'You hold the nut edge / a polar range — bet pot for max value and max fold equity. 💡 Nut edge → pot.';
+    case 'check':
+      return 'No edge here — check, control the pot, take a free card and realize equity. 💡 No edge → check.';
+  }
+  return null;
+}
 
 type Pos = 'ip' | 'oop';
 
@@ -158,9 +173,17 @@ export function BetSizingDrill() {
 
     if (chosen && SIZE_RANK[chosen] != null && SIZE_RANK[bestId] != null) {
       const tooSmall = SIZE_RANK[chosen] < SIZE_RANK[bestId];
-      return tooSmall
-        ? `Too small on a ${tex.label} board. A small bet lets their draws and overcards peel cheap — you fail to charge equity that's drawing against you. Size up to ${best?.label} to make them pay. ${posTip} 💡 Wet / dynamic board → bet big.`
-        : `Too big on a ${tex.label} board. Pot-sizing folds out the worse hands you want calls from — you get called only by what beats you. Drop to ${best?.label} to keep them in. ${posTip} 💡 Dry / static board → small & often; a value hand wants calls, not folds.`;
+      const wet = boardWetness(spot.board) !== 'dry';
+      if (tooSmall) {
+        // best is BIGGER than your pick — why bigger? wet → charge draws; dry → value/build pot.
+        return wet
+          ? `Too small on a ${tex.label} board. It's draw-heavy — a small bet lets their draws and overcards peel cheap, so you fail to charge equity that's drawing against you. Size up to ${best?.label} to make them pay. ${posTip} 💡 Wet / dynamic board → bet big.`
+          : `Too small here. The board is dry, but your hand is strong enough to bet big for value and build the pot — size up to ${best?.label}. ${posTip} 💡 Strong hand → bet big for value, even on a dry board.`;
+      }
+      // best is SMALLER than your pick — over-sizing folds out the worse hands you want calls from.
+      return wet
+        ? `Too big on a ${tex.label} board. Over-sizing folds out the worse hands and draws you want calls from — you get called only by what's ahead. Drop to ${best?.label}. ${posTip} 💡 A value bet wants calls from worse — don't blast them out.`
+        : `Too big on a ${tex.label} board. It's dry and static, so pot-sizing folds out everything you beat and you get called only by what beats you. Drop to ${best?.label} to keep worse hands in. ${posTip} 💡 Dry / static board → small & often; a value hand wants calls, not folds.`;
     }
     return `Best was ${best?.label}. ${posTip}`;
   }
@@ -265,8 +288,8 @@ export function BetSizingDrill() {
               <div className="lab-why-row">
                 <span className="lab-why-tag best">Best · {best.label}</span>
                 <p>{best.why}</p>
-                {SIZE_HOOK[spot.strategy.bestId] && (
-                  <div className="bsd-rule"><b>💡 Rule:</b> {SIZE_HOOK[spot.strategy.bestId]}</div>
+                {sizeRule(spot.strategy.bestId, spot.board) && (
+                  <div className="bsd-rule"><b>💡 Rule:</b> {sizeRule(spot.strategy.bestId, spot.board)}</div>
                 )}
               </div>
             </div>

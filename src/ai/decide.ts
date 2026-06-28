@@ -7,6 +7,7 @@ import { legalActions, positionLabel, potTotal } from '../engine/table';
 import { makeRng } from '../engine/cards';
 import type { Card } from '../engine/cards';
 import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
+import { boardWetScore } from '../engine/board';
 import { buildVillainRange } from '../strategy';
 import { potOdds } from '../engine/potOdds';
 import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE, BLUFF_THREEBET_RANGE } from './preflop';
@@ -352,17 +353,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
  *  a multiplier applied to the role fraction (≈0.66 dry … 1.3 very wet). */
 function boardSizeMult(board: Card[]): number {
   if (board.length < 3) return 1;
-  const suitCounts = new Map<number, number>();
-  for (const c of board) suitCounts.set(c.suit, (suitCounts.get(c.suit) ?? 0) + 1);
-  const maxSuit = Math.max(...suitCounts.values());
-  const ranks = [...new Set(board.map((c) => c.rank))].sort((a, b) => a - b);
-  let straighty = false;
-  for (let i = 0; i + 1 < ranks.length; i++) if (ranks[i + 1] - ranks[i] <= 2) straighty = true;
-  const span = ranks[ranks.length - 1] - ranks[0];
-  let wet = 0;
-  if (maxSuit >= 3) wet += 2; // flush out there
-  else if (maxSuit === 2) wet += 1; // flush draw live
-  if (straighty || span <= 4) wet += 1; // connected / straight-draw heavy
+  const wet = boardWetScore(board); // shared with the drill explanations
   return wet >= 3 ? 1.3 : wet === 2 ? 1.15 : wet === 1 ? 1.0 : 0.66;
 }
 
