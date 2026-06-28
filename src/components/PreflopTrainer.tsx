@@ -1,51 +1,110 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { Position } from '../engine/table';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { handCode, RFI_RANGES } from '../ai/preflop';
+import { handCode } from '../ai/preflop';
+import type { Facing } from '../strategy/preflopChart';
+import { SCENARIOS, cellStrategy, getScenario } from '../strategy/preflopChart';
 import { PlayingCard } from './PlayingCard';
 import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR } from './chartColors';
 
-const POSITIONS: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB'];
+// Trainer modes map onto the chart's `facing` types. RFI = open or fold; the
+// rest face a raise, so the answer is 3-bet / call / fold (4-bet vs a 3-bet).
+type Action = 'raise' | 'call' | 'fold';
+type Mode = Facing | 'random';
 
-interface Dealt {
-  pos: Position;
-  cards: Card[];
-  code: string;
-  shouldRaise: boolean;
+const MODES: { id: Mode; label: string }[] = [
+  { id: 'rfi', label: 'Open (RFI)' },
+  { id: 'vsopen', label: 'vs Open (3-bet)' },
+  { id: 'vs3bet', label: 'vs 3-Bet (4-bet)' },
+  { id: 'random', label: '🎲 Random' },
+];
+
+// Per-scenario-type wording. The active one follows the DEALT scenario, so Random
+// mode shows the right buttons/labels for whatever spot it dealt.
+const FACING_META: Record<Facing, { raiseLabel: string; prompt: string }> = {
+  rfi: { raiseLabel: 'Raise', prompt: 'It folds to you — open or fold?' },
+  vsopen: { raiseLabel: '3-Bet', prompt: 'Someone opened — 3-bet, call, or fold?' },
+  vs3bet: { raiseLabel: '4-Bet', prompt: 'You opened and got 3-bet — 4-bet, call, or fold?' },
+  vs4bet: { raiseLabel: '5-Bet', prompt: 'You 3-bet and got 4-bet — 5-bet, call, or fold?' },
+};
+
+const ACTION_LABEL: Record<Action, string> = { raise: 'Raise', call: 'Call', fold: 'Fold' };
+
+function kindToAction(kind?: string): Action {
+  if (kind === 'value' || kind === 'bluff') return 'raise';
+  if (kind === 'call') return 'call';
+  return 'fold';
 }
 
-function dealRandom(enabled: Position[]): Dealt {
-  const pos = enabled[Math.floor(Math.random() * enabled.length)];
-  // random two distinct cards
+interface Dealt {
+  scId: string;
+  cards: Card[];
+  code: string;
+}
+
+function dealRandom(scenarios: { id: string }[]): Dealt {
+  const sc = scenarios[Math.floor(Math.random() * scenarios.length)];
   const a: Card = { rank: 2 + Math.floor(Math.random() * 13), suit: Math.floor(Math.random() * 4) };
   let b: Card;
   do {
     b = { rank: 2 + Math.floor(Math.random() * 13), suit: Math.floor(Math.random() * 4) };
   } while (b.rank === a.rank && b.suit === a.suit);
-  const code = handCode([a, b]);
-  return { pos, cards: [a, b], code, shouldRaise: RFI_RANGES[pos].has(code) };
+  return { scId: sc.id, cards: [a, b], code: handCode([a, b]) };
 }
 
 export function PreflopTrainer() {
-  const [enabled, setEnabled] = useState<Position[]>([...POSITIONS]);
+  const [mode, setMode] = useState<Mode>('rfi');
   const [cur, setCur] = useState<Dealt | null>(null);
   const [answered, setAnswered] = useState(false);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0, streak: 0 });
   const [showChart, setShowChart] = useState(false);
 
+  const scenarios = useMemo(
+    () => (mode === 'random' ? SCENARIOS : SCENARIOS.filter((s) => s.facing === mode)),
+    [mode],
+  );
+
+  // current spot: scenario + the per-action frequency mix for the dealt hand.
+  const spot = useMemo(() => {
+    if (!cur) return null;
+    const sc = getScenario(cur.scId);
+    const opts = cellStrategy(sc, cur.code);
+    const freq: Record<Action, number> = { raise: 0, call: 0, fold: 0 };
+    for (const o of opts) freq[kindToAction(o.kind)] += o.freq;
+    const order: Action[] = ['raise', 'call', 'fold'];
+    const present = order.filter((a) => freq[a] > 0).sort((x, y) => freq[y] - freq[x]);
+    return { sc, freq, present, dominant: present[0] ?? 'fold' };
+  }, [cur]);
+
+  // The active scenario type drives the buttons/labels. In Random it follows the
+  // dealt spot; otherwise it's the chosen mode (with a sane fallback pre-deal).
+  const curFacing: Facing | null = spot ? spot.sc.facing : mode === 'random' ? null : mode;
+  const raiseLabel = curFacing ? FACING_META[curFacing].raiseLabel : 'Raise';
+  const facingRaise = curFacing ? curFacing !== 'rfi' : true;
+  const headerPrompt = mode === 'random' ? 'Random spot — read the scenario, then act.' : FACING_META[mode].prompt;
+
   const deal = useCallback(() => {
-    setCur(dealRandom(enabled));
+    setCur(dealRandom(scenarios));
     setAnswered(false);
     setLastCorrect(null);
     setShowChart(false);
-  }, [enabled]);
+  }, [scenarios]);
+
+  // switching mode resets the current hand so the scenario matches the buttons.
+  const switchMode = useCallback((m: Mode) => {
+    setMode(m);
+    setCur(null);
+    setAnswered(false);
+    setLastCorrect(null);
+    setShowChart(false);
+  }, []);
 
   const answer = useCallback(
-    (raise: boolean) => {
-      if (!cur || answered) return;
-      const correct = raise === cur.shouldRaise;
+    (action: Action) => {
+      if (!cur || !spot || answered) return;
+      if (action === 'call' && !facingRaise) return; // no call button in RFI mode
+      const correct = spot.freq[action] > 0; // any action the solver mixes here counts
       setAnswered(true);
       setLastCorrect(correct);
       setScore((s) => ({
@@ -54,17 +113,17 @@ export function PreflopTrainer() {
         streak: correct ? s.streak + 1 : 0,
       }));
     },
-    [cur, answered],
+    [cur, spot, answered, facingRaise],
   );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // let browser shortcuts (Ctrl/Cmd+C/V/F, etc.) through
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === 'r' || e.key === 'R') answer(true);
-      else if (e.key === 'f' || e.key === 'F') answer(false);
+      if (e.key === 'r' || e.key === 'R') answer('raise');
+      else if (e.key === 'c' || e.key === 'C') answer('call');
+      else if (e.key === 'f' || e.key === 'F') answer('fold');
       else if (e.key === ' ') {
         e.preventDefault();
         deal();
@@ -76,37 +135,34 @@ export function PreflopTrainer() {
 
   const acc = score.total ? Math.round((score.correct / score.total) * 100) : 0;
 
+  // human-readable mix for the feedback line, e.g. "3-Bet 50% / Call 50%".
+  const describeMix = (): string => {
+    if (!spot) return '';
+    const lbl = (a: Action) => (a === 'raise' ? raiseLabel : ACTION_LABEL[a]);
+    if (spot.present.length <= 1) return lbl(spot.dominant);
+    return spot.present.map((a) => `${lbl(a)} ${Math.round(spot.freq[a] * 100)}%`).join(' / ');
+  };
+
   return (
     <div className="card trainer-card">
       <h2>Preflop Range Trainer</h2>
       <p className="sub">
-        It folds to you — raise or fold? Keys: <kbd>R</kbd> raise · <kbd>F</kbd> fold · <kbd>Space</kbd>{' '}
-        next.
+        {headerPrompt} Keys: <kbd>R</kbd> {raiseLabel.toLowerCase()}
+        {facingRaise && <> · <kbd>C</kbd> call</>} · <kbd>F</kbd> fold · <kbd>Space</kbd> next.
       </p>
 
       <div className="trainer-filter">
-        {POSITIONS.map((p) => {
-          const on = enabled.includes(p);
-          return (
-            <button
-              key={p}
-              className={on ? 'active' : ''}
-              onClick={() =>
-                setEnabled((cur2) =>
-                  on ? (cur2.length > 1 ? cur2.filter((x) => x !== p) : cur2) : [...cur2, p],
-                )
-              }
-            >
-              {p}
-            </button>
-          );
-        })}
+        {MODES.map((m) => (
+          <button key={m.id} className={mode === m.id ? 'active' : ''} onClick={() => switchMode(m.id)}>
+            {m.label}
+          </button>
+        ))}
       </div>
 
       <div className="trainer-scenario">
-        {cur ? (
+        {cur && spot ? (
           <>
-            Position: <b>{cur.pos}</b> · folds to you
+            Scenario: <b>{spot.sc.label}</b>
           </>
         ) : (
           'Press Deal to start'
@@ -125,20 +181,27 @@ export function PreflopTrainer() {
       </div>
 
       <div className="trainer-actions">
-        <button className="btn btn-raise" disabled={!cur || answered} onClick={() => answer(true)}>
-          Raise
+        <button className="btn btn-raise" disabled={!cur || answered} onClick={() => answer('raise')}>
+          {raiseLabel}
         </button>
-        <button className="btn btn-fold" disabled={!cur || answered} onClick={() => answer(false)}>
+        {facingRaise && (
+          <button className="btn btn-call" disabled={!cur || answered} onClick={() => answer('call')}>
+            Call
+          </button>
+        )}
+        <button className="btn btn-fold" disabled={!cur || answered} onClick={() => answer('fold')}>
           Fold
         </button>
       </div>
 
       <div className={`trainer-fb ${lastCorrect === null ? '' : lastCorrect ? 'good' : 'bad'}`}>
-        {answered && cur
+        {answered && cur && spot
           ? lastCorrect
-            ? `✓ Correct — ${cur.code} is a ${cur.shouldRaise ? 'RAISE' : 'FOLD'} from ${cur.pos}.`
-            : `✗ ${cur.code} should be ${cur.shouldRaise ? 'RAISE' : 'FOLD'} from ${cur.pos}.`
-          : 'Raise or fold?'}
+            ? `✓ Correct — ${cur.code} is a ${describeMix()} from ${spot.sc.short}.`
+            : `✗ ${cur.code} should be ${describeMix()} from ${spot.sc.short}.`
+          : facingRaise
+            ? '3-bet, call, or fold?'
+            : 'Raise or fold?'}
       </div>
 
       <button className="btn btn-deal" onClick={deal}>
@@ -162,27 +225,28 @@ export function PreflopTrainer() {
 
       {cur && (
         <button className="btn-chart-seat trainer-chart-btn" onClick={() => setShowChart(true)}>
-          📊 Range chart — {cur.pos}
+          📊 Range chart — {spot?.sc.short}
         </button>
       )}
 
-      {showChart && cur && (
+      {showChart && cur && spot && (
         <div className="modal-backdrop" onClick={() => setShowChart(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <span>RFI range — open from {cur.pos}</span>
+              <span>{spot.sc.label}</span>
               <button className="modal-close" onClick={() => setShowChart(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <MiniRangeGrid scenarioId={`rfi-${cur.pos}`} highlight={cur.code} />
+              <MiniRangeGrid scenarioId={cur.scId} highlight={cur.code} />
               <div className="modal-side">
                 <p className="modal-note">
-                  Full opening range from <b>{cur.pos}</b>. Your hand <b>{cur.code}</b> is outlined in gold —
-                  its color shows the action.
+                  {spot.sc.label}. Your hand <b>{cur.code}</b> is outlined in gold — its color shows the action.
                 </p>
                 <div className="legend chart-legend">
-                  <div><span className="sw" style={{ background: KIND_COLOR.value }} /> Open / raise</div>
-                  <div><span className="sw" style={{ background: `linear-gradient(to right, ${KIND_COLOR.value} 50%, ${KIND_COLOR.fold} 50%)` }} /> Mixed (≈50% open)</div>
+                  <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {facingRaise ? `${raiseLabel} (value)` : 'Open / raise'}</div>
+                  {facingRaise && <div><span className="sw" style={{ background: KIND_COLOR.call }} /> Call</div>}
+                  {facingRaise && <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> {raiseLabel} bluff</div>}
+                  {!facingRaise && <div><span className="sw" style={{ background: `linear-gradient(to right, ${KIND_COLOR.value} 50%, ${KIND_COLOR.fold} 50%)` }} /> Mixed (≈50% open)</div>}
                   <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> Fold</div>
                 </div>
               </div>
