@@ -49,11 +49,14 @@ export function Analytics({ g }: { g: G }) {
   const buckets = scoreBuckets(stats);
   const score = gtowScore(stats);
 
-  // cumulative net bb over hands (chronological — history is newest-first)
+  // cumulative net bb over hands (chronological — history is newest-first).
+  // Built with reduce-push (no captured-variable reassignment) to satisfy the
+  // react-hooks immutability rule — mutating the fresh local accumulator is fine.
   const curve = useMemo(() => {
-    const deltas = [...history].reverse().map((h) => h.deltaBB);
-    let run = 0;
-    return deltas.map((d) => (run += d));
+    return [...history].reverse().reduce<number[]>((acc, h) => {
+      acc.push((acc.length ? acc[acc.length - 1] : 0) + h.deltaBB);
+      return acc;
+    }, []);
   }, [history]);
 
   const byStreet = useMemo(

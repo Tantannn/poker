@@ -44,6 +44,15 @@ export interface DecisionSnapshot {
 export interface HistoryHand {
   /** stable unique id (uuid). handNumber restarts on reset, so it can't be the key. */
   id: string;
+  /** session this hand belongs to — one contiguous run between table rebuilds
+   *  (reset / mode switch / size or stack change). Hand Review groups by this so
+   *  a tournament reads as one arc instead of interleaving with cash hands. */
+  sessionId: string;
+  /** true when played in a freezeout (no rebuys) — drives the group's badge. */
+  tournament: boolean;
+  /** hero's finishing place, stamped only on the terminal hand of a tournament
+   *  (1 = champion). Undefined on every other hand, incl. cash. */
+  place?: number;
   handNumber: number;
   heroCards: Card[];
   board: Card[];
@@ -55,7 +64,36 @@ export interface HistoryHand {
 }
 
 const KEY = 'poker-trainer-history-v1';
-const MAX_HANDS = 50;
+// Cap by SESSION, not by a flat hand count: a freezeout can run well past any
+// per-hand limit, and truncating it mid-tournament would defeat the grouping.
+// Keep the most-recent sessions whole, bounded by a hard hand ceiling — but the
+// newest session is always kept intact even if it alone exceeds the ceiling.
+const MAX_SESSIONS = 8;
+const MAX_HANDS = 400;
+
+/** Trim history newest-first, keeping whole sessions. Hands arrive newest-first
+ *  and a session is contiguous in time, so first-seen order groups them. */
+export function capHistory(hands: HistoryHand[]): HistoryHand[] {
+  const order: string[] = [];
+  const bySession = new Map<string, HistoryHand[]>();
+  for (const h of hands) {
+    const sid = h.sessionId ?? 'legacy';
+    if (!bySession.has(sid)) { bySession.set(sid, []); order.push(sid); }
+    bySession.get(sid)!.push(h);
+  }
+  const out: HistoryHand[] = [];
+  let sessions = 0;
+  for (const sid of order) {
+    if (sessions >= MAX_SESSIONS) break;
+    const group = bySession.get(sid)!;
+    // always keep the first (most-recent) session whole; for older ones, stop
+    // before blowing past the hand ceiling.
+    if (out.length > 0 && out.length + group.length > MAX_HANDS) break;
+    out.push(...group);
+    sessions++;
+  }
+  return out;
+}
 
 export function loadHistory(): HistoryHand[] {
   try {
@@ -63,9 +101,14 @@ export function loadHistory(): HistoryHand[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as HistoryHand[];
     if (!Array.isArray(parsed)) return [];
-    // backfill ids for hands saved before the uuid migration (deterministic so
-    // any tagged-journal links by the same legacy id still match)
-    return parsed.map((h) => (h.id ? h : { ...h, id: `legacy-${h.handNumber}` }));
+    // backfill ids + session fields for hands saved before those migrations
+    // (deterministic so tagged-journal links by the same legacy id still match).
+    return parsed.map((h) => ({
+      ...h,
+      id: h.id ?? `legacy-${h.handNumber}`,
+      sessionId: h.sessionId ?? 'legacy',
+      tournament: h.tournament ?? false,
+    }));
   } catch {
     return [];
   }
@@ -73,7 +116,7 @@ export function loadHistory(): HistoryHand[] {
 
 export function saveHistory(hands: HistoryHand[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(hands.slice(0, MAX_HANDS)));
+    localStorage.setItem(KEY, JSON.stringify(capHistory(hands)));
   } catch {
     /* ignore quota / private mode */
   }

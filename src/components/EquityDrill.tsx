@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { ruleOf2and4 } from '../engine/equity';
 import { RangeDrill } from './EquityRangeDrill';
 import { InfoTip } from './CalcTip';
+import { playGrade } from '../sound';
 
 type Cat = 'Preflop' | 'Draws' | 'Made hands';
 
@@ -74,6 +75,21 @@ function buildOptions(card: Flash): number[] {
   return picks;
 }
 
+// Initial random card, computed once at module load — NOT during render. React
+// forbids impure calls (Math.random) in the render phase, and a useState lazy
+// initializer runs during render; module scope runs at import, so it's safe.
+const FIRST_IDX = Math.floor(Math.random() * CARDS.length);
+const FIRST_OPTIONS = buildOptions(CARDS[FIRST_IDX]);
+
+// Random card selection lives at module scope: the react-hooks purity rule
+// forbids Math.random inside component-scope functions (they could run during
+// render). Component handlers call this. `avoid` skips an immediate repeat.
+function rollCard(pool: Flash[], avoid?: Flash): { idx: number; options: number[] } {
+  let i = Math.floor(Math.random() * pool.length);
+  if (avoid && pool.length > 1 && pool[i] === avoid) i = (i + 1) % pool.length;
+  return { idx: i, options: buildOptions(pool[i]) };
+}
+
 export function EquityDrill() {
   const [mode, setMode] = useState<'flash' | 'range'>('range');
   return (
@@ -98,18 +114,17 @@ function FlashcardDrill() {
   const [cat, setCat] = useState<'All' | Cat>('All');
   const pool = useMemo(() => (cat === 'All' ? CARDS : CARDS.filter((c) => c.cat === cat)), [cat]);
 
-  const [idx, setIdx] = useState(() => Math.floor(Math.random() * CARDS.length));
-  const [options, setOptions] = useState<number[]>(() => buildOptions(CARDS[idx]));
+  const [idx, setIdx] = useState(FIRST_IDX);
+  const [options, setOptions] = useState<number[]>(FIRST_OPTIONS);
   const [chosen, setChosen] = useState<number | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
 
   const card = pool[idx] ?? pool[0];
 
   function deal() {
-    let i = Math.floor(Math.random() * pool.length);
-    if (pool.length > 1 && pool[i] === card) i = (i + 1) % pool.length; // avoid immediate repeat
-    setIdx(i);
-    setOptions(buildOptions(pool[i]));
+    const r = rollCard(pool, card); // avoid immediate repeat
+    setIdx(r.idx);
+    setOptions(r.options);
     setChosen(null);
   }
 
@@ -117,9 +132,9 @@ function FlashcardDrill() {
     const np = c === 'All' ? CARDS : CARDS.filter((x) => x.cat === c);
     setCat(c);
     setScore({ correct: 0, total: 0 });
-    const i = Math.floor(Math.random() * np.length);
-    setIdx(i);
-    setOptions(buildOptions(np[i]));
+    const r = rollCard(np);
+    setIdx(r.idx);
+    setOptions(r.options);
     setChosen(null);
   }
 
@@ -127,6 +142,7 @@ function FlashcardDrill() {
     if (chosen != null) return;
     setChosen(v);
     setScore((s) => ({ correct: s.correct + (v === card.equity ? 1 : 0), total: s.total + 1 }));
+    playGrade(v === card.equity);
   }
 
   const revealed = chosen != null;

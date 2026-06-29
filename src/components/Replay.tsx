@@ -13,7 +13,7 @@ import { classifyHandClass } from '../strategy/handClass';
 import { describeTexture } from '../engine/board';
 import { equityVsRange, countOuts, ruleOf2and4 } from '../engine/equity';
 import type { NodeStrategy } from '../strategy/types';
-import type { DecisionSnapshot } from '../store/history';
+import type { DecisionSnapshot, HistoryHand } from '../store/history';
 import { PlayingCard } from './PlayingCard';
 import { RangeChartModal } from './RangeChartModal';
 
@@ -31,6 +31,52 @@ const evRank = (a: { ev: number }, b: { ev: number }) => b.ev - a.ev;
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const bb = (chips: number) => (chips / 2).toFixed(1);
+const fmtBB = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1)}bb`;
+const ordinal = (n: number) => {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+};
+
+interface Session {
+  sid: string;
+  hands: HistoryHand[];
+  net: number; // sum of deltaBB across the session
+  evLost: number; // total EV given up (sum of positive per-decision losses)
+  tournament: boolean;
+  place?: number; // tournament finishing place, from the terminal hand
+}
+
+/** Group a (newest-first, session-contiguous) hand list into sessions. */
+function groupSessions(hands: HistoryHand[]): Session[] {
+  const order: string[] = [];
+  const map = new Map<string, HistoryHand[]>();
+  for (const h of hands) {
+    const sid = h.sessionId ?? 'legacy';
+    if (!map.has(sid)) { map.set(sid, []); order.push(sid); }
+    map.get(sid)!.push(h);
+  }
+  return order.map((sid) => {
+    const hs = map.get(sid)!;
+    return {
+      sid,
+      hands: hs,
+      net: hs.reduce((s, h) => s + h.deltaBB, 0),
+      evLost: hs.reduce((s, h) => s + (h.decisions ?? []).reduce((a, d) => a + Math.max(0, d.evLoss), 0), 0),
+      tournament: hs.some((h) => h.tournament),
+      place: hs.find((h) => h.place != null)?.place,
+    };
+  });
+}
+
+function sessionLabel(s: Session): string {
+  if (s.sid === 'legacy') return `Earlier hands · ${s.hands.length}`;
+  if (s.tournament) {
+    const fin = s.place ? `${ordinal(s.place)}` : 'in progress';
+    return `🏆 Tournament — ${fin} · ${s.hands.length} hands · ${fmtBB(s.net)}`;
+  }
+  return `💵 Cash · ${s.hands.length} hands · ${fmtBB(s.net)}`;
+}
 
 // Plain-language tier for an EV loss (in bb) — what the mistake actually cost.
 function evLossTier(loss: number): { label: string; cls: string; gloss: string } {
@@ -138,6 +184,10 @@ export function Replay({ g }: { g: G }) {
   const [sel, setSel] = useState(0);
   const idx = Math.min(sel, Math.max(0, hands.length - 1));
   const hand = hands[idx];
+  // sessions group the dropdown; hands are session-contiguous so a flat global
+  // index still maps 1:1 to the position in `hands`.
+  const sessions = useMemo(() => groupSessions(hands), [hands]);
+  const curSession = hand ? sessions.find((s) => s.hands.some((h) => h.id === hand.id)) : undefined;
   const entry = hand ? g.journal.find((e) => e.id === hand.id) : undefined;
   const isTagged = !!entry;
 
@@ -242,11 +292,17 @@ export function Replay({ g }: { g: G }) {
       <div className="rv-bar">
         <label className="inline-label">Hand</label>
         <select value={idx} onChange={(e) => { setSel(Number(e.target.value)); }}>
-          {hands.map((h, i) => (
-            <option key={h.id} value={i}>
-              #{h.handNumber} · {h.deltaBB >= 0 ? '+' : ''}{h.deltaBB.toFixed(1)}bb
-            </option>
-          ))}
+          {(() => {
+            let gi = 0; // running global index into `hands`
+            return sessions.map((s) => (
+              <optgroup key={s.sid} label={sessionLabel(s)}>
+                {s.hands.map((h) => {
+                  const v = gi++;
+                  return <option key={h.id} value={v}>#{h.handNumber} · {fmtBB(h.deltaBB)}</option>;
+                })}
+              </optgroup>
+            ));
+          })()}
         </select>
         <span className={`rv-delta ${hand.deltaBB > 0 ? 'pos' : hand.deltaBB < 0 ? 'neg' : ''}`}>
           {hand.deltaBB >= 0 ? '+' : ''}{hand.deltaBB.toFixed(1)} bb
@@ -263,6 +319,20 @@ export function Replay({ g }: { g: G }) {
           🗑 Manage
         </button>
       </div>
+
+      {curSession && curSession.sid !== 'legacy' && (
+        <div className={`rv-session ${curSession.tournament ? 'tourney' : ''}`}>
+          <span className="rv-session-badge">{curSession.tournament ? '🏆 Tournament' : '💵 Cash session'}</span>
+          {curSession.tournament && (
+            <span className="rv-session-place">
+              {curSession.place ? `finished ${ordinal(curSession.place)}` : 'in progress'}
+            </span>
+          )}
+          <span>{curSession.hands.length} hands</span>
+          <span className={curSession.net >= 0 ? 'pos' : 'neg'}>net {fmtBB(curSession.net)}</span>
+          <span className="gp-muted">EV lost −{curSession.evLost.toFixed(2)}bb</span>
+        </div>
+      )}
 
       {manageOpen && (
         <div className="rv-manage">

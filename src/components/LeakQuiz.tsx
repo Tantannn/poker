@@ -14,6 +14,7 @@ import { solvePostflop } from '../strategy/postflopModel';
 import { classifyHandClass } from '../strategy/handClass';
 import { evLoss } from '../strategy/types';
 import type { ActionId, NodeStrategy } from '../strategy/types';
+import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
 
 type G = ReturnType<typeof useGame>;
@@ -105,6 +106,11 @@ function genSpot(drill: DrillId): Spot {
   return { hero, board, strategy, handLabel: classifyHandClass(hero, board).label };
 }
 
+// First spot generated at module load, not during render (React forbids impure
+// Math.random in the render phase / useState initializer). Uses the 'value'
+// drill (the suggested-drill default); the first "Next" rerolls to the picked one.
+const FIRST_SPOT = genSpot('value');
+
 export function LeakQuiz({ g }: { g: G }) {
   // worst real leak (highest severity, then rate) that maps to a drill
   const ranked = useMemo(
@@ -117,7 +123,7 @@ export function LeakQuiz({ g }: { g: G }) {
   }, [ranked]);
 
   const [drill, setDrill] = useState<DrillId>(suggested);
-  const [spot, setSpot] = useState<Spot>(() => genSpot(suggested));
+  const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<ActionId | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
 
@@ -134,6 +140,7 @@ export function LeakQuiz({ g }: { g: G }) {
     setChosen(id);
     const l = evLoss(spot.strategy, id);
     setScore((s) => ({ correct: s.correct + (l <= 0.1 ? 1 : 0), total: s.total + 1 }));
+    playGrade(l <= 0.1 ? 'good' : l <= 0.5 ? 'ok' : 'bad');
   };
 
   const pct = score.total ? Math.round((100 * score.correct) / score.total) : 0;

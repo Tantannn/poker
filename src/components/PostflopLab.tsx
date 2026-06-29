@@ -7,7 +7,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { randomFlop, randomCard, describeTexture, boardWetness } from '../engine/board';
+import { randomFlop, randomCard, describeTexture } from '../engine/board';
 import type { TextureFilter } from '../engine/board';
 import { TEXTURE_LABELS } from '../engine/board';
 import { rangeFromSet } from '../engine/range';
@@ -17,8 +17,9 @@ import { solvePostflop } from '../strategy/postflopModel';
 import { classifyHandClass } from '../strategy/handClass';
 import { evLoss, rngPrescription } from '../strategy/types';
 import type { ActionId } from '../strategy/types';
-import { PlayingCard } from './PlayingCard';
-import { InfoTip } from './CalcTip';
+import { actionRule, KIND_COLOR } from '../strategy/actionRules';
+import { playGrade } from '../sound';
+import { SpotBoard } from './SpotBoard';
 
 const BB = 2;
 type Street = 'flop' | 'turn' | 'river';
@@ -60,59 +61,6 @@ const orderRank = (id: ActionId) => {
   const i = ACTION_ORDER.indexOf(id);
   return i < 0 ? 99 : i;
 };
-
-const KIND_COLOR: Record<string, string> = {
-  value: '#2ec27e',
-  bluff: '#e0843a',
-  passive: '#3aa0e0',
-  fold: '#2a3a31',
-  aggressive: '#2ec27e',
-};
-
-// One-line memorable rule per action — the recallable takeaway, no equation. The
-// solver's `why` still explains the specific spot; this is the rule it instances.
-// Non-sizing actions are fixed; the bet sizes read the board (a big bet means
-// "charge draws" on a wet board but "value / build the pot" on a dry one), so
-// they're produced by `actionRule` rather than this static map.
-const ACTION_HOOK: Record<string, string> = {
-  fold: 'Not enough equity for the price — folding risks nothing more. 💡 Bad price + weak hand → fold.',
-  check: 'No value bet and no fold-equity case — take a free card, control the pot. 💡 No edge → check.',
-  call: 'Right price with outs or showdown value — call, don\'t bloat with a marginal hand. 💡 Price good, hand thin → call.',
-  betpot: 'Nut edge / polar range — max value and max fold equity. 💡 Nut edge → pot.',
-  allin: 'Low SPR or a clear nut edge — just get it in. 💡 Low SPR → commit.',
-  raise: 'Strong enough to raise villain\'s bet for value/protection. 💡 Ahead of their bet → raise.',
-};
-
-/** The memorable rule for the solver's pick — texture-aware for the bet sizes so
- *  the reason matches THIS board, not just the size that was chosen. */
-function actionRule(id: ActionId, board: Card[]): string {
-  const wet = boardWetness(board) !== 'dry';
-  if (id === 'bet33')
-    return wet
-      ? 'Range/merge bet — bet your whole range cheaply, deny a little, keep worse hands in. 💡 Bet small to bet often.'
-      : 'Dry, static board / range advantage — bet small, bet often. 💡 Dry board → small.';
-  if (id === 'bet75')
-    return wet
-      ? 'Wet, dynamic board — charge their draws and build the pot. 💡 Wet board → big.'
-      : 'Dry board, but a strong hand — bet big for value and build the pot. 💡 Strong hand → big for value.';
-  return ACTION_HOOK[id] ?? '';
-}
-
-// Texture-read tooltip for a board — same read the newer drills surface.
-function TextureTip({ board }: { board: Card[] }) {
-  const tex = describeTexture(board);
-  return (
-    <InfoTip
-      content={
-        <span className="tip-body">
-          <b className="tip-title">Texture read · {tex.label}</b>
-          <span className="tip-what">{tex.sentence}</span>
-          {tex.favours && <span className="tip-remember"><b>Edge:</b> {tex.favours}</span>}
-        </span>
-      }
-    />
-  );
-}
 
 function randCard(): Card {
   return { rank: 2 + Math.floor(Math.random() * 13), suit: Math.floor(Math.random() * 4) };
@@ -162,6 +110,33 @@ interface PlayState {
   total: number;
 }
 
+function makeStartPlay(texture: TextureFilter, potType: PotType): PlayState {
+  const hero = dealHero();
+  return {
+    hero,
+    board: dealBoard(texture, 'flop', hero),
+    street: 'flop',
+    pot: POT_BASE[potType],
+    behind: BEHIND_BASE[potType],
+    vBehind: BEHIND_BASE[potType],
+    done: false,
+    log: [],
+    total: 0,
+  };
+}
+
+// RNG mix roll (1–100) for the prescribed-action branch. Module scope: the
+// react-hooks purity rule forbids Math.random inside component-scope functions.
+function randomRoll(): number {
+  return Math.floor(Math.random() * 100) + 1;
+}
+
+// Initial spots generated at module load — NOT during render. React forbids
+// impure Math.random in the render phase, and a useState lazy initializer runs
+// there; module scope runs once at import, so it's safe. Handlers reroll after.
+const FIRST_SINGLE: Spot = { hero: dealHero(), board: dealBoard('any', 'flop', []), roll: 1 };
+const FIRST_PLAY: PlayState = makeStartPlay('any', 'srp');
+
 export function PostflopLab() {
   const [mode, setMode] = useState<Mode>('single');
   const [villainId, setVillainId] = useState('btn');
@@ -173,7 +148,7 @@ export function PostflopLab() {
   const villain = VILLAINS.find((v) => v.id === villainId) ?? VILLAINS[0];
 
   // ---------------- single-decision mode ----------------
-  const [spot, setSpot] = useState<Spot>(() => ({ hero: dealHero(), board: dealBoard('any', 'flop', []), roll: 1 }));
+  const [spot, setSpot] = useState<Spot>(FIRST_SINGLE);
   const [chosen, setChosen] = useState<ActionId | null>(null);
 
   const sizing = sizingFor(potType, street);
@@ -204,7 +179,7 @@ export function PostflopLab() {
       const t = tx ?? texture;
       const s = st ?? street;
       const hero = dealHero();
-      setSpot({ hero, board: dealBoard(t, s, hero), roll: Math.floor(Math.random() * 100) + 1 });
+      setSpot({ hero, board: dealBoard(t, s, hero), roll: randomRoll() });
       setChosen(null);
     },
     [texture, street],
@@ -220,21 +195,8 @@ export function PostflopLab() {
   const spr = (sizing.behind / sizing.pot).toFixed(1);
 
   // ---------------- play-it-out mode ----------------
-  const startPlay = useCallback((): PlayState => {
-    const hero = dealHero();
-    return {
-      hero,
-      board: dealBoard(texture, 'flop', hero),
-      street: 'flop',
-      pot: POT_BASE[potType],
-      behind: BEHIND_BASE[potType],
-      vBehind: BEHIND_BASE[potType],
-      done: false,
-      log: [],
-      total: 0,
-    };
-  }, [texture, potType]);
-  const [po, setPo] = useState<PlayState>(startPlay);
+  const startPlay = useCallback((): PlayState => makeStartPlay(texture, potType), [texture, potType]);
+  const [po, setPo] = useState<PlayState>(FIRST_PLAY);
 
   const poStrategy = useMemo(
     () =>
@@ -270,6 +232,7 @@ export function PostflopLab() {
       const opt = poStrategy.options.find((o) => o.id === id);
       if (!opt) return;
       const l = evLoss(poStrategy, id);
+      playGrade(l <= 0.04 ? 'good' : l <= 0.4 ? 'ok' : 'bad');
       const bestLabel = poStrategy.options.find((o) => o.id === poStrategy.bestId)?.label ?? '';
       const log = [...po.log, { street: po.street, chosen: opt.label, best: bestLabel, bestId: poStrategy.bestId, loss: l, board: po.board }];
 
@@ -311,8 +274,9 @@ export function PostflopLab() {
     <div className="card">
       <h2>Postflop Lab — Training</h2>
       <p className="sub">
-        Pick a spot, then choose your action <b>before the answer shows</b>. Set pot type (SPR) and your
-        position; drill a single decision or <b>play the hand out</b> flop→turn→river vs the model.
+        The open sandbox: <b>any</b> action, any villain, any SPR, and <b>play the hand out</b>
+        {' '}flop→turn→river vs the model. Pick before the answer shows. To drill bet <i>size</i> alone
+        (⅓ / ¾ / pot) with a cheat-sheet, use the <b>Bet Sizing</b> tab.
       </p>
 
       <div className="lab-controls">
@@ -377,7 +341,7 @@ export function PostflopLab() {
           potLabel={POT_LABEL[potType]}
           pot={sizing.pot}
           spr={spr}
-          onPick={(id) => setChosen(id)}
+          onPick={(id) => { const l = evLoss(strategy, id); playGrade(l <= 0.04 ? 'good' : l <= 0.4 ? 'ok' : 'bad'); setChosen(id); }}
           onNext={() => newSpot()}
         />
       ) : (
@@ -410,20 +374,13 @@ function SingleMode(props: {
   return (
     <>
       <div className="lab-meta">{potLabel} · pot {pot} ({(pot / BB).toFixed(1)}bb) · SPR {spr}</div>
-      <div className="lab-board">
-        <div className="lab-hero">
-          <span className="lab-tag">Your hand · {classifyHandClass(spot.hero, spot.board).label}</span>
-          <div className="lab-cards">{spot.hero.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
-        </div>
-        <div className="lab-flop">
-          <span className="lab-tag">Board · {describeTexture(spot.board).label}<TextureTip board={spot.board} /></span>
-          <div className="lab-cards">{spot.board.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
-        </div>
-        <div className="lab-eq">
-          <div className="big-stat gold">{((strategy.equity ?? 0) * 100).toFixed(1)}%</div>
-          <div className="stat-lbl">equity vs range</div>
-        </div>
-      </div>
+      <SpotBoard
+        hero={spot.hero}
+        board={spot.board}
+        handLabel={classifyHandClass(spot.hero, spot.board).label}
+        boardTag={<>Board · {describeTexture(spot.board).label}</>}
+        equity={strategy.equity ?? 0}
+      />
 
       {!revealed ? (
         <div className="lab-prompt">What's your play? Pick an action to lock it in and see the solution.</div>
@@ -498,20 +455,13 @@ function PlayoutMode(props: {
       <div className="lab-meta">
         {potLabel} · {po.street.toUpperCase()} · pot {po.pot} ({(po.pot / BB).toFixed(1)}bb) · your stack {po.behind} · SPR {spr}
       </div>
-      <div className="lab-board">
-        <div className="lab-hero">
-          <span className="lab-tag">Your hand · {classifyHandClass(po.hero, po.board).label}</span>
-          <div className="lab-cards">{po.hero.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
-        </div>
-        <div className="lab-flop">
-          <span className="lab-tag">Board · {describeTexture(po.board).label}<TextureTip board={po.board} /></span>
-          <div className="lab-cards">{po.board.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
-        </div>
-        <div className="lab-eq">
-          <div className="big-stat gold">{((strategy?.equity ?? 0) * 100).toFixed(1)}%</div>
-          <div className="stat-lbl">equity vs range</div>
-        </div>
-      </div>
+      <SpotBoard
+        hero={po.hero}
+        board={po.board}
+        handLabel={classifyHandClass(po.hero, po.board).label}
+        boardTag={<>Board · {describeTexture(po.board).label}</>}
+        equity={strategy?.equity ?? 0}
+      />
 
       {po.log.length > 0 && (
         <div className="play-log">

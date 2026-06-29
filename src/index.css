@@ -1014,6 +1014,17 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .rv-bar select { background: var(--bg2); color: var(--txt); border: 1px solid var(--line); padding: 6px 10px; border-radius: 6px; font-size: 13px; }
 .rv-delta { font-weight: 800; font-variant-numeric: tabular-nums; }
 .rv-result { font-size: 12.5px; color: var(--muted); }
+.rv-session {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  font-size: 12.5px; padding: 7px 11px; margin-bottom: 12px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--bg2);
+  font-variant-numeric: tabular-nums;
+}
+.rv-session.tourney { border-color: var(--gold, #d4af37); background: color-mix(in srgb, var(--gold, #d4af37) 9%, var(--bg2)); }
+.rv-session-badge { font-weight: 800; }
+.rv-session-place { font-weight: 700; text-transform: capitalize; }
+.rv-session .pos { color: var(--raise, #2ec27e); font-weight: 700; }
+.rv-session .neg { color: var(--red, #e25858); font-weight: 700; }
 .rv-streets { display: flex; gap: 5px; margin-bottom: 12px; }
 .rv-noboard { color: var(--muted); font-style: italic; font-size: 13px; }
 .rv-analysis { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }

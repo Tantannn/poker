@@ -44,7 +44,7 @@ import { playAction, playDeal, playResult } from '../sound';
 import type { JournalEntry } from '../store/journal';
 import { addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway } from '../store/journal';
 import type { HistoryHand, DecisionSnapshot } from '../store/history';
-import { loadHistory, saveHistory } from '../store/history';
+import { loadHistory, saveHistory, capHistory } from '../store/history';
 import { loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '../store/game';
 
 export type { HistoryHand } from '../store/history';
@@ -116,6 +116,10 @@ export function useGame(initialProfiles: string[]) {
 
   const [profiles, setProfiles] = useState<string[]>(initProfiles);
   const [tournament, setTournament] = useState<boolean>(SAVED?.tournament ?? false);
+  // session id groups Hand Review; a fresh one is minted on every table rebuild
+  // (reset / mode switch / size or stack change). Persisted so a refresh keeps the
+  // same session instead of splitting it.
+  const [sessionId, setSessionId] = useState<string>(() => SAVED?.sessionId ?? crypto.randomUUID());
   const [game, setGame] = useState<GameState>(
     () => loadGame() ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles, SAVED?.tournament ?? false),
   );
@@ -156,6 +160,8 @@ export function useGame(initialProfiles: string[]) {
   const applyProfiles = useCallback((next: string[]) => {
     setProfiles(next);
     setGame(createGame(tableSize, stackDepth, BIG_BLIND, next, tournament));
+    setSessionId(crypto.randomUUID());
+    recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -169,6 +175,8 @@ export function useGame(initialProfiles: string[]) {
   const applyTableSize = useCallback((size: number) => {
     setTableSize(size);
     setGame(createGame(size, stackDepth, BIG_BLIND, profiles, tournament));
+    setSessionId(crypto.randomUUID());
+    recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -183,6 +191,8 @@ export function useGame(initialProfiles: string[]) {
   const applyStackDepth = useCallback((bb: number) => {
     setStackDepth(bb);
     setGame(createGame(tableSize, bb, BIG_BLIND, profiles, tournament));
+    setSessionId(crypto.randomUUID());
+    recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -199,6 +209,8 @@ export function useGame(initialProfiles: string[]) {
   const setGameMode = useCallback((toTournament: boolean) => {
     setTournament(toTournament);
     setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, toTournament));
+    setSessionId(crypto.randomUUID());
+    recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     if (toTournament) setWatchAfterFold(true);
     setFeedback(null);
     setHud(null);
@@ -267,6 +279,8 @@ export function useGame(initialProfiles: string[]) {
   // In tournament mode this is "start a new freezeout".
   const resetGame = useCallback(() => {
     setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, tournament));
+    setSessionId(crypto.randomUUID());
+    recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -400,8 +414,8 @@ export function useGame(initialProfiles: string[]) {
     saveGame(game);
   }, [game]);
   useEffect(() => {
-    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament]);
+    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament, sessionId });
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
@@ -547,8 +561,20 @@ export function useGame(initialProfiles: string[]) {
         text: `${l.playerName} (${l.position}) ${describeLog(l.type, l.amount)} — ${l.street}`,
       }));
     const showdown = game.players.map((p) => ({ name: p.name, cards: p.holeCards, folded: p.folded }));
+    // tournament finishing place — only meaningful on the terminal hand: hero
+    // busts (place = survivors + 1) or hero is the lone survivor (champion = 1).
+    const isTourney = !!game.tournament;
+    const survivors = game.players.filter((p) => p.stack > 0).length;
+    let place: number | undefined;
+    if (isTourney) {
+      if (hero.stack <= 0) place = game.players.filter((p) => !p.isHero && p.stack > 0).length + 1;
+      else if (survivors === 1) place = 1;
+    }
     const hist: HistoryHand = {
       id: crypto.randomUUID(),
+      sessionId,
+      tournament: isTourney,
+      place,
       handNumber: game.handNumber,
       heroCards: hero.holeCards,
       board: game.board,
@@ -559,7 +585,7 @@ export function useGame(initialProfiles: string[]) {
       decisions: decisionsRef.current.slice(),
     };
     setHistory((h) => {
-      const next = [hist, ...h].slice(0, 50);
+      const next = capHistory([hist, ...h]);
       saveHistory(next);
       return next;
     });

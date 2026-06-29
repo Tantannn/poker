@@ -13,6 +13,7 @@ import type { WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
 import { classifyHandClass } from '../strategy/handClass';
 import type { HandClass } from '../strategy/handClass';
+import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
 import { PositionCheatSheet } from './PositionCheatSheet';
 
@@ -149,9 +150,13 @@ function genSpot(): Spot {
   return { hero, board, hc: classifyHandClass(hero, board) };
 }
 
+// First spot generated at module load, not during render (Math.random is impure
+// and a useState initializer runs in the render phase). Handlers reroll after.
+const FIRST_SPOT = genSpot();
+
 export function RangeDrill() {
   const [rangeId, setRangeId] = useState('btn');
-  const [spot, setSpot] = useState<Spot>(genSpot);
+  const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<number | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [showCheat, setShowCheat] = useState(false);
@@ -175,6 +180,7 @@ export function RangeDrill() {
     if (revealed) return;
     setChosen(b);
     setScore((s) => ({ correct: s.correct + (b === trueBand ? 1 : 0), total: s.total + 1 }));
+    playGrade(b === trueBand);
   }
   function next() { setSpot(genSpot()); setChosen(null); }
   function switchRange(id: string) { setRangeId(id); setChosen(null); } // same hand, new villain — see the swing

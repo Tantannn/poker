@@ -68,6 +68,9 @@ export interface PersistSettings {
   difficulty: string;
   tableSize?: number;
   tournament?: boolean;
+  /** current session id, persisted so hands recorded after a refresh stay in the
+   *  same Hand Review group as those before it (else a reload splits a session). */
+  sessionId?: string;
 }
 
 export function saveSettings(s: PersistSettings): void {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
 import { handCode } from '../ai/preflop';
-import type { Facing } from '../strategy/preflopChart';
-import { SCENARIOS, cellStrategy, getScenario } from '../strategy/preflopChart';
+import type { Facing, TableSize } from '../strategy/preflopChart';
+import { cellStrategy, getScenario, scenariosForSize } from '../strategy/preflopChart';
 import { PlayingCard } from './PlayingCard';
 import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR } from './chartColors';
+import { playGrade } from '../sound';
 
 // Trainer modes map onto the chart's `facing` types. RFI = open or fold; the
 // rest face a raise, so the answer is 3-bet / call / fold (4-bet vs a 3-bet).
@@ -29,6 +30,18 @@ const FACING_META: Record<Facing, { raiseLabel: string; prompt: string }> = {
 };
 
 const ACTION_LABEL: Record<Action, string> = { raise: 'Raise', call: 'Call', fold: 'Fold' };
+
+// Table-size picker. Short tables reuse the 6-max charts via "lop the top":
+// blinds + button are fixed, so each step removes the earliest seat. Heads-up
+// is the exception — the SB is the button and opens huge, so it has its own
+// ranges. The note explains what shifts at each size.
+const TABLE_SIZES: { n: TableSize; label: string; note: string }[] = [
+  { n: 6, label: '6-max', note: 'Full 6-max: UTG · MP · CO · BTN · SB · BB.' },
+  { n: 5, label: '5-handed', note: 'UTG gone — earliest seat now plays MP’s range.' },
+  { n: 4, label: '4-handed', note: 'UTG + MP gone — earliest seat plays CO’s range.' },
+  { n: 3, label: '3-handed', note: 'Only BTN · SB · BB remain — everyone opens wide.' },
+  { n: 2, label: 'Heads-up', note: 'SB is the button: opens ~80%+. Dedicated HU ranges.' },
+];
 
 function kindToAction(kind?: string): Action {
   if (kind === 'value' || kind === 'bluff') return 'raise';
@@ -54,6 +67,7 @@ function dealRandom(scenarios: { id: string }[]): Dealt {
 
 export function PreflopTrainer() {
   const [mode, setMode] = useState<Mode>('rfi');
+  const [tableSize, setTableSize] = useState<TableSize>(6);
   const [spotId, setSpotId] = useState<string | null>(null); // null = mix all spots in the mode
   const [cur, setCur] = useState<Dealt | null>(null);
   const [answered, setAnswered] = useState(false);
@@ -61,10 +75,12 @@ export function PreflopTrainer() {
   const [score, setScore] = useState({ correct: 0, total: 0, streak: 0 });
   const [showChart, setShowChart] = useState(false);
 
-  // scenarios for the selected mode; the spot picker pins one (null = mix all).
+  // scenarios reachable at the chosen table size, then narrowed to the mode;
+  // the spot picker pins one (null = mix all).
+  const sizePool = useMemo(() => scenariosForSize(tableSize), [tableSize]);
   const scenarios = useMemo(
-    () => (mode === 'random' ? SCENARIOS : SCENARIOS.filter((s) => s.facing === mode)),
-    [mode],
+    () => (mode === 'random' ? sizePool : sizePool.filter((s) => s.facing === mode)),
+    [mode, sizePool],
   );
   const dealPool = useMemo(
     () => (spotId ? scenarios.filter((s) => s.id === spotId) : scenarios),
@@ -92,7 +108,9 @@ export function PreflopTrainer() {
     mode === 'random' ? 'Random spot — read the scenario, then act.' : FACING_META[mode].prompt;
 
   const deal = useCallback(() => {
-    setCur(dealRandom(dealPool.length ? dealPool : scenarios));
+    const pool = dealPool.length ? dealPool : scenarios;
+    if (!pool.length) return; // no spot for this mode + table size
+    setCur(dealRandom(pool));
     setAnswered(false);
     setLastCorrect(null);
     setShowChart(false);
@@ -101,6 +119,16 @@ export function PreflopTrainer() {
   // switching mode resets the current hand + spot so the scenario matches the buttons.
   const switchMode = useCallback((m: Mode) => {
     setMode(m);
+    setSpotId(null);
+    setCur(null);
+    setAnswered(false);
+    setLastCorrect(null);
+    setShowChart(false);
+  }, []);
+
+  // switching table size resets the hand + spot; the scenario pool changes.
+  const switchSize = useCallback((n: TableSize) => {
+    setTableSize(n);
     setSpotId(null);
     setCur(null);
     setAnswered(false);
@@ -124,6 +152,7 @@ export function PreflopTrainer() {
       const correct = spot.freq[action] > 0; // any action the solver mixes here counts
       setAnswered(true);
       setLastCorrect(correct);
+      playGrade(correct);
       setScore((s) => ({
         correct: s.correct + (correct ? 1 : 0),
         total: s.total + 1,
@@ -151,6 +180,8 @@ export function PreflopTrainer() {
   }, [answer, deal]);
 
   const acc = score.total ? Math.round((score.correct / score.total) * 100) : 0;
+  const sizeNote = TABLE_SIZES.find((t) => t.n === tableSize)?.note ?? '';
+  const noSpots = scenarios.length === 0;
 
   // human-readable mix for the feedback line, e.g. "3-Bet 50% / Call 50%".
   const describeMix = (): string => {
@@ -167,6 +198,17 @@ export function PreflopTrainer() {
         {headerPrompt} Keys: <kbd>R</kbd> {raiseLabel.toLowerCase()}
         {facingRaise && <> · <kbd>C</kbd> call</>} · <kbd>F</kbd> fold · <kbd>Space</kbd> next.
       </p>
+
+      <div className="trainer-filter trainer-sizes">
+        <span className="trainer-spots-label">Players</span>
+        {TABLE_SIZES.map((t) => (
+          <button key={t.n} className={tableSize === t.n ? 'active' : ''} onClick={() => switchSize(t.n)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="sub trainer-size-note">{sizeNote}</p>
 
       <div className="trainer-filter">
         {MODES.map((m) => (
@@ -190,7 +232,9 @@ export function PreflopTrainer() {
       </div>
 
       <div className="trainer-scenario">
-        {cur && spot ? (
+        {noSpots ? (
+          <>No <b>{MODES.find((m) => m.id === mode)?.label}</b> spot at this table size — try another mode.</>
+        ) : cur && spot ? (
           <>
             Scenario: <b>{spot.sc.label}</b>
           </>
@@ -234,7 +278,7 @@ export function PreflopTrainer() {
             : 'Raise or fold?'}
       </div>
 
-      <button className="btn btn-deal" onClick={deal}>
+      <button className="btn btn-deal" onClick={deal} disabled={noSpots}>
         Deal Hand <kbd>Space</kbd>
       </button>
 

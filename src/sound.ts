@@ -72,6 +72,19 @@ export function playDeal(): void {
   blip(380, 0.04, 'square', 0.03, 0.05);
 }
 
+// Drill outcome tier. EV-loss drills pass 'good' | 'ok' | 'bad' to get the
+// distinct neutral tone for a close-but-not-optimal line; exact-match drills
+// (you matched the bucket/number or didn't) just pass a boolean.
+export type Grade = 'good' | 'ok' | 'bad';
+
+/** Right / close / wrong cue for the standalone drills — three distinct tones
+ *  (rising third = good, flat neutral note = ok, descending buzz = bad), same
+ *  as a graded live decision. A boolean maps to good/bad for binary drills. */
+export function playGrade(grade: Grade | boolean): void {
+  const g: Grade = typeof grade === 'boolean' ? (grade ? 'good' : 'bad') : grade;
+  playResult(g === 'good' ? 'correct' : g === 'ok' ? 'inaccuracy' : 'wrong', 0);
+}
+
 /** Outcome cue keyed to how good the graded decision was. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function playResult(verdict: Verdict, _evLoss: number): void {

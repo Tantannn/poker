@@ -15,8 +15,9 @@ import { solvePostflop } from '../strategy/postflopModel';
 import { classifyHandClass } from '../strategy/handClass';
 import { evLoss } from '../strategy/types';
 import type { ActionId, NodeStrategy } from '../strategy/types';
-import { PlayingCard } from './PlayingCard';
-import { InfoTip } from './CalcTip';
+import { actionRule, KIND_COLOR } from '../strategy/actionRules';
+import { playGrade } from '../sound';
+import { SpotBoard } from './SpotBoard';
 
 const BB = 2;
 const POT = 12;
@@ -37,32 +38,6 @@ const CHECK: Band = { id: 'check', label: 'Check', tag: 'Pot control', pct: '0%'
 const SIZE_IDS = SIZES.map((s) => s.id);
 // rank used to tell the user "too small" vs "too big" when they miss a size.
 const SIZE_RANK: Record<string, number> = { bet33: 0, bet75: 1, betpot: 2 };
-
-const KIND_COLOR: Record<string, string> = { value: '#2ec27e', bluff: '#e0843a', passive: '#3aa0e0', aggressive: '#2ec27e', call: '#3aa0e0', fold: '#2a3a31' };
-
-// One-line memorable rule for why the solver picked this line — no math, the
-// kind of thing you can actually recall mid-hand. The size rules read the BOARD:
-// a big bet is "charge their draws" on a wet board but "value, build the pot" on
-// a dry one, and a small bet is the classic range bet on a dry board but a
-// merge/cheap-deny bet on a wet one — so they branch on texture, not just size.
-function sizeRule(bestId: ActionId, board: Card[]): string | null {
-  const wet = boardWetness(board) !== 'dry';
-  switch (bestId) {
-    case 'bet33':
-      return wet
-        ? 'Range/merge bet — too connected to deny much, so bet your whole range cheaply and keep worse hands in rather than charge big. 💡 Bet small to bet often.'
-        : 'Dry, static board — bet small, bet often. Few draws to charge, so deny little and keep worse hands calling. 💡 Dry board → small.';
-    case 'bet75':
-      return wet
-        ? 'Wet, dynamic board — bet big to charge their draws and build the pot before a scary card lands. 💡 Wet board → big.'
-        : 'Dry board, but your hand is strong — bet big for value and build the pot now. Size follows your HAND here, not the texture. 💡 Strong made hand → big for value.';
-    case 'betpot':
-      return 'You hold the nut edge / a polar range — bet pot for max value and max fold equity. 💡 Nut edge → pot.';
-    case 'check':
-      return 'No edge here — check, control the pot, take a free card and realize equity. 💡 No edge → check.';
-  }
-  return null;
-}
 
 type Pos = 'ip' | 'oop';
 
@@ -104,12 +79,16 @@ function genSpot(allow: ActionId[]): Spot {
   return { hero, board, strategy: solve(hero, board, 'oop'), label: classifyHandClass(hero, board).label, pos: 'oop' };
 }
 
+// First spot generated at module load, not during render — a useState lazy
+// initializer runs in the render phase, where React forbids Math.random.
+const FIRST_SPOT = genSpot(SIZE_IDS);
+
 export function BetSizingDrill() {
   const [mode, setMode] = useState<Mode>('sizing');
   const allow = useMemo<ActionId[]>(() => (mode === 'decide' ? ['check', ...SIZE_IDS] : SIZE_IDS), [mode]);
   const bands = mode === 'decide' ? [CHECK, ...SIZES] : SIZES;
 
-  const [spot, setSpot] = useState<Spot>(() => genSpot(SIZE_IDS));
+  const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<ActionId | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   // hide the equity number so you read the BOARD, not the solver. Still revealed
@@ -132,8 +111,10 @@ export function BetSizingDrill() {
 
   function pick(id: ActionId) {
     if (revealed) return;
+    const l = evLoss(spot.strategy, id);
     setChosen(id);
-    setScore((s) => ({ correct: s.correct + (evLoss(spot.strategy, id) <= 0.15 ? 1 : 0), total: s.total + 1 }));
+    setScore((s) => ({ correct: s.correct + (l <= 0.15 ? 1 : 0), total: s.total + 1 }));
+    playGrade(l <= 0.15);
   }
   function next() { setSpot(genSpot(allow)); setChosen(null); }
   function switchMode(m: Mode) {
@@ -192,9 +173,10 @@ export function BetSizingDrill() {
     <div className="card">
       <h2>Bet-Sizing Drill</h2>
       <p className="sub">
-        The game's ⅓ / ¾ / Pot buttons don't tell you which to press — or whether to bet at all. This
-        does. Read the board, pick a line, then see the solver's EV for each and <b>why</b> the texture
-        wants it.
+        Focused size curriculum: the game's ⅓ / ¾ / Pot buttons don't tell you which to press — or
+        whether to bet at all. This does. Read the board, pick a line, see the solver's EV for each and
+        <b>why</b> the texture wants it. For full spot exploration + multi-street play, use the
+        {' '}<b>Postflop Lab</b> tab.
       </p>
 
       <div className="quiz-bar">
@@ -212,47 +194,15 @@ export function BetSizingDrill() {
         <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
       </div>
 
-      <div className="lab-board">
-        <div className="lab-hero">
-          <span className="lab-tag">Your hand · {spot.label}</span>
-          <div className="lab-cards">{spot.hero.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
-        </div>
-        <div className="lab-flop">
-          <span className="lab-tag">
-            {street} · {tex.label} · pot {POT}bb · {spot.pos === 'ip' ? 'in position (checked to you)' : 'out of position (you act first)'}
-            <InfoTip
-              content={
-                <span className="tip-body">
-                  <b className="tip-title">Texture read · {tex.label}</b>
-                  <span className="tip-what">{tex.sentence}</span>
-                  {tex.favours && <span className="tip-remember"><b>Edge:</b> {tex.favours}</span>}
-                  <span className="tip-what">
-                    {spot.pos === 'ip'
-                      ? 'In position you realise equity well — check back marginal hands, bet smaller and more often.'
-                      : 'Out of position you realise equity worse — check more, and polarise (bigger) when you do bet.'}
-                  </span>
-                </span>
-              }
-            />
-          </span>
-          <div className="lab-cards">{spot.board.map((c, i) => <PlayingCard key={i} card={c} size="lg" />)}</div>
-        </div>
-        {spot.strategy.equity != null && (
-          <div className="lab-eq">
-            {hideEq && !revealed ? (
-              <>
-                <div className="big-stat dim">🙈</div>
-                <div className="stat-lbl">equity hidden — read the board</div>
-              </>
-            ) : (
-              <>
-                <div className="big-stat gold">{(spot.strategy.equity * 100).toFixed(1)}%</div>
-                <div className="stat-lbl">equity vs range</div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <SpotBoard
+        hero={spot.hero}
+        board={spot.board}
+        handLabel={spot.label}
+        boardTag={<>{street} · {tex.label} · pot {POT}bb · {spot.pos === 'ip' ? 'in position (checked to you)' : 'out of position (you act first)'}</>}
+        equity={spot.strategy.equity}
+        equityHidden={hideEq && !revealed}
+        posNote={spot.pos}
+      />
 
       {!revealed && (
         <div className="lab-prompt">{mode === 'decide' ? 'Bet or check — what\'s your line?' : "You're betting — how big?"}</div>
@@ -288,8 +238,8 @@ export function BetSizingDrill() {
               <div className="lab-why-row">
                 <span className="lab-why-tag best">Best · {best.label}</span>
                 <p>{best.why}</p>
-                {sizeRule(spot.strategy.bestId, spot.board) && (
-                  <div className="bsd-rule"><b>💡 Rule:</b> {sizeRule(spot.strategy.bestId, spot.board)}</div>
+                {actionRule(spot.strategy.bestId, spot.board) && (
+                  <div className="bsd-rule"><b>💡 Rule:</b> {actionRule(spot.strategy.bestId, spot.board)}</div>
                 )}
               </div>
             </div>

@@ -7,6 +7,7 @@ import { buildRange } from '../ai/preflop';
 import type { ActionId, ActionOption } from './types';
 
 export type Facing = 'rfi' | 'vsopen' | 'vs3bet' | 'vs4bet';
+export type TableSize = 6 | 5 | 4 | 3 | 2;
 
 export interface PreflopScenario {
   id: string;
@@ -21,6 +22,10 @@ export interface PreflopScenario {
   value?: Set<string>; // 3-bet / 4-bet for value
   bluff?: Set<string>; // 3-bet / 4-bet bluffs (semi-mixed)
   call?: Set<string>;
+  /** Restrict to specific table sizes. Default: derived from seats present —
+   *  a spot survives at sizes 3-6 where both hero & villain are still seated.
+   *  Heads-up (size 2) spots set this to [2] because their ranges differ. */
+  sizes?: TableSize[];
 }
 
 function S(tokens: string[]): Set<string> {
@@ -283,7 +288,79 @@ export const SCENARIOS: PreflopScenario[] = [
     bluff: S([]),
     call: S(['QQ', 'AKs', 'AKo']),
   },
+  // ---- Heads-up (2 players). The SB IS the button: acts first preflop but in
+  // position postflop, and opens a huge range. The "lop the top, reuse 6-max"
+  // rule can't reach here — HU dynamics need their own ranges. Simplified
+  // ~100bb teaching ranges.
+  {
+    id: 'hu-sb-rfi',
+    label: 'Heads-up — SB (button) open',
+    short: 'HU Open',
+    facing: 'rfi',
+    heroPos: 'SB',
+    bluffFreq: 0.5,
+    sizes: [2],
+    // open ~82%: every suited hand, all pairs, most offsuit. Fold only the
+    // worst offsuit junk — the mixOpen tier is the marginal limp/fold edge.
+    open: S([
+      '22+', 'A2s+', 'K2s+', 'Q2s+', 'J2s+', 'T2s+', '92s+', '82s+', '72s+', '62s+', '52s+', '42s+', '32s',
+      'A2o+', 'K2o+', 'Q3o+', 'J5o+', 'T6o+', '96o+', '86o+', '75o+', '64o+', '54o',
+    ]),
+    mixOpen: S(['Q2o', 'J4o', 'T5o', '95o', '85o', '74o', '63o', '53o', '43o']),
+  },
+  {
+    id: 'hu-bb-vs-sb',
+    label: 'Heads-up — BB vs SB open',
+    short: 'HU Defend',
+    facing: 'vsopen',
+    heroPos: 'BB',
+    villainPos: 'SB',
+    bluffFreq: 0.5,
+    sizes: [2],
+    // vs an ~82% open you defend ~65%: 3-bet a polar value+bluff set, flat the
+    // rest. Over-folding here just bleeds the blind back to the button.
+    value: S(['99+', 'ATs+', 'KQs', 'AQo+', 'AJs']),
+    bluff: S(['A2s-A9s', 'K9s', 'KTs', 'Q9s', 'J9s', 'T8s', '97s', '86s', '75s', 'A2o-A5o', 'KJo']),
+    call: S([
+      '22-88', 'A2s+', 'K2s+', 'Q4s+', 'J6s+', 'T6s+', '95s+', '85s+', '74s+', '64s+', '53s+', '43s',
+      'A2o+', 'K6o+', 'Q8o+', 'J8o+', 'T8o+', '98o', '87o', '76o',
+    ]),
+  },
+  {
+    id: 'hu-sb-vs-3bet',
+    label: 'Heads-up — SB open vs a 3-bet',
+    short: 'HU v 3B',
+    facing: 'vs3bet',
+    heroPos: 'SB',
+    bluffFreq: 0.5,
+    sizes: [2],
+    value: S(['TT+', 'AKs', 'AKo', 'AQs']),
+    bluff: S(['A5s', 'A4s', 'A3s', 'K9s']),
+    call: S(['77-99', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs', 'JTs', 'T9s', 'AQo', 'KQo', 'AJo']),
+  },
 ];
+
+const SEAT_ORDER: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
+
+/** Seats present at an N-handed table. Blinds + button are fixed anchors, so a
+ *  table shrinks by lopping the EARLIEST positions off the front of the list. */
+export function seatsForSize(n: TableSize): Position[] {
+  return SEAT_ORDER.slice(SEAT_ORDER.length - n);
+}
+
+/** Scenarios playable at table size N. 6-max charts are reused via the
+ *  lop-the-top rule (a spot survives if both hero & villain are still seated);
+ *  heads-up (size 2) uses its own `sizes`-tagged scenarios. */
+export function scenariosForSize(n: TableSize): PreflopScenario[] {
+  return SCENARIOS.filter((s) => {
+    if (s.sizes) return s.sizes.includes(n);
+    if (n < 3) return false; // sub-3-handed handled only by tagged scenarios
+    const seats = seatsForSize(n);
+    if (!seats.includes(s.heroPos)) return false;
+    if (s.villainPos && !seats.includes(s.villainPos)) return false;
+    return true;
+  });
+}
 
 export function getScenario(id: string): PreflopScenario {
   return SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0];
