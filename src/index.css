@@ -453,6 +453,20 @@ body {
 .trainer-filter { display: flex; gap: 6px; justify-content: center; margin: 12px 0; }
 .trainer-filter button { background: var(--chip); color: var(--muted); border: 1px solid var(--line); padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 700; }
 .trainer-filter button.active { background: var(--raise2); color: #fff; border-color: var(--raise); }
+.trainer-spots {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center;
+  margin: 0 auto 8px; max-width: 560px;
+}
+.trainer-spots-label {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted); margin-right: 2px;
+}
+.trainer-spots button {
+  background: var(--bg2); color: var(--muted); border: 1px solid var(--line);
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.trainer-spots button:hover { color: var(--txt); border-color: var(--raise2); }
+.trainer-spots button.active { background: var(--raise2); color: #fff; border-color: var(--raise); }
 .trainer-scenario { font-size: 15px; color: var(--muted); margin: 14px 0; }
 .trainer-scenario b { color: var(--gold); }
 .trainer-cards { display: flex; gap: 14px; justify-content: center; margin: 12px 0; }
@@ -637,14 +651,17 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
   padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 700;
 }
 .ref-nav-actions button:hover { color: var(--txt); border-color: var(--raise2); }
-.ref-nav-links { display: flex; gap: 6px; flex-wrap: wrap; }
+.ref-nav-links {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  max-height: 88px; overflow-y: auto; padding-bottom: 2px; scrollbar-width: thin;
+}
 .ref-nav-link {
   background: var(--bg2); color: var(--muted); border: 1px solid var(--line);
   padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 600; transition: 0.15s;
 }
 .ref-nav-link:hover { color: var(--txt); border-color: var(--raise2); background: var(--chip); }
 
-.ref-section { scroll-margin-top: 130px; }
+.ref-section { scroll-margin-top: 160px; }
 .ref-sec-head {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: none; border: none; cursor: pointer; padding: 0; color: inherit;
@@ -808,6 +825,24 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .btn-repeat { background: var(--chip); color: var(--txt); border: 1px solid var(--line); min-width: 150px; font-size: 15px; }
 .btn-repeat:hover:not(:disabled) { background: var(--panel2); }
 .reset-game { display: inline-block; margin-top: 12px; }
+
+/* ---------- tournament (freezeout) ---------- */
+.tourney-status {
+  display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap;
+  margin: 8px 0 4px; padding: 7px 12px; border-radius: 9px; font-size: 13px;
+  background: rgba(231, 200, 115, 0.08); border: 1px solid var(--line); color: var(--muted);
+}
+.tourney-status b { color: var(--gold); }
+.tourney-end {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 8px 0;
+}
+.tourney-champ {
+  font-size: 18px; font-weight: 800; text-align: center; line-height: 1.4;
+  padding: 14px 18px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.tourney-champ.win { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.tourney-champ.out { color: var(--red); }
 
 /* ---------- street breadcrumb ---------- */
 .street-breadcrumb { display: flex; gap: 4px; justify-content: center; margin-top: 12px; }
@@ -1123,6 +1158,22 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 
   .card { padding: 14px; }
   .modal-body { gap: 12px; }
+
+  /* range trainer: 3-bet/4-bet showed 3 action buttons at min-width:150px and
+     overflowed the phone row — drop the fixed width so they share one row */
+  .trainer-actions { gap: 8px; }
+  .trainer-actions .btn { min-width: 0; flex: 1; padding: 12px 6px; font-size: 15px; }
+  .trainer-filter, .trainer-spots { gap: 5px; }
+  .trainer-filter button { padding: 6px 10px; font-size: 12.5px; }
+  .trainer-spots { max-width: 100%; }
+  .trainer-spots button { padding: 4px 8px; font-size: 11.5px; }
+
+  /* reference jump-nav: was sticky + 17 wrapping links = a tall band covering the
+     page. Let it scroll away on phones and cap its height. */
+  .ref-nav { position: static; padding: 10px; }
+  .ref-nav-links { max-height: 84px; }
+  .ref-section { scroll-margin-top: 14px; }
+  .ref-sec-head h2 { font-size: 16px; }
 }
 
 @media (max-width: 600px) {

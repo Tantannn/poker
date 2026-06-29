@@ -9,6 +9,7 @@ import {
   createGame,
   handResults,
   legalActions,
+  liveSeatCount,
   positionLabel,
   potTotal,
   startHand,
@@ -114,8 +115,9 @@ export function useGame(initialProfiles: string[]) {
   const initProfiles = SAVED?.profiles ?? initialProfiles;
 
   const [profiles, setProfiles] = useState<string[]>(initProfiles);
+  const [tournament, setTournament] = useState<boolean>(SAVED?.tournament ?? false);
   const [game, setGame] = useState<GameState>(
-    () => loadGame() ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles),
+    () => loadGame() ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles, SAVED?.tournament ?? false),
   );
   const [feedback, setFeedback] = useState<NodeFeedback | null>(null);
   const [hud, setHud] = useState<HudInfo | null>(null);
@@ -153,20 +155,20 @@ export function useGame(initialProfiles: string[]) {
 
   const applyProfiles = useCallback((next: string[]) => {
     setProfiles(next);
-    setGame(createGame(tableSize, stackDepth, BIG_BLIND, next));
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, next, tournament));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
     setVillain(null);
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [stackDepth, tableSize]);
+  }, [stackDepth, tableSize, tournament]);
 
   // change the number of seats (2–6); rebuilds the table. Bots auto-fill from the
   // profile list (createGame pads with 'tag'), so no profile resize is needed.
   const applyTableSize = useCallback((size: number) => {
     setTableSize(size);
-    setGame(createGame(size, stackDepth, BIG_BLIND, profiles));
+    setGame(createGame(size, stackDepth, BIG_BLIND, profiles, tournament));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -175,12 +177,12 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [stackDepth, profiles]);
+  }, [stackDepth, profiles, tournament]);
 
   // change starting stack depth (bb); rebuilds the table with fresh stacks
   const applyStackDepth = useCallback((bb: number) => {
     setStackDepth(bb);
-    setGame(createGame(tableSize, bb, BIG_BLIND, profiles));
+    setGame(createGame(tableSize, bb, BIG_BLIND, profiles, tournament));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -189,9 +191,29 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [profiles, tableSize]);
+  }, [profiles, tableSize, tournament]);
+
+  // switch cash ⇆ tournament. Either way we rebuild the table with fresh equal
+  // stacks (a freezeout must start everyone even), and tournament bundles the
+  // "pure play" feel — turn on watch-after-fold so busted/folded hands run out.
+  const setGameMode = useCallback((toTournament: boolean) => {
+    setTournament(toTournament);
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, toTournament));
+    if (toTournament) setWatchAfterFold(true);
+    setFeedback(null);
+    setHud(null);
+    setStrategy(null);
+    setRng(null);
+    setVillain(null);
+    strategyRef.current = null;
+    lastDealtRef.current = null;
+    saveDealt(null);
+  }, [profiles, stackDepth, tableSize]);
 
   const deal = useCallback(() => {
+    // tournament freezeout: stop dealing once the hero is eliminated or only one
+    // player has chips left (champion decided). Cash mode never blocks.
+    if (game.tournament && (liveSeatCount(game) <= 1 || game.players[0].stack <= 0)) return;
     setGame((prev) => {
       const next = structuredClone(prev);
       if (scenario !== 'random') {
@@ -219,7 +241,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     decisionsRef.current = [];
     playDeal();
-  }, [scenario]);
+  }, [scenario, game]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
@@ -241,9 +263,10 @@ export function useGame(initialProfiles: string[]) {
     playDeal();
   }, []);
 
-  // full reset: fresh 100bb stacks, hand 0 (stats kept — reset those separately)
+  // full reset: fresh equal stacks, hand 0 (stats kept — reset those separately).
+  // In tournament mode this is "start a new freezeout".
   const resetGame = useCallback(() => {
-    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles));
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, tournament));
     setFeedback(null);
     setHud(null);
     setStrategy(null);
@@ -252,7 +275,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     lastDealtRef.current = null;
     saveDealt(null);
-  }, [profiles, stackDepth, tableSize]);
+  }, [profiles, stackDepth, tableSize, tournament]);
 
   const heroAct = useCallback((action: Action) => {
     setGame((prev) => {
@@ -377,8 +400,8 @@ export function useGame(initialProfiles: string[]) {
     saveGame(game);
   }, [game]);
   useEffect(() => {
-    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize]);
+    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament });
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament]);
 
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
@@ -657,12 +680,35 @@ export function useGame(initialProfiles: string[]) {
     });
   }, []);
 
+  // ---- tournament (freezeout) status, derived from the live state so it's also
+  // correct after a refresh (game.tournament is persisted on the state itself) ----
+  const isTournament = !!game.tournament;
+  const playersLeft = liveSeatCount(game);
+  const heroBusted = isTournament && hero.stack <= 0;
+  // champion = the sole player still holding chips (could be the hero or a bot).
+  const championName = isTournament && playersLeft === 1 ? (game.players.find((p) => p.stack > 0)?.name ?? null) : null;
+  const tournamentOver = isTournament && handOver && playersLeft <= 1;
+  // finishing place when the hero busts: everyone still holding chips outlasted you.
+  const heroPlace = heroBusted ? game.players.filter((p) => !p.isHero && p.stack > 0).length + 1 : 0;
+  // show the freezeout end screen (instead of "Next Hand") once the hero is out or
+  // the title is decided.
+  const tournamentEnd = isTournament && handOver && (heroBusted || tournamentOver);
+
   return {
     game,
     hero,
     legal,
     isHeroTurn,
     handOver,
+    isTournament,
+    setGameMode,
+    playersLeft,
+    fieldSize: game.players.length,
+    championName,
+    tournamentOver,
+    heroBusted,
+    heroPlace,
+    tournamentEnd,
     feedback,
     hud,
     strategy,

@@ -32,7 +32,9 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   const started = game.handNumber > 0;
   const [infoEnabled, setInfoEnabled] = useState(true);
   const [oppEnabled, setOppEnabled] = useState(true);
-  const [supportsHidden, setSupportsHidden] = useState(false);
+  // Tournament bundles the "pure play" feel — hide every guide for a real-table
+  // experience. Start hidden when launching straight into a (restored) tournament.
+  const [supportsHidden, setSupportsHidden] = useState(g.isTournament);
   const [showChart, setShowChart] = useState(false);
   // Study mode: hide the ANSWER (solver mix + decision verdict) while it's your
   // turn so you commit first, then the Feedback box reveals it after you act.
@@ -49,6 +51,13 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   if (isHeroTurn !== prevTurn) {
     setPrevTurn(isHeroTurn);
     if (!isHeroTurn) setPeeked(false);
+  }
+  // entering tournament → hide guides (pure play); leaving → show them again.
+  // Synced during render (local state only) so there's no setState-in-effect.
+  const [prevTourney, setPrevTourney] = useState(g.isTournament);
+  if (g.isTournament !== prevTourney) {
+    setPrevTourney(g.isTournament);
+    setSupportsHidden(g.isTournament);
   }
   const hideAnswer = studyMode && !peeked && isHeroTurn;
   // Stamp whether the hero peeked at the solver onto each decision, so the
@@ -79,6 +88,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
       if (handOver || !started) {
         if (e.key === ' ' || e.key === 'Enter') {
           if (gateActive) return; // cool-off gate: must use the on-screen buttons
+          if (g.tournamentEnd) return; // freezeout decided — must click New tournament
           e.preventDefault();
           g.deal();
         }
@@ -103,6 +113,12 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     <div className="play-layout">
       <div className="table-col">
         <ScenarioBar g={g} />
+        {g.isTournament && started && (
+          <div className="tourney-status">
+            🏆 Tournament — <b>{g.playersLeft}</b> of {g.fieldSize} left
+            {hero.stack > 0 && <> · your stack <b>{(hero.stack / BIG_BLIND).toFixed(0)}bb</b></>}
+          </div>
+        )}
         <TiltBanner t={tilt} />
         <AggroBanner w={aggroWarning} />
         <div className="poker-table">
@@ -169,23 +185,27 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                   })()}
                 </div>
               )}
-              {started && handOver && gateActive && tilt ? (
+              {g.tournamentEnd ? (
+                <TournamentEnd g={g} heroName={hero.name} />
+              ) : started && handOver && gateActive && tilt ? (
                 <TiltCoolOff t={tilt} onProceed={passTilt} />
               ) : (
                 <div className="deal-btns">
                   <button className="btn btn-deal" onClick={g.deal}>
                     {started ? 'Next Hand' : 'Deal Hand'} <kbd>Space</kbd>
                   </button>
-                  {started && (
+                  {started && !g.isTournament && (
                     <button className="btn btn-repeat" onClick={g.repeatHand} title="Replay the same hole cards & board">
                       ↺ Repeat Hand
                     </button>
                   )}
                 </div>
               )}
-              <button className="link-btn reset-game" onClick={g.resetGame}>
-                ⟲ Reset game (fresh 100bb stacks)
-              </button>
+              {!g.tournamentEnd && (
+                <button className="link-btn reset-game" onClick={g.resetGame}>
+                  {g.isTournament ? '⟲ New tournament (fresh equal stacks)' : '⟲ Reset game (fresh 100bb stacks)'}
+                </button>
+              )}
             </div>
           ) : isHeroTurn ? (
             <Controls
@@ -400,6 +420,32 @@ function TiltCoolOff({ t, onProceed }: { t: TiltState; onProceed: () => void }) 
       )}
     </div>
   );
+}
+
+// Freezeout end screen: champion (you or a bot), or your finishing place if you
+// busted while bots play on. The only way forward is starting a new tournament.
+function TournamentEnd({ g, heroName }: { g: G; heroName: string }) {
+  const heroWon = g.championName === heroName;
+  return (
+    <div className="tourney-end">
+      {heroWon ? (
+        <div className="tourney-champ win">🏆 You win the tournament — last player standing!</div>
+      ) : g.tournamentOver ? (
+        <div className="tourney-champ">🏁 {g.championName} takes the tournament. You finished 2nd of {g.fieldSize}.</div>
+      ) : (
+        <div className="tourney-champ out">
+          💀 You busted — {ordinal(g.heroPlace)} of {g.fieldSize}. {g.playersLeft} still in.
+        </div>
+      )}
+      <button className="btn btn-deal" onClick={g.resetGame}>♻ New tournament</button>
+    </div>
+  );
+}
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 
 const STREETS = ['preflop', 'flop', 'turn', 'river'] as const;

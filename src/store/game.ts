@@ -67,6 +67,7 @@ export interface PersistSettings {
   watchAfterFold: boolean;
   difficulty: string;
   tableSize?: number;
+  tournament?: boolean;
 }
 
 export function saveSettings(s: PersistSettings): void {

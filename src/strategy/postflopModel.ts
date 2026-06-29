@@ -25,6 +25,20 @@ function classifyBet(e: number, outs: number): BetClass {
 // kind drives grid/bar color; we keep the existing 2-tone (value vs bluff).
 const classKind = (c: BetClass): ActionOption['kind'] => (c === 'value' || c === 'thin' ? 'value' : 'bluff');
 
+/** Hero is "flush-dominated": the board shows 3+ of a suit and hero holds NONE of
+ *  it, so hero can't make that flush. Any opponent with a single card of the suit
+ *  already beats (or chops over) hero's non-flush hand, and the range that calls a
+ *  bet is flush-heavy — so stacking off is a trap the generic model under-rates.
+ *  (At most one suit can hit 3+ on a ≤5-card board.) */
+function flushDominated(hero: Card[], board: Card[]): boolean {
+  const counts = [0, 0, 0, 0];
+  for (const c of board) counts[c.suit]++;
+  for (let s = 0; s < 4; s++) {
+    if (counts[s] >= 3 && !hero.some((h) => h.suit === s)) return true;
+  }
+  return false;
+}
+
 /** GTO bluff frequency for a bet of `frac`×pot on the river, and value:bluff ratio.
  *  Memo: the bluff fraction equals the equity a caller needs at this size — same
  *  number, so `requiredEquityForBet` is the single source for both. */
@@ -159,6 +173,10 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ? 0
       : (tex.connected ? 0.06 : 0) + (tex.suitPattern !== 'rainbow' ? 0.05 : 0) + (tex.paired ? -0.03 : 0);
 
+  // hero can't make the board flush and holds none of it → dominated (see helper).
+  // Drives the fold-equity collapse + equity-when-called penalty in computeAggro.
+  const flushDom = inp.board.length >= 3 && flushDominated(inp.hero, inp.board);
+
   // position: in position you act last, so you realise more of your equity
   // (free cards, pot control) and your bets carry a touch more fold equity;
   // out of position the opposite. 1.0 = neutral when position is unknown.
@@ -241,7 +259,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e);
+    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushDom);
     const cls = classifyBet(eHU, outs);
     const sv = d.streetValue > 0.05;
     cands.push({
@@ -261,7 +279,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e);
+    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushDom);
     const cls = classifyBet(eHU, outs);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
@@ -358,6 +376,7 @@ function computeAggro(
   effStack = 0,
   cardsToCome = 0,
   eField = e,
+  flushDom = false,
 ): AggroDetail {
   const R = target - currentBet; // pressure on top of a call
   const A = target - heroCommitted; // total hero invests now
@@ -375,7 +394,12 @@ function computeAggro(
   // nothing; you just show down for whatever the pot already is. There is also NO
   // fe×pot term — hero already wins vs the folders at showdown, so crediting their
   // folds again would double-count (the bug that made marginal made hands over-bet).
-  if (cardsToCome === 0 && !isAllIn) {
+  // This applies to an ALL-IN too: a river shove can't fold out a made hand for
+  // value, so the old fold-equity path (gated `!isAllIn`) credited ~40% phantom
+  // folds and made hero jam no-flush hands into a flush board (a made flush never
+  // folds). Score the river shove with the same thin-value model; the all-in risk
+  // premium is still layered on afterward in solvePostflop.
+  if (cardsToCome === 0) {
     const base = Math.min(1, eField * realize); // showdown EV baseline, == the check
     const worse = base; // hands hero beats vs the field
     const better = 1 - base; // hands that beat hero
@@ -402,6 +426,10 @@ function computeAggro(
   // their folds as roughly independent, the chance they ALL fold is fe^oppCount —
   // so fold equity collapses fast as the field grows.
   if (oppCount > 1) fe = Math.max(0.02, Math.pow(fe, oppCount));
+  // FLUSH DOMINATION: 3+ of a suit on the board and hero holds none of it. A made
+  // flush never folds and the live flush draws keep calling, so betting almost
+  // never takes it down — collapse fold equity to a sliver.
+  if (flushDom) fe = Math.min(fe, 0.08);
 
   // EQUITY WHEN CALLED — derived from minimum-defence frequency. Against a bet of
   // `s` pots a defending villain continues with ~his strongest 1/(1+s) of range,
@@ -419,7 +447,12 @@ function computeAggro(
   // like a 10x overbet, so scale the tax with size.
   const allinTax = isAllIn ? 0.06 * Math.min(1, s) : 0;
   const multiTax = 0.04 * (oppCount - 1); // each extra caller tightens it further
-  const e2 = Math.max(0, Math.min(1, e * realize) - rangeLift - allinTax - multiTax);
+  // when flush-dominated, the hands that CALL a bet are overwhelmingly the flushes
+  // that crush hero — generic rangeLift (≤0.32) is far too small, so add a heavy
+  // tax to push equity-when-called toward ~0. This is what stops the model from
+  // jamming a no-flush hand into a flush board.
+  const flushTax = flushDom ? 0.25 : 0;
+  const e2 = Math.max(0, Math.min(1, e * realize) - rangeLift - allinTax - multiTax - flushTax);
 
   const calledPot = P + A + R;
   let ev = fe * P + (1 - fe) * (e2 * calledPot - A);
@@ -432,7 +465,7 @@ function computeAggro(
   // and is FORGONE entirely by shoving (no next street). Bounded by the stack
   // behind, and faded on wet boards where you'd rather charge/fold draws now.
   let streetValue = 0;
-  if (!isAllIn && cardsToCome > 0 && e > 0.55) {
+  if (!isAllIn && cardsToCome > 0 && e > 0.55 && !flushDom) {
     const behind = Math.max(0, effStack - A); // wagerable on later streets
     const futureExtract = Math.min(behind, 0.5 * calledPot); // ~½-pot next street
     const edge = Math.max(0, Math.min(1, (e2 - 0.5) * 2)); // how far ahead of callers

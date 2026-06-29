@@ -10,7 +10,7 @@ import { KIND_COLOR } from './chartColors';
 // Trainer modes map onto the chart's `facing` types. RFI = open or fold; the
 // rest face a raise, so the answer is 3-bet / call / fold (4-bet vs a 3-bet).
 type Action = 'raise' | 'call' | 'fold';
-type Mode = Facing | 'random';
+type Mode = Extract<Facing, 'rfi' | 'vsopen' | 'vs3bet'> | 'random';
 
 const MODES: { id: Mode; label: string }[] = [
   { id: 'rfi', label: 'Open (RFI)' },
@@ -19,8 +19,8 @@ const MODES: { id: Mode; label: string }[] = [
   { id: 'random', label: '🎲 Random' },
 ];
 
-// Per-scenario-type wording. The active one follows the DEALT scenario, so Random
-// mode shows the right buttons/labels for whatever spot it dealt.
+// Per-scenario-type wording. The active one follows the DEALT scenario, so a
+// mixed spot pool still shows the right buttons/labels for whatever it dealt.
 const FACING_META: Record<Facing, { raiseLabel: string; prompt: string }> = {
   rfi: { raiseLabel: 'Raise', prompt: 'It folds to you — open or fold?' },
   vsopen: { raiseLabel: '3-Bet', prompt: 'Someone opened — 3-bet, call, or fold?' },
@@ -54,15 +54,21 @@ function dealRandom(scenarios: { id: string }[]): Dealt {
 
 export function PreflopTrainer() {
   const [mode, setMode] = useState<Mode>('rfi');
+  const [spotId, setSpotId] = useState<string | null>(null); // null = mix all spots in the mode
   const [cur, setCur] = useState<Dealt | null>(null);
   const [answered, setAnswered] = useState(false);
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0, streak: 0 });
   const [showChart, setShowChart] = useState(false);
 
+  // scenarios for the selected mode; the spot picker pins one (null = mix all).
   const scenarios = useMemo(
     () => (mode === 'random' ? SCENARIOS : SCENARIOS.filter((s) => s.facing === mode)),
     [mode],
+  );
+  const dealPool = useMemo(
+    () => (spotId ? scenarios.filter((s) => s.id === spotId) : scenarios),
+    [scenarios, spotId],
   );
 
   // current spot: scenario + the per-action frequency mix for the dealt hand.
@@ -77,23 +83,34 @@ export function PreflopTrainer() {
     return { sc, freq, present, dominant: present[0] ?? 'fold' };
   }, [cur]);
 
-  // The active scenario type drives the buttons/labels. In Random it follows the
-  // dealt spot; otherwise it's the chosen mode (with a sane fallback pre-deal).
+  // The active scenario type drives the buttons/labels: follow the dealt spot,
+  // else fall back to the chosen mode pre-deal.
   const curFacing: Facing | null = spot ? spot.sc.facing : mode === 'random' ? null : mode;
   const raiseLabel = curFacing ? FACING_META[curFacing].raiseLabel : 'Raise';
   const facingRaise = curFacing ? curFacing !== 'rfi' : true;
-  const headerPrompt = mode === 'random' ? 'Random spot — read the scenario, then act.' : FACING_META[mode].prompt;
+  const headerPrompt =
+    mode === 'random' ? 'Random spot — read the scenario, then act.' : FACING_META[mode].prompt;
 
   const deal = useCallback(() => {
-    setCur(dealRandom(scenarios));
+    setCur(dealRandom(dealPool.length ? dealPool : scenarios));
     setAnswered(false);
     setLastCorrect(null);
     setShowChart(false);
-  }, [scenarios]);
+  }, [dealPool, scenarios]);
 
-  // switching mode resets the current hand so the scenario matches the buttons.
+  // switching mode resets the current hand + spot so the scenario matches the buttons.
   const switchMode = useCallback((m: Mode) => {
     setMode(m);
+    setSpotId(null);
+    setCur(null);
+    setAnswered(false);
+    setLastCorrect(null);
+    setShowChart(false);
+  }, []);
+
+  // pick a specific spot to drill (or null to mix every spot in the mode).
+  const selectSpot = useCallback((id: string | null) => {
+    setSpotId(id);
     setCur(null);
     setAnswered(false);
     setLastCorrect(null);
@@ -155,6 +172,19 @@ export function PreflopTrainer() {
         {MODES.map((m) => (
           <button key={m.id} className={mode === m.id ? 'active' : ''} onClick={() => switchMode(m.id)}>
             {m.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="trainer-spots">
+        <span className="trainer-spots-label">{mode === 'rfi' ? 'Seat' : 'Spot'}</span>
+        {/* in Random mode 🎲 Mix = every spot across all facings */}
+        <button className={spotId === null ? 'active' : ''} onClick={() => selectSpot(null)}>
+          🎲 Mix
+        </button>
+        {scenarios.map((s) => (
+          <button key={s.id} className={spotId === s.id ? 'active' : ''} onClick={() => selectSpot(s.id)}>
+            {s.short}
           </button>
         ))}
       </div>

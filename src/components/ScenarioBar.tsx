@@ -94,6 +94,25 @@ export function ScenarioBar({ g }: { g: G }) {
             </button>
           ))}
         </div>
+        <span className="sc-label sc-speed-label">Mode:</span>
+        <div className="sc-btns">
+          <button
+            className={!g.isTournament ? 'active' : ''}
+            onClick={() => g.setGameMode(false)}
+            disabled={handInProgress}
+            title="Cash game — busted stacks rebuy to 100bb; all training guides available"
+          >
+            Cash
+          </button>
+          <button
+            className={g.isTournament ? 'active' : ''}
+            onClick={() => g.setGameMode(true)}
+            disabled={handInProgress}
+            title="Tournament freezeout — no rebuys, play until one player is left. Runs pure-play (guides hidden) like a real table; resets the table when switched."
+          >
+            🏆 Tournament
+          </button>
+        </div>
         <label className="sc-check" title="When you fold, watch the bots finish the hand instead of skipping to the result">
           <input type="checkbox" checked={g.watchAfterFold} onChange={(e) => g.setWatchAfterFold(e.target.checked)} />
           Watch after fold
