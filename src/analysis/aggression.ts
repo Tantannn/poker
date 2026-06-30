@@ -21,6 +21,11 @@ export interface AggroWarning {
 const RECENT_HANDS = 14; // rolling window
 const BIG_PCT = 0.6; // a bet/raise ≥60% pot counts as "big"
 const MIN_EPISODES = 5; // need a real sample before nagging
+// A losing result alone isn't a leak — correct value bets get called and still lose
+// to coolers/variance over a short window. Only nag when the big-bet hands bleed
+// MEANINGFULLY: at least this many bb lost per hand they fired big in. Filters the
+// "ran bad" false positive while still catching genuine spew (which loses far more).
+const LOSS_PER_HAND_FLOOR = 2;
 const POSTFLOP: Street[] = ['flop', 'turn', 'river'];
 
 /**
@@ -97,8 +102,11 @@ export function aggressionWarning(
   let netBB = 0;
   for (const h of handsWithBigBet) netBB += deltaByHand.get(h) ?? 0;
 
-  // only warn when aggression buys few folds AND it's costing you.
-  if (callRaiseRate < 0.7 || netBB >= 0) return null;
+  // only warn when aggression buys few folds AND it's bleeding MEANINGFULLY (not a
+  // single bad beat over a thin sample). The loss floor scales with how many hands
+  // hero actually fired big in, so one cooler can't trip it but a real leak does.
+  const lossFloor = -LOSS_PER_HAND_FLOOR * handsWithBigBet.size;
+  if (callRaiseRate < 0.7 || netBB > lossFloor) return null;
 
   const raiseRate = raised / episodes;
   const pct = Math.round(callRaiseRate * 100);

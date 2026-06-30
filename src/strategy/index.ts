@@ -10,7 +10,7 @@ import type { WeightedRange, ComboWeight } from '../engine/range';
 import { rangeFromSet, codeToCombos } from '../engine/range';
 import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
-import { RFI_RANGES, BB_DEFEND_RANGE, handCode } from '../ai/preflop';
+import { RFI_RANGES, BB_DEFEND_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { cellStrategy, getScenario } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
@@ -111,7 +111,102 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   return { sc: getScenario('btn-vs-utg'), level: 1 };
 }
 
+/** Effective stack in big blinds: the shorter of the hero and the deepest live
+ *  opponent. Matches the bot's measure (decide.ts) so feedback and bot play agree. */
+function effectiveStackBB(state: GameState, heroIdx: number): number {
+  const me = state.players[heroIdx];
+  const oppStacks = state.players
+    .filter((p) => !p.folded && p.id !== heroIdx)
+    .map((p) => p.stack + p.committed);
+  return Math.min(me.stack + me.committed, Math.max(0, ...(oppStacks.length ? oppStacks : [me.stack + me.committed]))) / state.bigBlind;
+}
+
+// Short-stack push/fold (≤15bb effective). Too shallow to play postflop or realise
+// implied odds, so the GTO-baseline line collapses to JAM or FOLD (free check in the
+// BB), and the jam range widens as you shorten. This mirrors the bot's own short-stack
+// logic in decide.ts (same strength + pushFloor), so the graded answer matches how the
+// table actually plays — without it, a 6bb hero is told to min-open a cash range.
+function pushFoldStrategy(state: GameState, heroIdx: number, effStackBB: number): NodeStrategy {
+  const code = handCode(state.players[heroIdx].holeCards);
+  const strength = preflopStrength(code);
+  const heroPos = positionLabel(heroIdx, state.buttonIndex, state.players.length);
+  const la = legalActions(state);
+  const facingRaise = state.currentBet > state.bigBlind;
+  const shortness = Math.max(0, Math.min(1, (15 - effStackBB) / 12));
+  const pushFloor = (facingRaise ? 0.8 : 0.66) - shortness * 0.14;
+  const inRange = strength >= pushFloor;
+  const eff = effStackBB.toFixed(0);
+  const floorPct = (pushFloor * 100).toFixed(0);
+  const aggrId: ActionId = facingRaise ? 'raise' : 'open';
+  const jamEv = round2(BASE_EV.value * (0.55 + 0.45 * strength));
+
+  const options: ActionOption[] = [];
+  if (la.canRaise) {
+    options.push({
+      id: aggrId,
+      label: facingRaise ? 'Shove (re-jam)' : 'Open-jam',
+      freq: inRange ? 1 : 0,
+      ev: inRange ? jamEv : OFF_CHART_EV,
+      kind: inRange ? (strength > 0.85 ? 'value' : 'aggressive') : 'aggressive',
+      amount: la.maxRaiseTo,
+      why: inRange
+        ? `At ${eff}bb you're too short to play postflop — ${code} jams all-in for the fold equity plus the blinds/antes already out there.`
+        : `${code} is below the ~${floorPct} jam threshold at ${eff}bb — too weak to get it in, and too short to flat for implied odds.`,
+      math: `Push/fold: jam the top of your range, fold the rest; the range widens as you shorten. ${code} rates ${(strength * 100).toFixed(0)} vs a ${floorPct} floor.`,
+    });
+  }
+  if (la.canCheck) {
+    options.push({
+      id: 'check',
+      label: 'Check',
+      freq: inRange ? 0 : 1,
+      ev: 0.1,
+      kind: 'passive',
+      why: `Free flop — never fold the option. Jam the top of your range, check the rest back.`,
+    });
+  }
+  if (la.callAmount > 0) {
+    const pricedCall = la.isAllInCall && inRange;
+    options.push({
+      id: 'call',
+      label: la.isAllInCall ? 'Call all-in' : 'Call',
+      freq: pricedCall ? 1 : 0,
+      ev: pricedCall ? jamEv : OFF_CHART_EV,
+      kind: 'call',
+      why: pricedCall
+        ? `Already priced in — ${code} is strong enough at ${eff}bb to call off.`
+        : `Too short to flat and play a pot postflop — the line is jam or fold, not call.`,
+    });
+    if (!options.some((o) => o.id === 'fold')) {
+      options.push({
+        id: 'fold',
+        label: 'Fold',
+        freq: inRange ? 0 : 1,
+        ev: 0,
+        kind: 'fold',
+        why: `${code} is below the jam/continue threshold at ${eff}bb.`,
+      });
+    }
+  }
+
+  const best = options.reduce((a, b) => (b.ev > a.ev ? b : a), options[0]);
+  return {
+    options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),
+    bestEv: best.ev,
+    bestId: best.id,
+    source: 'preflop-chart',
+    note: `${heroPos} · ${eff}bb effective — push/fold. Too shallow to play postflop, so it's jam-or-fold; the jam range widens the shorter you get. Teaching baseline, not a Nash solve.`,
+    rangeNote: `${heroPos} · ${eff}bb push/fold`,
+    heroCode: code,
+    scenarioId: 'pushfold',
+  };
+}
+
 function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
+  // Short-stack spots collapse to push/fold — diverge before the cash charts.
+  const effStackBB = effectiveStackBB(state, heroIdx);
+  if (effStackBB <= 15) return pushFoldStrategy(state, heroIdx, effStackBB);
+
   const { sc, level } = pickPreflopScenario(state, heroIdx);
   const code = handCode(state.players[heroIdx].holeCards);
   const heroPos = positionLabel(heroIdx, state.buttonIndex, state.players.length);

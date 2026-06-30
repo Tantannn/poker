@@ -1,6 +1,5 @@
 import type { Player, Position } from '../engine/table';
 import { PlayingCard } from './PlayingCard';
-import { BIG_BLIND } from '../hooks/useGame';
 
 interface Props {
   player: Player;
@@ -11,9 +10,11 @@ interface Props {
   isWinner: boolean;
   profileName?: string;
   slot: number;
+  /** current big blind in chips — stacks shown in bb against it (tracks escalation). */
+  bigBlind: number;
 }
 
-export function Seat({ player, position, isButton, isToAct, reveal, isWinner, profileName, slot }: Props) {
+export function Seat({ player, position, isButton, isToAct, reveal, isWinner, profileName, slot, bigBlind }: Props) {
   const showCards = player.isHero || reveal;
   const folded = player.folded;
   // hero's own cards are shown larger for readability; opponents stay small
@@ -39,7 +40,7 @@ export function Seat({ player, position, isButton, isToAct, reveal, isWinner, pr
           {isButton && <span className="dealer-btn" title="Dealer button">D</span>}
         </div>
         <div className="seat-stack">
-          {player.stack} <span className="muted">({(player.stack / BIG_BLIND).toFixed(0)}bb)</span>
+          {player.stack} <span className="muted">({(player.stack / bigBlind).toFixed(0)}bb)</span>
         </div>
         {profileName && !player.isHero && <div className="seat-profile">{profileName}</div>}
         {/* always rendered (min-height reserves the space) so an action appearing

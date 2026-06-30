@@ -53,6 +53,9 @@ export interface HistoryHand {
   /** hero's finishing place, stamped only on the terminal hand of a tournament
    *  (1 = champion). Undefined on every other hand, incl. cash. */
   place?: number;
+  /** big blind in chips for this hand — bb figures in review use it so escalating
+   *  tournament blinds read correctly (older hands backfill to the base BB of 2). */
+  bigBlind: number;
   handNumber: number;
   heroCards: Card[];
   board: Card[];
@@ -108,6 +111,7 @@ export function loadHistory(): HistoryHand[] {
       id: h.id ?? `legacy-${h.handNumber}`,
       sessionId: h.sessionId ?? 'legacy',
       tournament: h.tournament ?? false,
+      bigBlind: h.bigBlind ?? 2,
     }));
   } catch {
     return [];

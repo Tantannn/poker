@@ -9,6 +9,7 @@ import { ruleOf2and4 } from '../engine/equity';
 import { RangeDrill } from './EquityRangeDrill';
 import { InfoTip } from './CalcTip';
 import { playGrade } from '../sound';
+import { loadSrs, recordSrs, weightOf, weightedIndex, type SrsMap } from '../store/srs';
 
 type Cat = 'Preflop' | 'Draws' | 'Made hands';
 
@@ -75,20 +76,23 @@ function buildOptions(card: Flash): number[] {
   return picks;
 }
 
-// Initial random card, computed once at module load — NOT during render. React
-// forbids impure calls (Math.random) in the render phase, and a useState lazy
-// initializer runs during render; module scope runs at import, so it's safe.
-const FIRST_IDX = Math.floor(Math.random() * CARDS.length);
-const FIRST_OPTIONS = buildOptions(CARDS[FIRST_IDX]);
-
-// Random card selection lives at module scope: the react-hooks purity rule
-// forbids Math.random inside component-scope functions (they could run during
-// render). Component handlers call this. `avoid` skips an immediate repeat.
-function rollCard(pool: Flash[], avoid?: Flash): { idx: number; options: number[] } {
-  let i = Math.floor(Math.random() * pool.length);
-  if (avoid && pool.length > 1 && pool[i] === avoid) i = (i + 1) % pool.length;
+// Spaced-repetition card selection lives at module scope: the react-hooks purity
+// rule forbids Math.random inside component-scope functions (they could run during
+// render). Component handlers call this. The draw is WEIGHTED by each card's SRS
+// weight (missed cards surface more), and `avoidIdx` skips an immediate repeat.
+function rollCard(pool: Flash[], srs: SrsMap, avoidIdx?: number): { idx: number; options: number[] } {
+  const weights = pool.map((c) => weightOf(srs, c.spot));
+  const i = weightedIndex(weights, Math.random, avoidIdx);
   return { idx: i, options: buildOptions(pool[i]) };
 }
+
+// Initial card, computed once at module load — NOT during render. React forbids
+// impure calls (Math.random) in the render phase, and a useState lazy initializer
+// runs during render; module scope runs at import, so it's safe.
+const FIRST_SRS = loadSrs();
+const FIRST = rollCard(CARDS, FIRST_SRS);
+const FIRST_IDX = FIRST.idx;
+const FIRST_OPTIONS = FIRST.options;
 
 export function EquityDrill() {
   const [mode, setMode] = useState<'flash' | 'range'>('range');
@@ -118,11 +122,14 @@ function FlashcardDrill() {
   const [options, setOptions] = useState<number[]>(FIRST_OPTIONS);
   const [chosen, setChosen] = useState<number | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [srs, setSrs] = useState<SrsMap>(FIRST_SRS);
 
   const card = pool[idx] ?? pool[0];
+  // cards still being learned (weight above the unseen baseline) — a progress hint
+  const needWork = pool.filter((c) => weightOf(srs, c.spot) > 1.5).length;
 
   function deal() {
-    const r = rollCard(pool, card); // avoid immediate repeat
+    const r = rollCard(pool, srs, idx); // weighted by SRS, avoid immediate repeat
     setIdx(r.idx);
     setOptions(r.options);
     setChosen(null);
@@ -132,7 +139,7 @@ function FlashcardDrill() {
     const np = c === 'All' ? CARDS : CARDS.filter((x) => x.cat === c);
     setCat(c);
     setScore({ correct: 0, total: 0 });
-    const r = rollCard(np);
+    const r = rollCard(np, srs);
     setIdx(r.idx);
     setOptions(r.options);
     setChosen(null);
@@ -140,9 +147,11 @@ function FlashcardDrill() {
 
   function pick(v: number) {
     if (chosen != null) return;
+    const right = v === card.equity;
     setChosen(v);
-    setScore((s) => ({ correct: s.correct + (v === card.equity ? 1 : 0), total: s.total + 1 }));
-    playGrade(v === card.equity);
+    setScore((s) => ({ correct: s.correct + (right ? 1 : 0), total: s.total + 1 }));
+    setSrs((s) => recordSrs(s, card.spot, right)); // missed cards come back sooner
+    playGrade(right);
   }
 
   const revealed = chosen != null;
@@ -164,6 +173,10 @@ function FlashcardDrill() {
         </div>
         <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
       </div>
+      <p className="note">
+        🔁 Adaptive — cards you miss come back more often, mastered ones fade.
+        {needWork > 0 ? <> <b>{needWork}</b> card{needWork === 1 ? '' : 's'} still need work.</> : ' All caught up — nice.'}
+      </p>
 
       <div className="drill-spot">
         <span className="drill-cat">{card.cat}</span>

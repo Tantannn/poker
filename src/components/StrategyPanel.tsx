@@ -4,7 +4,6 @@
 
 import type { NodeStrategy } from '../strategy';
 import type { RngInfo } from '../hooks/useGame';
-import { BIG_BLIND } from '../hooks/useGame';
 import { InfoTip } from './CalcTip';
 
 // quality tier of an option vs the best line, by EV loss (bb)
@@ -22,11 +21,12 @@ interface Props {
   loading: boolean;
   heroStack: number; // chips behind (for the % -of-stack risk on each action)
   heroCommitted: number; // chips already in this street
+  bigBlind: number; // current big blind in chips — bet sizes shown in bb against it
   hideAnswer?: boolean; // study mode: hide the mix/EV until the hero acts
   onPeek?: () => void;
 }
 
-export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroStack, heroCommitted, hideAnswer, onPeek }: Props) {
+export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroStack, heroCommitted, bigBlind, hideAnswer, onPeek }: Props) {
   return (
     <div className="strat-panel">
       <div className="strat-head">
@@ -124,7 +124,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
                   {o.amount != null && (
                     <div className="strat-amt">
                       {o.id === 'call' ? 'call' : o.id === 'raise' ? 'raise to' : o.id === 'open' ? 'open to' : 'bet to'} <b>{o.amount}</b>
-                      {' '}({(o.amount / BIG_BLIND).toFixed(1)}bb){o.sizePct != null ? ` · ${o.sizePct}% pot` : ''}
+                      {' '}({(o.amount / bigBlind).toFixed(1)}bb){o.sizePct != null ? ` · ${o.sizePct}% pot` : ''}
                       {stackPct > 0 ? ` · ${Math.round(stackPct * 100)}% stack` : ''}
                     </div>
                   )}

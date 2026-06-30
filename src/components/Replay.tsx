@@ -30,7 +30,7 @@ const VILLAIN = rangeFromSet(RFI_RANGES.BTN);
 const evRank = (a: { ev: number }, b: { ev: number }) => b.ev - a.ev;
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-const bb = (chips: number) => (chips / 2).toFixed(1);
+const bb = (chips: number, bigBlind: number) => (chips / bigBlind).toFixed(1);
 const fmtBB = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1)}bb`;
 const ordinal = (n: number) => {
   const s = ['th', 'st', 'nd', 'rd'];
@@ -88,7 +88,7 @@ function evLossTier(loss: number): { label: string; cls: string; gloss: string }
 
 /** Deep-dive on a single decision: pot-odds math, equity vs price, EV cost over
  *  a sample, and a concept hook. Renders as a collapsible under the decision. */
-function DecisionDeepDive({ d }: { d: DecisionSnapshot }) {
+function DecisionDeepDive({ d, bigBlind }: { d: DecisionSnapshot; bigBlind: number }) {
   const req = d.toCall > 0 ? d.toCall / (d.pot + d.toCall) : null;
   const tier = evLossTier(d.evLoss);
   const bestOpt = d.options.find((o) => o.id === d.bestId);
@@ -103,7 +103,7 @@ function DecisionDeepDive({ d }: { d: DecisionSnapshot }) {
           <div className="rv-deep-block">
             <div className="rv-deep-h">The price</div>
             <p>
-              You had to call <b>{d.toCall}</b> ({bb(d.toCall)}bb) into a <b>{d.pot}</b> ({bb(d.pot)}bb) pot,
+              You had to call <b>{d.toCall}</b> ({bb(d.toCall, bigBlind)}bb) into a <b>{d.pot}</b> ({bb(d.pot, bigBlind)}bb) pot,
               so you were getting <b>{(d.pot / d.toCall).toFixed(1)}-to-1</b> and needed{' '}
               <b>{pct(req)}</b> equity to break even.
               {d.equity != null && (
@@ -450,10 +450,10 @@ export function Replay({ g }: { g: G }) {
                 <div className="rv-dec-head">
                   <span className="rv-dec-pos">{d.position}</span>
                   <span className="rv-dec-face">
-                    {d.toCall > 0 ? `facing ${d.toCall} (${(d.toCall / 2).toFixed(1)}bb)` : 'first to act / checked to'}
+                    {d.toCall > 0 ? `facing ${d.toCall} (${(d.toCall / hand.bigBlind).toFixed(1)}bb)` : 'first to act / checked to'}
                     {d.villainTag ? ` · vs ${d.villainTag}` : ''}
                   </span>
-                  <span className="rv-dec-pot">pot {d.pot} ({(d.pot / 2).toFixed(1)}bb)</span>
+                  <span className="rv-dec-pot">pot {d.pot} ({(d.pot / hand.bigBlind).toFixed(1)}bb)</span>
                   {d.equity != null && <span className="rv-dec-eq">{(d.equity * 100).toFixed(1)}% eq</span>}
                 </div>
 
@@ -487,7 +487,7 @@ export function Replay({ g }: { g: G }) {
                   )}
                 </div>
 
-                <DecisionDeepDive d={d} />
+                <DecisionDeepDive d={d} bigBlind={hand.bigBlind} />
               </div>
             );
           })

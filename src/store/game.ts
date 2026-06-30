@@ -1,23 +1,53 @@
 // Persist the live game + table settings to localStorage so a refresh (F5)
 // resumes exactly where you left off instead of dealing a fresh table.
+//
+// Cash and tournament are SEPARATE persisted sessions (one slot each), so you
+// can leave a freezeout half-played, run some cash hands, and come back to the
+// tournament exactly where it stood. The game/dealt blobs are namespaced by
+// mode; settings (shared preferences + which mode was last active) are single.
 
 import type { GameState } from '../engine/table';
 
-const GAME_KEY = 'poker.game.v1';
-const SETTINGS_KEY = 'poker.settings.v1';
-const DEALT_KEY = 'poker.dealt.v1';
+export type GameMode = 'cash' | 'tourney';
 
-export function saveGame(g: GameState): void {
+const GAME_KEY = (m: GameMode) => `poker.game.${m}.v1`;
+const DEALT_KEY = (m: GameMode) => `poker.dealt.${m}.v1`;
+const SETTINGS_KEY = 'poker.settings.v1';
+// Pre-split single-slot keys — migrated once into the matching mode slot below.
+const LEGACY_GAME_KEY = 'poker.game.v1';
+const LEGACY_DEALT_KEY = 'poker.dealt.v1';
+
+function modeOf(g: GameState): GameMode {
+  return g.tournament ? 'tourney' : 'cash';
+}
+
+// One-time migration: route a pre-split blob to whichever mode it actually was,
+// then drop the legacy key so it can't shadow future saves.
+function migrateLegacy(legacyKey: string, keyFor: (m: GameMode) => string): void {
   try {
-    localStorage.setItem(GAME_KEY, JSON.stringify(g));
+    const raw = localStorage.getItem(legacyKey);
+    if (!raw) return;
+    const g = JSON.parse(raw) as GameState;
+    const dest = keyFor(modeOf(g));
+    if (!localStorage.getItem(dest)) localStorage.setItem(dest, raw);
+    localStorage.removeItem(legacyKey);
+  } catch {
+    /* ignore — a corrupt legacy blob just gets dropped */
+  }
+}
+
+export function saveGame(g: GameState, mode: GameMode): void {
+  try {
+    localStorage.setItem(GAME_KEY(mode), JSON.stringify(g));
   } catch {
     /* storage full / disabled — fall back to in-memory only */
   }
 }
 
-export function loadGame(): GameState | null {
+export function loadGame(mode: GameMode): GameState | null {
   try {
-    const raw = localStorage.getItem(GAME_KEY);
+    migrateLegacy(LEGACY_GAME_KEY, GAME_KEY);
+    const raw = localStorage.getItem(GAME_KEY(mode));
     if (!raw) return null;
     const g = JSON.parse(raw) as GameState;
     // minimal shape sanity-check so a corrupt/old blob can't crash the app
@@ -28,9 +58,9 @@ export function loadGame(): GameState | null {
   }
 }
 
-export function clearGame(): void {
+export function clearGame(mode: GameMode): void {
   try {
-    localStorage.removeItem(GAME_KEY);
+    localStorage.removeItem(GAME_KEY(mode));
   } catch {
     /* ignore */
   }
@@ -38,18 +68,19 @@ export function clearGame(): void {
 
 // The "repeat hand" snapshot — the freshly-dealt state (same hole cards + deck),
 // persisted so Repeat Hand still works after a refresh.
-export function saveDealt(g: GameState | null): void {
+export function saveDealt(g: GameState | null, mode: GameMode): void {
   try {
-    if (g) localStorage.setItem(DEALT_KEY, JSON.stringify(g));
-    else localStorage.removeItem(DEALT_KEY);
+    if (g) localStorage.setItem(DEALT_KEY(mode), JSON.stringify(g));
+    else localStorage.removeItem(DEALT_KEY(mode));
   } catch {
     /* ignore */
   }
 }
 
-export function loadDealt(): GameState | null {
+export function loadDealt(mode: GameMode): GameState | null {
   try {
-    const raw = localStorage.getItem(DEALT_KEY);
+    migrateLegacy(LEGACY_DEALT_KEY, DEALT_KEY);
+    const raw = localStorage.getItem(DEALT_KEY(mode));
     if (!raw) return null;
     const g = JSON.parse(raw) as GameState;
     if (!g || !Array.isArray(g.players)) return null;
@@ -67,10 +98,16 @@ export interface PersistSettings {
   watchAfterFold: boolean;
   difficulty: string;
   tableSize?: number;
+  /** legacy single-mode flag — kept for back-compat reads; `activeMode` supersedes it. */
   tournament?: boolean;
-  /** current session id, persisted so hands recorded after a refresh stay in the
+  /** which mode's table was last on screen, so a refresh reopens the same tab. */
+  activeMode?: GameMode;
+  /** active session id, persisted so hands recorded after a refresh stay in the
    *  same Hand Review group as those before it (else a reload splits a session). */
   sessionId?: string;
+  /** per-mode session ids so cash and tournament each group as their own arc. */
+  cashSessionId?: string;
+  tourneySessionId?: string;
 }
 
 export function saveSettings(s: PersistSettings): void {

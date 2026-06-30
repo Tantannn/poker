@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useGame } from '../hooks/useGame';
 import { accuracy, bbPer100, evLossPer100, rngAdherence, totalEvLoss, scoreBuckets, gtowScore } from '../store/stats';
 import type { DecisionRecord } from '../store/stats';
+import { downloadBackup, importBackup } from '../store/backup';
 import { PlayingCard } from './PlayingCard';
 import { CalcLabel } from './CalcTip';
 
@@ -111,6 +112,8 @@ export function Analytics({ g }: { g: G }) {
           “Decision accuracy” compares each move to a transparent baseline — a yardstick, not a solver.
         </p>
       </div>
+
+      <DataBackup />
 
       <div className="card">
         <h2>Performance breakdown</h2>
@@ -285,6 +288,53 @@ function Sparkline({ data }: { data: number[] }) {
         <polyline points={pts} className={`an-spark-line ${last >= 0 ? 'pos' : 'neg'}`} fill="none" />
       </svg>
       <div className={`an-spark-end ${last >= 0 ? 'pos' : 'neg'}`}>{last >= 0 ? '+' : ''}{last.toFixed(1)} bb</div>
+    </div>
+  );
+}
+
+// Backup & restore: download all training data as JSON, or import a backup to
+// replace it. Import reloads the app so every in-memory store re-reads storage.
+function DataBackup() {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-importing the same file
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = importBackup(String(reader.result));
+      if (!res.ok) {
+        setMsg({ ok: false, text: res.error ?? 'Import failed.' });
+        return;
+      }
+      if (!confirm(`Restore ${res.keys} data section(s)? This replaces your current history, stats & journal, then reloads.`)) return;
+      location.reload();
+    };
+    reader.onerror = () => setMsg({ ok: false, text: 'Could not read that file.' });
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="card">
+      <div className="analytics-head">
+        <h2>Backup &amp; restore</h2>
+      </div>
+      <p className="note">
+        Your history, stats, journal &amp; in-progress tables live only in this browser — clearing site data wipes them.
+        Export a JSON backup for safekeeping or to move between devices; import to restore.
+      </p>
+      <div className="backup-btns">
+        <button className="btn-small" onClick={() => { downloadBackup(); setMsg({ ok: true, text: 'Backup downloaded.' }); }}>
+          ⬇ Export backup
+        </button>
+        <button className="btn-small" onClick={() => fileRef.current?.click()}>
+          ⬆ Import backup…
+        </button>
+        <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={onFile} />
+      </div>
+      {msg && <p className={`note ${msg.ok ? 'pos' : 'neg'}`}>{msg.text}</p>}
     </div>
   );
 }

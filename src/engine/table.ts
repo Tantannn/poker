@@ -100,6 +100,13 @@ export interface GameState {
   toAct: number; // index, -1 if nobody
   bigBlind: number;
   smallBlind: number;
+  // The level-1 big blind a tournament started at. Escalation is computed as
+  // baseBigBlind × levelMultiplier so it stays deterministic even after a refresh
+  // (bigBlind itself is mutated up each level). Equals bigBlind in cash games.
+  baseBigBlind: number;
+  // Per-player ante posted each hand once a tournament reaches the ante level
+  // (dead money in the pot, not a live bet). 0 in cash and early tournament.
+  ante: number;
   handNumber: number;
   log: ActionRecord[];
   pots: SidePot[];
@@ -168,6 +175,8 @@ export function createGame(
     toAct: -1,
     bigBlind,
     smallBlind: Math.round(bigBlind / 2),
+    baseBigBlind: bigBlind,
+    ante: 0,
     handNumber: 0,
     log: [],
     pots: [],
@@ -177,6 +186,42 @@ export function createGame(
     seed: 0,
     tournament,
   };
+}
+
+// ---- Tournament blind escalation ----------------------------------------
+// A freezeout ramps the blinds every few hands so deep stacks can't stall
+// forever — the same pressure a real tournament clock applies. The big blind
+// for a level is baseBigBlind × the level's multiplier; the small blind tracks
+// at half. Multipliers follow the classic 1/2/3/5/8 chip progression, then keep
+// roughly doubling, and clamp at the top so a long heads-up doesn't overflow.
+export const TOURNEY_HANDS_PER_LEVEL = 5;
+const BLIND_LEVEL_MULT = [1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 200];
+// Antes kick in from this level (0-based) — late enough that early play is pure
+// blind-vs-blind, then dead money sweetens every pot and forces action, like a
+// real mid/late tournament. Each live player antes ~1/8 of the big blind.
+const ANTE_START_LEVEL = 3;
+function anteFor(bigBlind: number): number {
+  return Math.max(1, Math.round(bigBlind / 8));
+}
+
+/** Zero-based blind level for a given hand number (hand 1 = level 0). */
+export function tournamentLevel(handNumber: number): number {
+  return Math.floor(Math.max(0, handNumber - 1) / TOURNEY_HANDS_PER_LEVEL);
+}
+
+/** Hands remaining until the blinds next go up. */
+export function handsToNextLevel(handNumber: number): number {
+  return TOURNEY_HANDS_PER_LEVEL - (Math.max(0, handNumber - 1) % TOURNEY_HANDS_PER_LEVEL);
+}
+
+/** Set bigBlind/smallBlind for the current hand's tournament level. */
+function applyBlindLevel(state: GameState) {
+  const base = state.baseBigBlind || state.bigBlind;
+  const level = tournamentLevel(state.handNumber);
+  const mult = BLIND_LEVEL_MULT[Math.min(level, BLIND_LEVEL_MULT.length - 1)];
+  state.bigBlind = base * mult;
+  state.smallBlind = Math.max(1, Math.round(state.bigBlind / 2));
+  state.ante = level >= ANTE_START_LEVEL ? anteFor(state.bigBlind) : 0;
 }
 
 /** Players who still have chips (i.e. not eliminated). In a tournament, when this
@@ -213,6 +258,8 @@ export function startHand(state: GameState): GameState {
   state.buttonIndex = b;
 
   state.handNumber += 1;
+  // tournament: step blinds up on the schedule before posting them this hand.
+  if (state.tournament) applyBlindLevel(state);
   // fresh seed per hand — captured in the "repeat hand" snapshot so a replay
   // reproduces the bots' exact decisions.
   state.seed = (Math.floor(Math.random() * 0xffffffff) >>> 0) || 1;
@@ -262,6 +309,11 @@ export function startHand(state: GameState): GameState {
   const bbIdx = heads ? nextLiveSeat(b) : nextLiveSeat(sbIdx);
   postBlind(state, sbIdx, state.smallBlind, 'SB');
   postBlind(state, bbIdx, state.bigBlind, 'BB');
+  // antes are dead money: every live seat contributes to the pot but it isn't a
+  // live bet, so currentBet stays at the big blind.
+  if (state.ante > 0) {
+    for (let i = 0; i < n; i++) postAnte(state, i);
+  }
   state.currentBet = state.bigBlind;
   state.lastRaiseSize = state.bigBlind;
 
@@ -270,7 +322,8 @@ export function startHand(state: GameState): GameState {
   // blinds reset hasActed so they get to act
   state.players[sbIdx].hasActed = false;
   state.players[bbIdx].hasActed = false;
-  state.message = `Hand #${state.handNumber} dealt. Blinds ${state.smallBlind}/${state.bigBlind}.`;
+  const anteNote = state.ante > 0 ? ` (ante ${state.ante})` : '';
+  state.message = `Hand #${state.handNumber} dealt. Blinds ${state.smallBlind}/${state.bigBlind}${anteNote}.`;
   return state;
 }
 
@@ -283,6 +336,18 @@ function postBlind(state: GameState, idx: number, amount: number, label: string)
   if (p.stack === 0) p.allIn = true;
   p.lastAction = `Post ${label}`;
   p.hasActed = true;
+}
+
+// Ante: dead money into the pot. Goes to totalCommitted (so it's in the pot and
+// won at showdown, forfeited on a fold) but NOT to committed — it's not a live
+// bet, doesn't change the facing-bet, and doesn't count as the player's action.
+function postAnte(state: GameState, idx: number) {
+  const p = state.players[idx];
+  if (state.ante <= 0 || p.stack <= 0) return;
+  const amt = Math.min(state.ante, p.stack);
+  p.stack -= amt;
+  p.totalCommitted += amt;
+  if (p.stack === 0) p.allIn = true;
 }
 
 export function potTotal(state: GameState): number {

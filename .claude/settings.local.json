@@ -47,7 +47,11 @@
       "PowerShell(npx eslint src/analysis/tilt.ts src/hooks/useGame.ts src/components/PokerTable.tsx)",
       "PowerShell(npx vite build 2>&1 | Select-Object -Last 12)",
       "PowerShell(npx vite build 2>&1 | Select-Object -Last 4)",
-      "PowerShell(npx tsc --noEmit -p d:\\\\code\\\\poker)"
+      "PowerShell(npx tsc --noEmit -p d:\\\\code\\\\poker)",
+      "Bash(npm install *)",
+      "Bash(npm test *)",
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file"
     ]
   }
 }

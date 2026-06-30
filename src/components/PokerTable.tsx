@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useGame, BIG_BLIND } from '../hooks/useGame';
-import { positionLabel } from '../engine/table';
+import { useGame } from '../hooks/useGame';
+import { positionLabel, tournamentLevel, handsToNextLevel } from '../engine/table';
 import { getProfile } from '../ai/profiles';
 import { Seat } from './Seat';
 import { PositionHint } from './PositionHint';
@@ -28,6 +28,11 @@ interface Props {
 export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain, aggroWarning, tilt } = g;
   const reveal = game.street === 'complete' || game.street === 'showdown';
+  // A genuine showdown means 2+ players still hold cards at the end. An
+  // uncontested win (everyone folded to one player) also lands on 'complete'
+  // but never exposes cards at a real table — so in pure-play we only reveal
+  // when this is true. Folded/busted seats (0 cards) don't count.
+  const wasShowdown = game.players.filter((p) => !p.folded && p.holeCards.length === 2).length >= 2;
   const winnerIds = new Set(game.winners.map((w) => w.playerId));
   const started = game.handNumber > 0;
   const [infoEnabled, setInfoEnabled] = useState(true);
@@ -116,7 +121,10 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         {g.isTournament && started && (
           <div className="tourney-status">
             🏆 Tournament — <b>{g.playersLeft}</b> of {g.fieldSize} left
-            {hero.stack > 0 && <> · your stack <b>{(hero.stack / BIG_BLIND).toFixed(0)}bb</b></>}
+            {' · '}Lvl <b>{tournamentLevel(game.handNumber) + 1}</b> blinds <b>{game.smallBlind}/{game.bigBlind}</b>
+            {game.ante > 0 && <> ante <b>{game.ante}</b></>}
+            {' '}<span className="tourney-next">(up in {handsToNextLevel(game.handNumber)})</span>
+            {hero.stack > 0 && <> · your stack <b>{(hero.stack / game.bigBlind).toFixed(0)}bb</b></>}
           </div>
         )}
         <TiltBanner t={tilt} />
@@ -127,7 +135,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               <div className="pot-display">
                 <span className="pot-label">POT</span>
                 <span className="pot-amount">{pot}</span>
-                <span className="pot-bb">{(pot / BIG_BLIND).toFixed(1)} bb</span>
+                <span className="pot-bb">{(pot / game.bigBlind).toFixed(1)} bb</span>
               </div>
               <div className="board">
                 {[0, 1, 2, 3, 4].map((i) => (
@@ -145,10 +153,11 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                 position={positionLabel(p.id, game.buttonIndex, game.players.length)}
                 isButton={p.id === game.buttonIndex && started}
                 isToAct={game.toAct === p.id && !handOver}
-                reveal={reveal && (!supportsHidden || !p.folded)}
+                reveal={reveal && (!supportsHidden || (wasShowdown && !p.folded))}
                 isWinner={winnerIds.has(p.id)}
                 profileName={p.isHero ? undefined : getProfile(p.profileId).tag}
                 slot={p.id}
+                bigBlind={game.bigBlind}
               />
             ))}
           </div>
@@ -213,7 +222,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               pot={pot}
               currentBet={game.currentBet}
               heroCommitted={hero.committed}
-              bigBlind={BIG_BLIND}
+              bigBlind={game.bigBlind}
               onAction={heroAct}
               onSkip={g.skipHand}
             />
@@ -278,6 +287,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               onToggle={() => setInfoEnabled((v) => !v)}
               heroStack={hero.stack}
               heroCommitted={hero.committed}
+              bigBlind={game.bigBlind}
               hideAnswer={hideAnswer}
               onPeek={() => setPeeked(true)}
             />
@@ -422,21 +432,54 @@ function TiltCoolOff({ t, onProceed }: { t: TiltState; onProceed: () => void }) 
   );
 }
 
-// Freezeout end screen: champion (you or a bot), or your finishing place if you
-// busted while bots play on. The only way forward is starting a new tournament.
+// Prize-pool split (fraction by 1-indexed place) for a single-table freezeout:
+// winner-take-all when tiny, top-2 short-handed, top-3 once it's a full ring —
+// the standard SNG payout shape. Prize pool = one buy-in per entrant.
+function payoutTable(field: number): number[] {
+  if (field <= 3) return [1];
+  if (field <= 5) return [0.65, 0.35];
+  return [0.5, 0.3, 0.2];
+}
+
+// Freezeout end screen: your finishing place, whether you cashed, and the payout
+// (in buy-ins) — champion, runner-up, or busted while bots play on. The only way
+// forward is starting a new tournament.
 function TournamentEnd({ g, heroName }: { g: G; heroName: string }) {
   const heroWon = g.championName === heroName;
+  // place: champion = 1, lost heads-up = 2, else the busted-out place.
+  const place = heroWon ? 1 : g.tournamentOver ? 2 : g.heroPlace;
+  const table = payoutTable(g.fieldSize);
+  const paid = table.length; // places that cash
+  const itm = place <= paid;
+  const wonBuyIns = itm ? table[place - 1] * g.fieldSize : 0; // share × pool
+  const net = wonBuyIns - 1; // minus your own buy-in
+  const fmtNet = `${net >= 0 ? '+' : ''}${net.toFixed(2)} buy-ins`;
+
   return (
     <div className="tourney-end">
       {heroWon ? (
         <div className="tourney-champ win">🏆 You win the tournament — last player standing!</div>
       ) : g.tournamentOver ? (
-        <div className="tourney-champ">🏁 {g.championName} takes the tournament. You finished 2nd of {g.fieldSize}.</div>
+        <div className="tourney-champ">🏁 {g.championName} takes it. You finished <b>{ordinal(2)}</b> of {g.fieldSize}.</div>
       ) : (
         <div className="tourney-champ out">
-          💀 You busted — {ordinal(g.heroPlace)} of {g.fieldSize}. {g.playersLeft} still in.
+          💀 You busted — <b>{ordinal(g.heroPlace)}</b> of {g.fieldSize}. {g.playersLeft} still in.
         </div>
       )}
+      <div className={`tourney-payout ${itm ? 'itm' : 'oom'}`}>
+        {itm ? (
+          <>
+            <span className="tp-badge">💰 In the money</span>
+            <span>Finished {ordinal(place)} of {g.fieldSize} · paid top {paid}</span>
+            <span>Won <b>{wonBuyIns.toFixed(2)}</b> buy-ins · net <b className={net >= 0 ? 'pos' : 'neg'}>{fmtNet}</b></span>
+          </>
+        ) : (
+          <>
+            <span className="tp-badge oom">Out of the money</span>
+            <span>{ordinal(place)} of {g.fieldSize} · only top {paid} cashed · net <b className="neg">−1.00 buy-ins</b></span>
+          </>
+        )}
+      </div>
       <button className="btn btn-deal" onClick={g.resetGame}>♻ New tournament</button>
     </div>
   );

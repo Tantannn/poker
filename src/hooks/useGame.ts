@@ -45,6 +45,7 @@ import type { JournalEntry } from '../store/journal';
 import { addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway } from '../store/journal';
 import type { HistoryHand, DecisionSnapshot } from '../store/history';
 import { loadHistory, saveHistory, capHistory } from '../store/history';
+import type { GameMode } from '../store/game';
 import { loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '../store/game';
 
 export type { HistoryHand } from '../store/history';
@@ -108,20 +109,40 @@ export interface VillainInfo {
 // persisted table settings, read once at module load and used only as the
 // initial mount defaults below (so a refresh resumes the same table/settings).
 const SAVED = loadSettings();
-// persisted "repeat hand" snapshot, so Repeat Hand survives a refresh.
-const SAVED_DEALT = loadDealt();
+// which session was last on screen — back-compat with the pre-split `tournament` flag.
+const INITIAL_MODE: GameMode = SAVED?.activeMode ?? (SAVED?.tournament ? 'tourney' : 'cash');
+// per-mode Hand Review session ids, computed once at load (the old single id maps
+// to cash). Module-level so the state/ref initializers don't read a ref in render.
+const INITIAL_SESSION_IDS: Record<GameMode, string> = {
+  cash: SAVED?.cashSessionId ?? SAVED?.sessionId ?? crypto.randomUUID(),
+  tourney: SAVED?.tourneySessionId ?? crypto.randomUUID(),
+};
+// persisted "repeat hand" snapshot for that mode, so Repeat Hand survives a refresh.
+const SAVED_DEALT = loadDealt(INITIAL_MODE);
 
 export function useGame(initialProfiles: string[]) {
   const initProfiles = SAVED?.profiles ?? initialProfiles;
 
   const [profiles, setProfiles] = useState<string[]>(initProfiles);
-  const [tournament, setTournament] = useState<boolean>(SAVED?.tournament ?? false);
-  // session id groups Hand Review; a fresh one is minted on every table rebuild
-  // (reset / mode switch / size or stack change). Persisted so a refresh keeps the
-  // same session instead of splitting it.
-  const [sessionId, setSessionId] = useState<string>(() => SAVED?.sessionId ?? crypto.randomUUID());
+  // Cash and tournament are separate persisted sessions; `mode` says which one is
+  // live right now (swapped by the active tab via setActiveMode). `tournament` is
+  // just the derived flag the engine/UI already keyed off.
+  const [mode, setMode] = useState<GameMode>(INITIAL_MODE);
+  const tournament = mode === 'tourney';
+  // Hand Review groups by session id. Each MODE keeps its OWN id so a freezeout
+  // reads as one arc even if you tab over to cash mid-tournament and back (rather
+  // than the two modes merging into one mislabeled group). A fresh id is minted
+  // per mode on a table rebuild (reset / size / stack). Both persisted.
+  const sessionIdsRef = useRef<Record<GameMode, string>>({ ...INITIAL_SESSION_IDS });
+  const [sessionId, setSessionId] = useState<string>(INITIAL_SESSION_IDS[INITIAL_MODE]);
+  // mint a fresh session id for the CURRENT mode (a genuine new run on this table)
+  const newSession = (m: GameMode) => {
+    const id = crypto.randomUUID();
+    sessionIdsRef.current[m] = id;
+    setSessionId(id);
+  };
   const [game, setGame] = useState<GameState>(
-    () => loadGame() ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles, SAVED?.tournament ?? false),
+    () => loadGame(INITIAL_MODE) ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles, INITIAL_MODE === 'tourney'),
   );
   const [feedback, setFeedback] = useState<NodeFeedback | null>(null);
   const [hud, setHud] = useState<HudInfo | null>(null);
@@ -159,23 +180,23 @@ export function useGame(initialProfiles: string[]) {
 
   const applyProfiles = useCallback((next: string[]) => {
     setProfiles(next);
-    setGame(createGame(tableSize, stackDepth, BIG_BLIND, next, tournament));
-    setSessionId(crypto.randomUUID());
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, next, mode === 'tourney'));
+    newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
     setStrategy(null);
     setVillain(null);
     lastDealtRef.current = null;
-    saveDealt(null);
-  }, [stackDepth, tableSize, tournament]);
+    saveDealt(null, mode);
+  }, [stackDepth, tableSize, mode]);
 
   // change the number of seats (2–6); rebuilds the table. Bots auto-fill from the
   // profile list (createGame pads with 'tag'), so no profile resize is needed.
   const applyTableSize = useCallback((size: number) => {
     setTableSize(size);
-    setGame(createGame(size, stackDepth, BIG_BLIND, profiles, tournament));
-    setSessionId(crypto.randomUUID());
+    setGame(createGame(size, stackDepth, BIG_BLIND, profiles, mode === 'tourney'));
+    newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
@@ -184,14 +205,14 @@ export function useGame(initialProfiles: string[]) {
     setVillain(null);
     strategyRef.current = null;
     lastDealtRef.current = null;
-    saveDealt(null);
-  }, [stackDepth, profiles, tournament]);
+    saveDealt(null, mode);
+  }, [stackDepth, profiles, mode]);
 
   // change starting stack depth (bb); rebuilds the table with fresh stacks
   const applyStackDepth = useCallback((bb: number) => {
     setStackDepth(bb);
-    setGame(createGame(tableSize, bb, BIG_BLIND, profiles, tournament));
-    setSessionId(crypto.randomUUID());
+    setGame(createGame(tableSize, bb, BIG_BLIND, profiles, mode === 'tourney'));
+    newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
@@ -200,27 +221,38 @@ export function useGame(initialProfiles: string[]) {
     setVillain(null);
     strategyRef.current = null;
     lastDealtRef.current = null;
-    saveDealt(null);
-  }, [profiles, tableSize, tournament]);
+    saveDealt(null, mode);
+  }, [profiles, tableSize, mode]);
 
-  // switch cash ⇆ tournament. Either way we rebuild the table with fresh equal
-  // stacks (a freezeout must start everyone even), and tournament bundles the
-  // "pure play" feel — turn on watch-after-fold so busted/folded hands run out.
-  const setGameMode = useCallback((toTournament: boolean) => {
-    setTournament(toTournament);
-    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, toTournament));
-    setSessionId(crypto.randomUUID());
-    recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
-    if (toTournament) setWatchAfterFold(true);
+  // Swap the live table between the cash and tournament sessions WITHOUT
+  // destroying either: stash the current slot, restore the target's saved game
+  // (or start a fresh one if it has none yet). Driven by the active tab, so cash
+  // and tournament each persist independently and resume where they left off.
+  const setActiveMode = useCallback((next: GameMode) => {
+    if (next === mode) return;
+    // stash the current slot before leaving it
+    saveGame(game, mode);
+    saveDealt(lastDealtRef.current, mode);
+    // restore the target slot, or create a fresh table for it (tournament starts
+    // everyone even; pure-play watch-after-fold so busted/folded hands run out).
+    const restored = loadGame(next) ?? createGame(tableSize, stackDepth, BIG_BLIND, profiles, next === 'tourney');
+    setMode(next);
+    setGame(restored);
+    lastDealtRef.current = loadDealt(next);
+    // swap to the target mode's Hand Review session so its hands group on their
+    // own arc, not the mode we just left.
+    sessionIdsRef.current[mode] = sessionId;
+    setSessionId(sessionIdsRef.current[next]);
+    // don't re-record a hand that was already complete when we left this slot
+    recordedHand.current = restored.street === 'complete' ? restored.handNumber : -1;
+    if (next === 'tourney') setWatchAfterFold(true);
     setFeedback(null);
     setHud(null);
     setStrategy(null);
     setRng(null);
     setVillain(null);
     strategyRef.current = null;
-    lastDealtRef.current = null;
-    saveDealt(null);
-  }, [profiles, stackDepth, tableSize]);
+  }, [mode, sessionId, game, profiles, stackDepth, tableSize]);
 
   const deal = useCallback(() => {
     // tournament freezeout: stop dealing once the hero is eliminated or only one
@@ -242,7 +274,7 @@ export function useGame(initialProfiles: string[]) {
       // snapshot the freshly-dealt hand (same hole cards + deck) so "Repeat
       // hand" can replay the exact same spot — persisted so it survives a refresh.
       lastDealtRef.current = structuredClone(next);
-      saveDealt(lastDealtRef.current);
+      saveDealt(lastDealtRef.current, mode);
       return next;
     });
     setFeedback(null);
@@ -253,7 +285,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     decisionsRef.current = [];
     playDeal();
-  }, [scenario, game]);
+  }, [scenario, game, mode]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
@@ -278,8 +310,8 @@ export function useGame(initialProfiles: string[]) {
   // full reset: fresh equal stacks, hand 0 (stats kept — reset those separately).
   // In tournament mode this is "start a new freezeout".
   const resetGame = useCallback(() => {
-    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, tournament));
-    setSessionId(crypto.randomUUID());
+    setGame(createGame(tableSize, stackDepth, BIG_BLIND, profiles, mode === 'tourney'));
+    newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
     setHud(null);
@@ -288,8 +320,8 @@ export function useGame(initialProfiles: string[]) {
     setVillain(null);
     strategyRef.current = null;
     lastDealtRef.current = null;
-    saveDealt(null);
-  }, [profiles, stackDepth, tableSize, tournament]);
+    saveDealt(null, mode);
+  }, [profiles, stackDepth, tableSize, mode]);
 
   const heroAct = useCallback((action: Action) => {
     setGame((prev) => {
@@ -411,11 +443,16 @@ export function useGame(initialProfiles: string[]) {
 
   // ---- persist game + settings so a refresh resumes the table ----
   useEffect(() => {
-    saveGame(game);
-  }, [game]);
+    saveGame(game, mode);
+  }, [game, mode]);
   useEffect(() => {
-    saveSettings({ profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament, sessionId });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament, sessionId]);
+    saveSettings({
+      profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize,
+      tournament, activeMode: mode, sessionId,
+      cashSessionId: sessionIdsRef.current.cash,
+      tourneySessionId: sessionIdsRef.current.tourney,
+    });
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
@@ -526,7 +563,7 @@ export function useGame(initialProfiles: string[]) {
         conditioned,
         villainShape: shape.buckets,
         villainAhead: shape.aheadPct,
-        effStackBB: effStack / BIG_BLIND,
+        effStackBB: effStack / game.bigBlind,
         spr,
         callStackPct,
       });
@@ -575,6 +612,7 @@ export function useGame(initialProfiles: string[]) {
       sessionId,
       tournament: isTourney,
       place,
+      bigBlind: game.bigBlind,
       handNumber: game.handNumber,
       heroCards: hero.holeCards,
       board: game.board,
@@ -727,7 +765,8 @@ export function useGame(initialProfiles: string[]) {
     isHeroTurn,
     handOver,
     isTournament,
-    setGameMode,
+    mode,
+    setActiveMode,
     playersLeft,
     fieldSize: game.players.length,
     championName,
