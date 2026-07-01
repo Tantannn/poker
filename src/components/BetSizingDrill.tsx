@@ -147,10 +147,16 @@ export function BetSizingDrill() {
         : 'Out of position you realise less — check more, and polarise when you bet.';
 
     if (chosen === 'check')
-      return `You checked a spot the solver bets. A ${tex.label} board${tex.favours ? ` favours ${tex.favours}` : ''}, so ${best?.label} ${bestId === 'bet33' ? 'takes thin value and denies little' : 'charges their equity and builds the pot'}. Checking hands a free card and wins less. ${posTip} 💡 With an edge, bet — don't give free cards.`;
+      return `You checked a spot the solver bets. This ${tex.label} board wants ${bestId === 'bet33' ? `a small range bet — ${best?.label} takes thin value and denies little` : `a bigger bet — ${best?.label} charges their equity and builds the pot`}.${tex.favours ? ` ${tex.favours}` : ''} Checking hands a free card and wins less. ${posTip} 💡 With an edge, bet — don't give free cards.`;
 
-    if (bestId === 'check')
+    if (bestId === 'check') {
+      const eq = spot.strategy.equity ?? 0;
+      // A strong-but-vulnerable made hand can be a check even though you're ahead —
+      // don't tell the user they have "no edge / are a bluff-catcher" when they're not.
+      if (eq >= 0.55)
+        return `You bet, but the solver checks — even though you're ahead (~${Math.round(eq * 100)}%). On a board this dangerous, betting a hand with no redraw folds out the worse hands you beat and gets called or raised by what beats or outdraws you. Check to pot-control and keep his bluffs in — you don't need to bet to win this pot. ${posTip} 💡 Strong but vulnerable & no redraw → check, don't bloat the pot.`;
       return `You bet a spot with no edge. Worse hands won't call and better hands won't fold — the bet just bloats the pot while you're a bluff-catcher. Check, control the pot, realise your equity for free. ${posTip} 💡 No edge → check.`;
+    }
 
     if (chosen && SIZE_RANK[chosen] != null && SIZE_RANK[bestId] != null) {
       const tooSmall = SIZE_RANK[chosen] < SIZE_RANK[bestId];

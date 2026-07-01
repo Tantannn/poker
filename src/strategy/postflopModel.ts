@@ -16,27 +16,38 @@ import { mixFromEv } from './types';
 // Four-way classification of an aggressive line by hero equity (+ draw), so the
 // explanation distinguishes a real bluff from thin value / a semi-bluff.
 type BetClass = 'value' | 'thin' | 'semibluff' | 'bluff';
-function classifyBet(e: number, outs: number): BetClass {
-  if (e >= 0.62) return 'value';
-  if (e >= 0.5) return 'thin';
+function classifyBet(e: number, outs: number, hasMade: boolean): BetClass {
+  // value / thin value require an actual MADE hand (pair or better). A big draw can
+  // sit at >60% equity vs a wide range, but it's a SEMI-BLUFF, not a value bet — so
+  // it must NOT borrow the made-hand "you're ahead, get worse hands to call" story
+  // (worse hands FOLD to the bet; the draw wins by folds + improving, not by calls).
+  if (hasMade && e >= 0.62) return 'value';
+  if (hasMade && e >= 0.5) return 'thin';
   if (e >= 0.3 || outs >= 4) return 'semibluff';
   return 'bluff';
 }
 // kind drives grid/bar color; we keep the existing 2-tone (value vs bluff).
 const classKind = (c: BetClass): ActionOption['kind'] => (c === 'value' || c === 'thin' ? 'value' : 'bluff');
 
-/** Hero is "flush-dominated": the board shows 3+ of a suit and hero holds NONE of
- *  it, so hero can't make that flush. Any opponent with a single card of the suit
- *  already beats (or chops over) hero's non-flush hand, and the range that calls a
- *  bet is flush-heavy — so stacking off is a trap the generic model under-rates.
- *  (At most one suit can hit 3+ on a ≤5-card board.) */
-function flushDominated(hero: Card[], board: Card[]): boolean {
+/** Flush-domination LEVEL: the count (0, 3, 4 or 5) of a single suit on the board
+ *  that hero holds NONE of. It matters how many, because the threat is very
+ *  different by count:
+ *   • 4–5 on board: ANY opponent with a single card of the suit already HAS a made
+ *     flush hero can't beat — the calling/raising range is a wall of flushes, so a
+ *     no-flush bet almost never wins (a trap the generic model under-rates).
+ *   • exactly 3 (a monotone / 3-flush flop): a MADE flush needs BOTH of villain's
+ *     hole cards to be that suit — rare. Most in-suit hands are single-suit DRAWS
+ *     that hero's made hand still beats, so betting to charge/deny them is fine;
+ *     only a mild discount is warranted, not the 4-flush collapse.
+ *  (At most one suit can reach 3+ on a ≤5-card board.) 0 = not flush-dominated. */
+function flushDomLevel(hero: Card[], board: Card[]): number {
   const counts = [0, 0, 0, 0];
   for (const c of board) counts[c.suit]++;
+  let level = 0;
   for (let s = 0; s < 4; s++) {
-    if (counts[s] >= 3 && !hero.some((h) => h.suit === s)) return true;
+    if (counts[s] >= 3 && !hero.some((h) => h.suit === s)) level = Math.max(level, counts[s]);
   }
-  return false;
+  return level;
 }
 
 /** GTO bluff frequency for a bet of `frac`×pot on the river, and value:bluff ratio.
@@ -166,6 +177,9 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   // outs for semi-bluff vs pure-bluff labelling (meaningful flop/turn only)
   const outs = inp.board.length >= 3 && inp.board.length < 5 ? countOuts(inp.hero, inp.board).outs : 0;
   const isRiver = inp.board.length === 5;
+  // does hero hold a MADE hand (pair or better)? gates value-vs-semibluff labelling
+  // so a high-equity DRAW is called a semi-bluff, not a value bet.
+  const hasMade = inp.board.length >= 3 && evaluate7([...inp.hero, ...inp.board]).categoryRank >= 1;
 
   const tex = inp.board.length >= 3 ? classifyFlop(inp.board) : null;
   const wetness =
@@ -173,9 +187,11 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ? 0
       : (tex.connected ? 0.06 : 0) + (tex.suitPattern !== 'rainbow' ? 0.05 : 0) + (tex.paired ? -0.03 : 0);
 
-  // hero can't make the board flush and holds none of it → dominated (see helper).
-  // Drives the fold-equity collapse + equity-when-called penalty in computeAggro.
-  const flushDom = inp.board.length >= 3 && flushDominated(inp.hero, inp.board);
+  // hero can't make the board flush and holds none of it → flush-dominated (see
+  // helper). The LEVEL (3 vs 4+) scales the fold-equity/equity-when-called penalty
+  // in computeAggro; `flushDom` (level ≥ 3) drives the qualitative "no redraw" read.
+  const flushLevel = inp.board.length >= 3 ? flushDomLevel(inp.hero, inp.board) : 0;
+  const flushDom = flushLevel >= 3;
 
   // position: in position you act last, so you realise more of your equity
   // (free cards, pot control) and your bets carry a touch more fold equity;
@@ -216,14 +232,24 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
 
   // passive line
   if (inp.canCheck) {
+    const posClause = inp.position
+      ? ` (${ip ? 'in position you realise it well — you can check back and take a free card' : 'out of position you realise less — villain can barrel you off it'})`
+      : '';
+    const checkBase = `Realize your ~${pct(e)} equity in a ${P}-chip pot without risking more${posClause}.`;
+    // Reason to check depends on WHY betting is worse — a strong made hand can be
+    // best-checked on a dangerous board, which is NOT the same as "no edge".
+    const checkWhy =
+      flushDom && e >= 0.5
+        ? `${checkBase} You're AHEAD now — but the board is flush-heavy and you hold NONE of that suit, so you have no redraw. Betting folds out the hands you beat and gets called or raised by the made flushes & flush draws that crush or outdraw you. Check to pot-control, keep his bluffs in, and don't bloat a pot you can't safely build with a no-flush hand.`
+        : e >= 0.6
+          ? `${checkBase} You're ahead, but betting here mostly folds out the worse hands you beat and bloats the pot against the part of his range that continues. Checking captures more by keeping his weaker hands and bluffs in while you control the pot.`
+          : `${checkBase} Best when you're not ahead enough to bet for value or to profitably pressure.`;
     cands.push({
       id: 'check',
       label: 'Check',
       ev: (eReal * P) / bb,
       kind: 'passive',
-      why: `Realize your ~${pct(e)} equity in a ${P}-chip pot without risking more${
-        inp.position ? ` (${ip ? 'in position you realise it well — you can check back and take a free card' : 'out of position you realise less — villain can barrel you off it'})` : ''
-      }. Best when you're not ahead enough to bet for value or to profitably pressure.`,
+      why: checkWhy,
       math: `EV = equity × pot${inp.position ? ` × realise(${realize})` : ''} = ${pct1(eReal)} × ${P} = ${(eReal * P).toFixed(1)} chips ≈ ${((eReal * P) / bb).toFixed(2)} bb`,
     });
   }
@@ -259,8 +285,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushDom);
-    const cls = classifyBet(eHU, outs);
+    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel);
+    const cls = classifyBet(eHU, outs, hasMade);
     const sv = d.streetValue > 0.05;
     cands.push({
       id,
@@ -279,8 +305,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushDom);
-    const cls = classifyBet(eHU, outs);
+    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel);
+    const cls = classifyBet(eHU, outs, hasMade);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
     // apply a risk premium — all-in only "wins" when it's clearly best. SCALES
@@ -376,7 +402,7 @@ function computeAggro(
   effStack = 0,
   cardsToCome = 0,
   eField = e,
-  flushDom = false,
+  flushLevel = 0, // 0 = not flush-dominated; 3 = monotone/3-flush (mild); 4+ = made-flush wall
 ): AggroDetail {
   const R = target - currentBet; // pressure on top of a call
   const A = target - heroCommitted; // total hero invests now
@@ -426,10 +452,13 @@ function computeAggro(
   // their folds as roughly independent, the chance they ALL fold is fe^oppCount —
   // so fold equity collapses fast as the field grows.
   if (oppCount > 1) fe = Math.max(0.02, Math.pow(fe, oppCount));
-  // FLUSH DOMINATION: 3+ of a suit on the board and hero holds none of it. A made
-  // flush never folds and the live flush draws keep calling, so betting almost
-  // never takes it down — collapse fold equity to a sliver.
-  if (flushDom) fe = Math.min(fe, 0.08);
+  // FLUSH DOMINATION, graded by level. On a 4+ flush board any one-card of the suit
+  // is already a made flush that never folds → collapse fold equity to a sliver. On
+  // a 3-flush/monotone board a MADE flush is rare (needs both villain cards suited);
+  // the callers are mostly single-suit DRAWS that DO fold sometimes and that hero
+  // still beats — so only a mild cap, not the collapse.
+  if (flushLevel >= 4) fe = Math.min(fe, 0.08);
+  else if (flushLevel === 3) fe = Math.min(fe, 0.28);
 
   // EQUITY WHEN CALLED — derived from minimum-defence frequency. Against a bet of
   // `s` pots a defending villain continues with ~his strongest 1/(1+s) of range,
@@ -447,11 +476,12 @@ function computeAggro(
   // like a 10x overbet, so scale the tax with size.
   const allinTax = isAllIn ? 0.06 * Math.min(1, s) : 0;
   const multiTax = 0.04 * (oppCount - 1); // each extra caller tightens it further
-  // when flush-dominated, the hands that CALL a bet are overwhelmingly the flushes
-  // that crush hero — generic rangeLift (≤0.32) is far too small, so add a heavy
-  // tax to push equity-when-called toward ~0. This is what stops the model from
-  // jamming a no-flush hand into a flush board.
-  const flushTax = flushDom ? 0.25 : 0;
+  // when flush-dominated, the hands that CALL a bet skew to the suit. On a 4+ flush
+  // board those are made flushes that crush hero — generic rangeLift (≤0.32) is far
+  // too small, so a heavy tax pushes equity-when-called toward ~0 (this is what stops
+  // the model jamming a no-flush hand into a made-flush board). On a 3-flush board the
+  // callers are mostly DRAWS hero still beats, so only a small tax.
+  const flushTax = flushLevel >= 4 ? 0.25 : flushLevel === 3 ? 0.08 : 0;
   const e2 = Math.max(0, Math.min(1, e * realize) - rangeLift - allinTax - multiTax - flushTax);
 
   const calledPot = P + A + R;
@@ -465,7 +495,7 @@ function computeAggro(
   // and is FORGONE entirely by shoving (no next street). Bounded by the stack
   // behind, and faded on wet boards where you'd rather charge/fold draws now.
   let streetValue = 0;
-  if (!isAllIn && cardsToCome > 0 && e > 0.55 && !flushDom) {
+  if (!isAllIn && cardsToCome > 0 && e > 0.55 && flushLevel < 4) {
     const behind = Math.max(0, effStack - A); // wagerable on later streets
     const futureExtract = Math.min(behind, 0.5 * calledPot); // ~½-pot next street
     const edge = Math.max(0, Math.min(1, (e2 - 0.5) * 2)); // how far ahead of callers
