@@ -43,6 +43,12 @@ export function assessTilt(stats: SessionStats): TiltState | null {
   const recent = results.slice(-RECENT_HANDS);
   const worst = Math.min(0, ...recent);
 
+  // the hand you JUST played. A win relieves the acute chase impulse — the
+  // dangerous moment is right after a punt, not after you've dragged a pot — so
+  // it caps the alarm below the cool-off gate even if the window still looks rough.
+  const lastResult = results[results.length - 1];
+  const lastWasWin = lastResult > 0;
+
   // 2. trailing losing streak
   let lossStreak = 0;
   for (let i = results.length - 1; i >= 0; i--) {
@@ -70,7 +76,11 @@ export function assessTilt(stats: SessionStats): TiltState | null {
 
   if (worst <= -BIG_LOSS_BB) {
     score += Math.min(55, (-worst / 100) * 55); // -100bb (full stack) ≈ +55
-    signals.push(`You just dropped ${(-worst).toFixed(0)} bb in a single hand.`);
+    signals.push(
+      lastWasWin
+        ? `You dropped ${(-worst).toFixed(0)} bb in a single hand earlier — still in the window.`
+        : `You just dropped ${(-worst).toFixed(0)} bb in a single hand.`,
+    );
   }
   if (lossStreak >= STREAK_TRIGGER) {
     score += Math.min(25, (lossStreak - STREAK_TRIGGER + 1) * 8);
@@ -92,28 +102,43 @@ export function assessTilt(stats: SessionStats): TiltState | null {
   score = Math.round(Math.min(100, score));
 
   // a full-stack-ish loss in one hand always means high tilt risk, regardless of
-  // the additive score (it's the single most dangerous moment to keep playing).
-  const stacked = worst <= -STACKED_BB;
+  // the additive score — BUT only when it's the hand you just took. Once you've
+  // played on and won a pot, that acute moment has passed, so a stale big loss in
+  // the window shouldn't force the alarm.
+  const stacked = !lastWasWin && worst <= -STACKED_BB;
   let level: TiltState['level'];
   if (score >= 60 || stacked) level = 'high';
   else if (score >= 30) level = 'medium';
   else return null;
 
+  // A win this hand caps the alarm at 'medium': no 🛑 headline and — since the
+  // cool-off gate only fires on 'high' — no forced pause right after dragging a
+  // pot. Drawdown is still real, so we keep surfacing it, just calmly.
+  if (lastWasWin && level === 'high') level = 'medium';
+
   const headline =
     level === 'high' ? '🛑 Tilt warning — take a breath before the next hand' : '⚠ Watch your tilt';
 
-  const detail =
-    level === 'high'
+  const detail = lastWasWin
+    ? `You just won a pot — good. But you're still below your session peak, and right after a win is when players loosen up and give it back. Bank it; keep playing tight.`
+    : level === 'high'
       ? `That swing is exactly when players chase losses and spew off another stack. The last result is gone — it can't be won back this hand. Reset before you deal again.`
       : `Pressure is building. Stay deliberate — don't speed up or size up to get even.`;
 
-  const steps = [
-    'Stand up. 30–60 seconds away from the table resets the impulse.',
-    "Last hand's result is sunk — you can't win it back. Play THIS hand on its own merits.",
-    "Keep bet sizing standard. Don't fire bigger to force action or get unstuck.",
-    'Read the solver mix and equity before you act — let the math drive, not the gut.',
-    "If you're only still playing to get even, stop the session. The money doesn't know you're stuck.",
-  ];
+  const steps = lastWasWin
+    ? [
+        "Don't let a win loosen you up — keep opening the same range you would cold.",
+        'Keep bet sizing standard. One pot back is not a reason to start punting.',
+        'Read the solver mix and equity before you act — let the math drive, not relief.',
+        "You're still down on the session; bank the win, don't gamble it back.",
+      ]
+    : [
+        'Stand up. 30–60 seconds away from the table resets the impulse.',
+        "Last hand's result is sunk — you can't win it back. Play THIS hand on its own merits.",
+        "Keep bet sizing standard. Don't fire bigger to force action or get unstuck.",
+        'Read the solver mix and equity before you act — let the math drive, not the gut.',
+        "If you're only still playing to get even, stop the session. The money doesn't know you're stuck.",
+      ];
 
   return {
     level,

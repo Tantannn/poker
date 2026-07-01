@@ -298,7 +298,7 @@ export function Replay({ g }: { g: G }) {
               <optgroup key={s.sid} label={sessionLabel(s)}>
                 {s.hands.map((h) => {
                   const v = gi++;
-                  return <option key={h.id} value={v}>#{h.handNumber} · {fmtBB(h.deltaBB)}</option>;
+                  return <option key={h.id} value={v}>{h.tournament ? '🏆 ' : '💵 '}#{h.handNumber} · {fmtBB(h.deltaBB)}</option>;
                 })}
               </optgroup>
             ));

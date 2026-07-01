@@ -705,6 +705,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .lab-feedback.good { border-color: var(--raise); color: var(--raise); }
 .lab-feedback.okv { border-color: var(--gold); color: var(--gold); }
 .lab-feedback.bad { border-color: var(--red); color: var(--red); }
+.po-reveal { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-weight: 600; color: var(--muted); vertical-align: middle; }
 
 /* ---------- explain + chart popup ---------- */
 .strat-head-btns { display: flex; gap: 6px; align-items: center; }
@@ -888,6 +889,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .pos-explain.ip { border-left: 4px solid var(--raise); }
 .pos-explain.oop { border-left: 4px solid var(--red); }
 .pos-explain b { color: var(--gold); }
+.pos-explain .pe-villain { color: var(--muted); font-weight: 600; }
 
 /* opponent-panel position read */
 .opp-pos { border-top: 1px solid var(--line); padding-top: 10px; margin-bottom: 10px; }
