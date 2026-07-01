@@ -131,7 +131,10 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
 
           {(best?.math || chosen?.math) && (
             <div className="gp-block">
-              <div className="gp-h">The calculation</div>
+              <div className="gp-h">
+                <CalcLabel id="betEvFormula">The calculation ⓘ</CalcLabel>
+              </div>
+              <div className="gp-calc-plain">Plain version: how many chips each line wins on average — bigger is better. Hover the title for what the math means.</div>
               {best?.math && (
                 <div className="gp-calc">
                   <div className="gp-calc-tag">Best — {best.label}</div>

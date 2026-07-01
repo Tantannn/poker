@@ -110,4 +110,10 @@ export const CALC: Record<CalcId, CalcCard> = {
     formula: 'SPR = effective stack ÷ pot',
     remember: 'Low (<3) → stack off top-pair+. High (>6) → need a much stronger hand to commit.',
   },
+  betEvFormula: {
+    title: 'How this number is worked out',
+    what: 'A bet can win two ways: everyone folds and you take the pot now, OR someone calls and you win the showdown often enough to come out ahead. This adds up both.',
+    formula: 'value = (chance all fold × pot)\n      + (chance you get called × your share of the bigger pot − chips you put in)',
+    remember: 'Checking just wins your equity slice of today’s pot. A bet is better only when the two chances above add up to more than that. Pick the bigger number.',
+  },
 };

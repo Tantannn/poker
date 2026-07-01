@@ -103,5 +103,6 @@ export type CalcId =
   | 'accuracy'
   | 'rngAdherence'
   | 'netBB'
-  | 'spr';
+  | 'spr'
+  | 'betEvFormula';
 

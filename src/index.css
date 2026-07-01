@@ -793,6 +793,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .you-tag { background: var(--call); color: #0a0f0d; font-size: 9px; font-weight: 800; border-radius: 3px; padding: 0 4px; margin-left: 6px; }
 .gp-calc { margin-bottom: 8px; }
 .gp-calc-tag { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
+.gp-calc-plain { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.45; }
 
 /* ---------- session scorecard ---------- */
 .scorecard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
