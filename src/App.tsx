@@ -18,12 +18,13 @@ const ExploitTrainer = lazy(() => import('./components/ExploitTrainer').then((m)
 const Replay = lazy(() => import('./components/Replay').then((m) => ({ default: m.Replay })));
 const EquityDrill = lazy(() => import('./components/EquityDrill').then((m) => ({ default: m.EquityDrill })));
 const BetSizingDrill = lazy(() => import('./components/BetSizingDrill').then((m) => ({ default: m.BetSizingDrill })));
+const Gameplan = lazy(() => import('./components/Gameplan').then((m) => ({ default: m.Gameplan })));
 // antd lives only here — kept split so it never bloats the initial load.
 const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((m) => ({ default: m.PrinciplesPanel })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'sizing' | 'analytics' | 'reference';
+type Tab = 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'sizing' | 'analytics' | 'reference';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'play', label: '♠ Play vs Bots' },
@@ -31,6 +32,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'charts', label: 'Preflop Charts' },
   { id: 'trainer', label: 'Range Trainer' },
   { id: 'lab', label: 'Postflop Lab' },
+  { id: 'gameplan', label: '📋 Gameplan' },
   { id: 'quiz', label: 'Leak Quiz' },
   { id: 'exploit', label: '🎯 Read & Exploit' },
   { id: 'replay', label: 'Hand Review' },
@@ -96,6 +98,11 @@ export default function App() {
         {tab === 'lab' && (
           <div className="content-col">
             <PostflopLab />
+          </div>
+        )}
+        {tab === 'gameplan' && (
+          <div className="content-col">
+            <Gameplan />
           </div>
         )}
         {tab === 'quiz' && (
