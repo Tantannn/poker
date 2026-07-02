@@ -52,7 +52,8 @@
       "Bash(npm test *)",
       "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
       "mcp__plugin_context-mode_context-mode__ctx_execute_file",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(echo \"handClass errors above \\(none = clean\\). EXIT: $?\")"
     ]
   }
 }

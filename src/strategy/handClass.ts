@@ -33,6 +33,21 @@ function flushDraw(hero: Card[], board: Card[]): { draw: boolean; nut: boolean }
   return { draw: false, nut: false };
 }
 
+/** For a MADE flush, does hero hold the nut? True if hero has the highest rank
+ *  of the flush suit that isn't already on the board (Ace, or next-best if the
+ *  Ace is a shared board card). */
+function nutFlush(hero: Card[], board: Card[]): boolean {
+  for (let s = 0; s < 4; s++) {
+    const suited = [...hero, ...board].filter((c) => c.suit === s);
+    if (suited.length < 5) continue;
+    const onBoard = new Set(board.filter((c) => c.suit === s).map((c) => c.rank));
+    let nutRank = 0;
+    for (let r = 14; r >= 2; r--) if (!onBoard.has(r)) { nutRank = r; break; }
+    return hero.some((c) => c.suit === s && c.rank === nutRank);
+  }
+  return false;
+}
+
 /** Open-ended / double-gutshot vs gutshot vs none, from the full rank set. */
 function straightDraw(ranks: number[]): 'oesd' | 'gutshot' | 'none' {
   const present = new Array(16).fill(false);
@@ -91,7 +106,7 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
   const pocket = hero[0].rank === hero[1].rank;
   const allRanks = [...hero, ...board].map((c) => c.rank);
 
-  const fd = flushDraw(hero, board);
+  const fd = board.length < 5 ? flushDraw(hero, board) : { draw: false, nut: false };
   const sd = board.length < 5 ? straightDraw(allRanks) : 'none';
   const drawTag = (base: string) => {
     if (fd.draw && (sd === 'oesd' || sd === 'gutshot')) return `${base} + Combo Draw`;
@@ -109,7 +124,7 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
     case 6:
       return { label: 'Full House', blurb: 'A near-nut hand — bet for value, rarely fold.', strength: 5 };
     case 5:
-      return { label: fd.nut ? 'Nut Flush' : 'Flush', blurb: 'A very strong made hand — value bet, but respect the paired/higher-flush warning cards.', strength: 4 };
+      return { label: nutFlush(hero, board) ? 'Nut Flush' : 'Flush', blurb: 'A very strong made hand — value bet, but respect the paired/higher-flush warning cards.', strength: 4 };
     case 4:
       return { label: 'Straight', blurb: 'A strong made hand — bet for value and protect against flush/board-pair redraws.', strength: 4 };
     case 3: {
