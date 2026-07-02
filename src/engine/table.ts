@@ -10,6 +10,10 @@ export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
 export type Street = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'complete';
 export type ActionType = 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'post';
 
+// how many recent hands of action log to retain. aggressionWarning reads the
+// last 6; keep a margin. Older entries are trimmed each startHand.
+const LOG_KEEP_HANDS = 10;
+
 // Position labels by offset from the button (offset 0 = button), per table size.
 // A position is really "how many players act behind you", so short tables keep
 // BTN/SB/BB and trim the early seats (UTG/MP/CO) off the front. Heads-up: the
@@ -258,6 +262,12 @@ export function startHand(state: GameState): GameState {
   state.buttonIndex = b;
 
   state.handNumber += 1;
+  // keep the action log bounded. Only recent hands are ever read — the hand
+  // record filters to the current hand, aggressionWarning scans the last 6.
+  // Without this the log grows unbounded across a session (heap + the localStorage
+  // blob saveGame writes every state change).
+  const cutoff = state.handNumber - LOG_KEEP_HANDS;
+  if (cutoff > 0) state.log = state.log.filter((l) => l.handNumber > cutoff);
   // tournament: step blinds up on the schedule before posting them this hand.
   if (state.tournament) applyBlindLevel(state);
   // fresh seed per hand — captured in the "repeat hand" snapshot so a replay
