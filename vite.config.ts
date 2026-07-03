@@ -4,6 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages serves the app under /poker/ — CI sets BASE_PATH (see
+  // .github/workflows/deploy.yml). Local dev/preview stay at /.
+  base: process.env.BASE_PATH ?? '/',
   plugins: [
     react(),
     // Installable, offline-capable PWA. The app is already 100% local, so caching
@@ -24,8 +27,9 @@ export default defineConfig({
         background_color: '#0a0f0d',
         display: 'standalone',
         orientation: 'any',
-        start_url: '/',
-        scope: '/',
+        // relative → correct at both / (local) and /poker/ (GitHub Pages)
+        start_url: '.',
+        scope: '.',
         icons: [
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },

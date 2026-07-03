@@ -15,16 +15,14 @@ import {
   startHand,
   tablePositions,
 } from '../engine/table';
-import type { Card } from '../engine/cards';
-import { makeRng } from '../engine/cards';
-import { countOuts, equityVsRange, equityVsField, ruleOf2and4, exactOutsEquity } from '../engine/equity';
-import { potOdds } from '../engine/potOdds';
 import { decideAction } from '../ai/decide';
 import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
 import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
 import type { NodeStrategy } from '../strategy';
-import { buildVillainRange, getNodeStrategy, primaryVillainIdx, summarizeRange } from '../strategy';
+import { getNodeStrategy, primaryVillainIdx } from '../strategy';
 import { getProfile } from '../ai/profiles';
+import { computeHudNode } from '../strategy/hudCompute';
+import type { HudInfo, VillainInfo, HudNodeResult } from '../strategy/hudCompute';
 import type { ActionId } from '../strategy/types';
 import { rngPrescription } from '../strategy/types';
 import type { NodeFeedback } from '../analysis/grade';
@@ -60,50 +58,32 @@ const SPEED_DELAY: Record<Speed, number> = { '1x': 750, '2x': 330, instant: 0 };
 
 export type HeroPositionPref = 'random' | 'BTN' | 'CO' | 'MP' | 'UTG' | 'SB' | 'BB';
 
-export interface HudInfo {
-  equity: number;
-  win: number;
-  tie: number;
-  // raw Monte-Carlo tally behind win/tie (wins + ties + losses === trials)
-  trials: number;
-  wins: number;
-  ties: number;
-  losses: number;
-  outs: number;
-  outCards: Card[];
-  outsBreakdown: { category: string; cards: Card[] }[];
-  toCall: number;
-  pot: number;
-  requiredEquity: number;
-  oddsRatio: number;
-  ruleEstimate: number; // outs × 2/4 shortcut
-  trueEstimate: number; // exact hypergeometric hit %, what the shortcut approximates
-  rangeNote: string;
-  // ---- villain range read (board + action aware) ----
-  equityRaw: number; // equity vs his UNconditioned opening/continuing range
-  conditioned: boolean; // true when facing a bet postflop → "betting range" applies
-  villainShape: { label: string; pct: number }[]; // what he's repping on this board
-  villainAhead: number; // mass-fraction of his range that beats you right now
-  // ---- risk / commitment lens ----
-  effStackBB: number; // effective stack (min of you vs live opponents), in bb
-  spr: number; // stack-to-pot ratio (effective stack ÷ pot)
-  callStackPct: number; // fraction of your remaining stack a call would cost (0..1)
+// ---- HUD compute worker (module-level singleton, shared by every table) ----
+// undefined = not tried yet · null = Workers unavailable (fall back to sync).
+let hudWorker: Worker | null | undefined;
+function getHudWorker(): Worker | null {
+  if (hudWorker !== undefined) return hudWorker;
+  try {
+    hudWorker = new Worker(new URL('../workers/hudWorker.ts', import.meta.url), { type: 'module' });
+    hudWorker.onerror = () => {
+      // a worker that can't load would swallow every request — disable it and
+      // let the next compute take the synchronous fallback path.
+      hudWorker?.terminate();
+      hudWorker = null;
+    };
+  } catch {
+    hudWorker = null;
+  }
+  return hudWorker;
 }
+
+// HUD/villain read types + the pure computation now live in strategy/hudCompute
+// (so a Web Worker can run them off-thread); re-exported for existing importers.
+export type { HudInfo, VillainInfo };
 
 export interface RngInfo {
   roll: number;
   prescribed: ActionId;
-}
-
-export interface VillainInfo {
-  name: string;
-  position: string;
-  profileId: string;
-  tag: string;
-  wasAggressor: boolean;
-  rangeNote: string;
-  /** is the hero in position (acts after this villain) postflop? */
-  heroInPosition: boolean;
 }
 
 // persisted table settings, read once at module load and used only as the
@@ -166,6 +146,8 @@ export function useGame(initialProfiles: string[]) {
   const recordedHand = useRef<number>(-1);
   const strategyRef = useRef<NodeStrategy | null>(null);
   const rollRef = useRef<number>(50);
+  // monotone request id for the HUD worker — replies for an older node are dropped.
+  const hudSeqRef = useRef(0);
   const lastDealtRef = useRef<GameState | null>(SAVED_DEALT);
   // buffer of the real solved nodes the hero faced this hand; flushed onto the
   // HistoryHand at completion so Hand Review shows the actual decisions.
@@ -456,118 +438,39 @@ export function useGame(initialProfiles: string[]) {
   }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, tableSize, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
+  // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
+  // Web Worker (workers/hudWorker.ts) so the UI never hitches on a hero turn;
+  // computeHudNode is the same pure function either way, and a seq counter drops
+  // stale replies if the state advances mid-compute. Falls back to a synchronous
+  // main-thread call where Workers are unavailable (e.g. jsdom).
   useEffect(() => {
     if (!isHeroTurn) return;
+    const seq = ++hudSeqRef.current;
     const id = setTimeout(() => {
-      const { range, note, comboWeight } = buildVillainRange(game, 0);
-      // count opponents still live — in a multiway pot you must beat ALL of them,
-      // so equity is materially lower than the heads-up (single-villain) number.
-      const liveOpps = game.players.filter((p) => !p.isHero && !p.folded).length;
-      // ONE Monte-Carlo equity, SEEDED and SHARED by both the HUD pot-odds panel
-      // and the solver strategy panel. Two independent unseeded sims used to land
-      // on different equities and CONTRADICT each other (one folds, one calls) on
-      // break-even spots. Seed is stable per node (hand seed + street/board/pot), so
-      // the number no longer flickers between renders of the same decision.
-      const eqSeed =
-        (((game.seed ?? 0) >>> 0) ^
-          Math.imul(game.board.length + 1, 0x9e3779b1) ^
-          Math.imul(Math.round(potTotal(game)) + 1, 0x85ebca6b)) >>>
-        0;
-      const eqRng = makeRng(eqSeed);
-      const sim =
-        liveOpps > 1
-          ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400, eqRng, comboWeight)
-          : equityVsRange(hero.holeCards, game.board, range, 1400, eqRng, comboWeight);
-      const trials = sim.trials;
-      const win = trials > 0 ? sim.wins / trials : 0;
-      const tie = trials > 0 ? sim.ties / trials : 0;
-      // decomposition shown in the HUD tooltip matches this exactly
-      const eq = { equity: win + tie / 2, win, tie };
-      // solver reads the SAME equity number — no second, independent MC run.
-      const strat = getNodeStrategy(game, 0, 1100, eq.equity);
-      // Raw equity vs his UNconditioned opening range — for the side-by-side
-      // "vs opening range → vs betting range" read. Same seed → the gap is the
-      // conditioning (he bet this board), not Monte-Carlo noise.
-      const rawSim =
-        liveOpps > 1
-          ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400, makeRng(eqSeed))
-          : equityVsRange(hero.holeCards, game.board, range, 1400, makeRng(eqSeed));
-      const equityRaw = rawSim.equity;
-      const shape = summarizeRange(hero.holeCards, range, game.board, comboWeight);
-      const conditioned = !!comboWeight && game.board.length >= 3 && legal.callAmount > 0;
-      const multiwayNote = liveOpps > 1 ? ` · vs ${liveOpps} opponents (multiway)` : '';
-      const outsInfo = countOuts(hero.holeCards, game.board);
-      const pot = potTotal(game);
-      const toCall = legal.callAmount;
-      const po = potOdds(pot, toCall);
-      // risk lens: effective stack = min of your behind-stack and the live
-      // opponents' (you can only win/lose the smaller). SPR & call cost gauge how
-      // committed a line makes you — the thing EV alone doesn't show.
-      const oppStacks = game.players.filter((p) => !p.isHero && !p.folded).map((p) => p.stack);
-      const effStack = Math.min(hero.stack, ...(oppStacks.length ? oppStacks : [hero.stack]));
-      const spr = pot > 0 ? effStack / pot : 0;
-      const callStackPct = hero.stack > 0 ? Math.min(1, toCall / hero.stack) : 0;
-      const cardsToCome = game.street === 'flop' ? 2 : game.street === 'turn' ? 1 : 0;
+      // RNG roll stays on the main thread (Math.random is fine here; the worker
+      // must stay deterministic given the state).
       const roll = Math.floor(Math.random() * 100) + 1;
-
-      strategyRef.current = strat;
-      rollRef.current = roll;
-      setStrategy(strat);
-      setRng({ roll, prescribed: rngPrescription(strat, roll) });
-
-      const vIdx = primaryVillainIdx(game, 0);
-      if (vIdx >= 0 && !game.players[vIdx].isHero) {
-        const vp = game.players[vIdx];
-        const wasAggressor = game.log.some(
-          (l) =>
-            l.handNumber === game.handNumber &&
-            l.street === 'preflop' &&
-            l.playerId === vIdx &&
-            (l.type === 'raise' || l.type === 'bet'),
-        );
-        // postflop action runs from left-of-button (first/most OOP) to the
-        // button (last/most IP); hero is IP if they act after this villain.
-        const np = game.players.length;
-        const orderRank = (seat: number) => (seat - (game.buttonIndex + 1) + np) % np;
-        const heroInPosition = orderRank(0) > orderRank(vIdx);
-        setVillain({
-          name: vp.name,
-          position: positionLabel(vIdx, game.buttonIndex, np),
-          profileId: vp.profileId,
-          tag: getProfile(vp.profileId).tag,
-          wasAggressor,
-          rangeNote: note,
-          heroInPosition,
-        });
+      const apply = (r: HudNodeResult) => {
+        if (seq !== hudSeqRef.current) return; // a newer node superseded this one
+        strategyRef.current = r.strategy;
+        rollRef.current = roll;
+        setStrategy(r.strategy);
+        setRng({ roll, prescribed: rngPrescription(r.strategy, roll) });
+        setVillain(r.villain);
+        setHud(r.hud);
+      };
+      const w = getHudWorker();
+      if (w) {
+        const onMsg = (ev: MessageEvent<{ seq: number; result: HudNodeResult }>) => {
+          if (ev.data?.seq !== seq) return;
+          w.removeEventListener('message', onMsg);
+          apply(ev.data.result);
+        };
+        w.addEventListener('message', onMsg);
+        w.postMessage({ seq, state: game });
       } else {
-        setVillain(null);
+        apply(computeHudNode(game));
       }
-      setHud({
-        equity: eq.equity,
-        win: eq.win,
-        tie: eq.tie,
-        trials: sim.trials,
-        wins: sim.wins,
-        ties: Math.round(sim.ties),
-        losses: sim.losses,
-        outs: outsInfo.outs,
-        outCards: outsInfo.cards,
-        outsBreakdown: outsInfo.byCategory,
-        toCall,
-        pot,
-        requiredEquity: po.requiredEquity,
-        oddsRatio: po.oddsRatio,
-        ruleEstimate: ruleOf2and4(outsInfo.outs, cardsToCome),
-        trueEstimate: exactOutsEquity(outsInfo.outs, cardsToCome),
-        rangeNote: note + multiwayNote,
-        equityRaw,
-        conditioned,
-        villainShape: shape.buckets,
-        villainAhead: shape.aheadPct,
-        effStackBB: effStack / game.bigBlind,
-        spr,
-        callStackPct,
-      });
     }, 30);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps

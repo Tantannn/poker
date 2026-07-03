@@ -22,7 +22,6 @@ const Gameplan = lazy(() => import('./components/Gameplan').then((m) => ({ defau
 const Review = lazy(() => import('./components/Review').then((m) => ({ default: m.Review })));
 const BankrollSim = lazy(() => import('./components/BankrollSim').then((m) => ({ default: m.BankrollSim })));
 const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })));
-// antd lives only here — kept split so it never bloats the initial load.
 const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((m) => ({ default: m.PrinciplesPanel })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];

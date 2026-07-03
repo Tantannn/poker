@@ -55,7 +55,15 @@ body {
   width: 15px; height: 15px; line-height: 1; margin-left: 4px;
 }
 .tip-dot:hover .tip-i, .tip-dot:focus-visible .tip-i { color: var(--gold); border-color: var(--gold); }
-/* content rendered inside antd's portal overlay */
+/* the portal-rendered tooltip bubble (fixed-position, viewport-clamped) */
+.tip-pop {
+  position: fixed; z-index: 3000; max-width: 300px; pointer-events: none;
+  background: #0a120e; color: var(--txt); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45;
+  box-shadow: var(--shadow); transform: translate(-50%, -100%);
+}
+.tip-pop.bottom { transform: translate(-50%, 0); }
+/* content rendered inside the tooltip portal */
 .tip-body { display: flex; flex-direction: column; gap: 5px; text-align: left; }
 .tip-title { font-size: 12.5px; color: var(--gold); }
 .tip-what { font-size: 12px; color: var(--txt); line-height: 1.45; }
@@ -998,6 +1006,29 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .pr-num { font-weight: 800; color: var(--gold); font-size: 12px; }
 .pr-cards { display: inline-flex; gap: 3px; }
 .pr-muted { color: var(--muted); font-style: italic; font-size: 12px; }
+/* homemade principles table (antd replacement) */
+.pr-tablewrap { overflow-x: auto; }
+.pr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pr-table th, .pr-table td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: middle; }
+.pr-table th { color: var(--muted); font-size: 12px; font-weight: 700; }
+.pr-table tr.sel td { background: rgba(46, 194, 126, 0.06); }
+.pr-check { width: 28px; }
+.pr-take-h { width: 45%; }
+.pr-take textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 34px;
+  background: var(--chip); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 12.5px;
+}
+.pr-take textarea:focus { outline: none; border-color: var(--raise2); }
+.pr-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: 12px; background: var(--chip); border: 1px solid var(--line); }
+.pr-tag.pos { color: var(--raise); border-color: var(--raise2); }
+.pr-tag.neg { color: var(--red); border-color: var(--red); }
+.pr-danger { color: var(--red); border-color: var(--red); }
+.pr-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+.pr-bar select {
+  background: var(--chip); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 9px; font-size: 13px;
+}
 
 /* ---------- pure-play (hide all guides) ---------- */
 .guides-master { width: 100%; box-sizing: border-box; background: var(--chip); color: var(--txt); border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; font-size: 13px; font-weight: 700; cursor: pointer; }

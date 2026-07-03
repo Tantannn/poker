@@ -1,15 +1,18 @@
 // Hover/focus tooltips for every number the app computes. One reusable Tooltip
 // plus a CALC registry of "how it's calculated / how to remember it" cards, so a
 // formula lives in exactly one place and any panel can surface it on hover.
+// Homemade portal tooltip (was antd — the app's only use, worth ~420 kB gzipped).
 
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Tooltip as AntTooltip } from 'antd';
+import { createPortal } from 'react-dom';
 import { CALC } from './CalConstant';
 
 type Pos = 'top' | 'bottom';
 
 /** Generic tooltip: wraps any trigger node, pops `content` on hover/focus.
- *  Uses antd's portal-rendered Tooltip so it never clips inside narrow panels. */
+ *  Rendered through a portal at a fixed position, so it never clips inside
+ *  narrow / overflow-hidden panels — same behaviour the antd one had. */
 export function Tooltip({
   content,
   children,
@@ -21,17 +24,39 @@ export function Tooltip({
   pos?: Pos;
   className?: string;
 }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  const show = () => setRect(ref.current?.getBoundingClientRect() ?? null);
+  const hide = () => setRect(null);
+
   return (
-    <AntTooltip
-      title={content}
-      placement={pos === 'bottom' ? 'bottom' : 'top'}
-      color="#0a120e"
-      styles={{ root: { maxWidth: 300 } }}
+    <span
+      ref={ref}
+      className={`tip ${className}`}
+      tabIndex={0}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
     >
-      <span className={`tip ${className}`} tabIndex={0}>
-        {children}
-      </span>
-    </AntTooltip>
+      {children}
+      {rect &&
+        createPortal(
+          <span
+            className={`tip-pop ${pos}`}
+            role="tooltip"
+            style={{
+              // fixed-position, clamped to the viewport; flips handled by `pos`
+              left: Math.min(Math.max(8, rect.left + rect.width / 2), window.innerWidth - 8),
+              top: pos === 'bottom' ? rect.bottom + 8 : rect.top - 8,
+            }}
+          >
+            {content}
+          </span>,
+          document.body,
+        )}
+    </span>
   );
 }
 
