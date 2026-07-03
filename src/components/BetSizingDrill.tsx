@@ -18,6 +18,8 @@ import type { ActionId, NodeStrategy } from '../strategy/types';
 import { actionRule, KIND_COLOR } from '../strategy/actionRules';
 import { playGrade } from '../sound';
 import { SpotBoard } from './SpotBoard';
+import { useDrillKeys, drillKeysHint } from '../hooks/useDrillKeys';
+import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 
 const BB = 2;
 const POT = 12;
@@ -90,7 +92,8 @@ export function BetSizingDrill() {
 
   const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<ActionId | null>(null);
-  const [score, setScore] = useState({ correct: 0, total: 0 });
+  // lifetime score, persisted per mode — survives reloads (store/drillScore).
+  const [score, setScore] = useState(() => loadDrillScore(`bsd-${mode}`));
   // hide the equity number so you read the BOARD, not the solver. Still revealed
   // after you answer, so it stays a teaching aid — just not a pre-answer spoiler.
   const [hideEq, setHideEq] = useState(false);
@@ -113,17 +116,25 @@ export function BetSizingDrill() {
     if (revealed) return;
     const l = evLoss(spot.strategy, id);
     setChosen(id);
-    setScore((s) => ({ correct: s.correct + (l <= 0.15 ? 1 : 0), total: s.total + 1 }));
+    setScore(recordDrillScore(`bsd-${mode}`, l <= 0.15));
     playGrade(l <= 0.15);
   }
   function next() { setSpot(genSpot(allow)); setChosen(null); }
   function switchMode(m: Mode) {
     if (m === mode) return;
     setMode(m);
-    setScore({ correct: 0, total: 0 });
+    setScore(loadDrillScore(`bsd-${m}`)); // each mode keeps its own lifetime score
     setChosen(null);
     setSpot(genSpot(m === 'decide' ? ['check', ...SIZE_IDS] : SIZE_IDS));
   }
+
+  // keyboard: 1..N picks the Nth size button, Space/Enter deals the next spot.
+  useDrillKeys({
+    choices: bands.length,
+    onPick: (i) => pick(bands[i].id),
+    onNext: next,
+    revealed,
+  });
 
   // wrong-answer feedback, adapted to mode and the gap between chosen and best.
   function badMsg(): string {
@@ -197,8 +208,14 @@ export function BetSizingDrill() {
         >
           {hideEq ? '🙈 Equity hidden' : '👁 Equity shown'}
         </button>
-        <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
+        <div className="quiz-score">
+          Score: <b>{score.correct}/{score.total}</b> ({pctScore}%)
+          {score.total > 0 && (
+            <button className="btn-small qs-reset" onClick={() => setScore(resetDrillScore(`bsd-${mode}`))} title="Reset this mode's saved score">↺</button>
+          )}
+        </div>
       </div>
+      <p className="note">{drillKeysHint(bands.length)} · score is saved across sessions.</p>
 
       <SpotBoard
         hero={spot.hero}

@@ -53,10 +53,17 @@ prescriptions for mixed spots, and equity-vs-range everywhere.
 
 ### 5. UI (`src/components/`, `src/hooks/useGame.ts`)
 Tabs: **Play vs Bots** (table + equity-vs-range HUD + solver-strategy panel + EV-loss feedback),
+**Tournament** (single-table freezeout: rising blinds, antes, payouts, bubble/ICM advisory),
 **Preflop Charts** (color-coded multi-scenario matrix), **Range Trainer**, **Postflop Lab**
-(board-texture drills with full frequencies/EV/RNG), **Pot Odds**, **Analytics** (bb/100,
-EV-loss/100, RNG adherence, leaks, hand history), **Reference**. Global **speed** control
-(1x / 2x / Instant) and **Fold & skip**.
+(board-texture drills with full frequencies/EV/RNG, heads-up or 3-way), **Gameplan**,
+**Leak Quiz** (drills your real detected leaks), **Read & Exploit** (archetype exploitation),
+**Hand Review** (replay + journal), **Principles**, **Pot Odds**, **Equity Drill**
+(flashcards + vs-range calibration), **Review** (spaced-repetition home — due cards & mastery),
+**Bet Sizing**, **Bankroll** (variance Monte-Carlo: outcome spread, downswings, risk of ruin),
+**Analytics** (bb/100, EV-loss/100, RNG adherence, leaks, hand history, backup/restore),
+**Reference**. Global **speed** control (1x / 2x / Instant) and **Fold & skip**.
+
+Installable as a **PWA** — serve the build over HTTPS, "Add to Home Screen", runs fully offline.
 
 ## Keyboard shortcuts (Play tab)
 `F` fold · `C` check/call · `R` raise (min) · `Space` deal next hand.

@@ -16,6 +16,8 @@ import { evLoss } from '../strategy/types';
 import type { ActionId, NodeStrategy } from '../strategy/types';
 import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
+import { useDrillKeys, drillKeysHint } from '../hooks/useDrillKeys';
+import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 
 type G = ReturnType<typeof useGame>;
 type DrillId = 'value' | 'bluff' | 'fold';
@@ -125,10 +127,11 @@ export function LeakQuiz({ g }: { g: G }) {
   const [drill, setDrill] = useState<DrillId>(suggested);
   const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<ActionId | null>(null);
-  const [score, setScore] = useState({ correct: 0, total: 0 });
+  // lifetime score per drill goal, persisted across sessions (store/drillScore).
+  const [score, setScore] = useState(() => loadDrillScore(`lq-${suggested}`));
 
   const next = useCallback((d: DrillId) => { setSpot(genSpot(d)); setChosen(null); }, []);
-  const switchDrill = (d: DrillId) => { setDrill(d); setScore({ correct: 0, total: 0 }); next(d); };
+  const switchDrill = (d: DrillId) => { setDrill(d); setScore(loadDrillScore(`lq-${d}`)); next(d); };
 
   const revealed = chosen != null;
   const loss = chosen ? evLoss(spot.strategy, chosen) : 0;
@@ -139,9 +142,17 @@ export function LeakQuiz({ g }: { g: G }) {
     if (revealed) return;
     setChosen(id);
     const l = evLoss(spot.strategy, id);
-    setScore((s) => ({ correct: s.correct + (l <= 0.1 ? 1 : 0), total: s.total + 1 }));
+    setScore(recordDrillScore(`lq-${drill}`, l <= 0.1));
     playGrade(l <= 0.1 ? 'good' : l <= 0.5 ? 'ok' : 'bad');
   };
+
+  // keyboard: 1..N picks the Nth action, Space/Enter deals the next spot.
+  useDrillKeys({
+    choices: ordered.length,
+    onPick: (i) => pick(ordered[i].id),
+    onNext: () => next(drill),
+    revealed,
+  });
 
   const pct = score.total ? Math.round((100 * score.correct) / score.total) : 0;
 
@@ -175,10 +186,15 @@ export function LeakQuiz({ g }: { g: G }) {
             <button key={d} className={drill === d ? 'active' : ''} onClick={() => switchDrill(d)}>{DRILLS[d].label}</button>
           ))}
         </div>
-        <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pct}%)</div>
+        <div className="quiz-score">
+          Score: <b>{score.correct}/{score.total}</b> ({pct}%)
+          {score.total > 0 && (
+            <button className="btn-small qs-reset" onClick={() => setScore(resetDrillScore(`lq-${drill}`))} title="Reset this drill's saved score">↺</button>
+          )}
+        </div>
       </div>
 
-      <div className="quiz-goal">🎯 Goal: <b>{DRILLS[drill].goal}</b> — avoid {DRILLS[drill].mistake}.</div>
+      <div className="quiz-goal">🎯 Goal: <b>{DRILLS[drill].goal}</b> — avoid {DRILLS[drill].mistake}. <span className="muted">{drillKeysHint(9)}</span></div>
 
       <div className="lab-board">
         <div className="lab-hero">

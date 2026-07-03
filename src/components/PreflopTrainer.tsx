@@ -27,6 +27,8 @@ const FACING_META: Record<Facing, { raiseLabel: string; prompt: string }> = {
   vsopen: { raiseLabel: '3-Bet', prompt: 'Someone opened — 3-bet, call, or fold?' },
   vs3bet: { raiseLabel: '4-Bet', prompt: 'You opened and got 3-bet — 4-bet, call, or fold?' },
   vs4bet: { raiseLabel: '5-Bet', prompt: 'You 3-bet and got 4-bet — 5-bet, call, or fold?' },
+  squeeze: { raiseLabel: 'Squeeze', prompt: 'An open AND a caller in front — squeeze, over-call, or fold?' },
+  vslimp: { raiseLabel: 'Iso-raise', prompt: 'A limper in front — isolate, over-limp, or fold?' },
 };
 
 const ACTION_LABEL: Record<Action, string> = { raise: 'Raise', call: 'Call', fold: 'Fold' };

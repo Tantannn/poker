@@ -2,6 +2,7 @@
 // preflop strategy grid or the villain's postflop range — with the hero hand
 // highlighted. Used by the Solver-strategy panel and the mistake feedback.
 
+import { useEffect, useRef } from 'react';
 import type { NodeStrategy } from '../strategy';
 import { EQUITY_RULES_OF_THUMB } from '../engine/equity';
 import { getScenario } from '../strategy/preflopChart';
@@ -9,6 +10,21 @@ import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR, KIND_LABEL } from './chartColors';
 
 export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy; onClose: () => void }) {
+  // a11y: Escape closes; focus moves to the close button on open and back to the
+  // previously-focused trigger on close, so keyboard users aren't stranded.
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      prev?.focus?.();
+    };
+  }, [onClose]);
   const isPreflop = strategy.source === 'preflop-chart';
   // getScenario falls back to SCENARIOS[0] on an unknown id (e.g. the 'pushfold'
   // node), so only trust the mnemonic when the id actually matches — otherwise a
@@ -20,10 +36,10 @@ export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy;
   const villainActLabel = villainCalls ? 'Villain calls / defends these' : 'Villain raises (opens) these';
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={isPreflop ? 'Your range chart' : "Villain's range chart"} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span>{isPreflop ? `Your range — ${strategy.rangeNote}` : `Villain's range — ${strategy.rangeNote}`}</span>
-          <button className="modal-close" onClick={onClose}>
+          <button ref={closeRef} className="modal-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>

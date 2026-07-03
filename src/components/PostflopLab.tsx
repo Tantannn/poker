@@ -31,6 +31,7 @@ import { actionRule, KIND_COLOR } from '../strategy/actionRules';
 import { PlayingCard } from './PlayingCard';
 import { playGrade } from '../sound';
 import { SpotBoard } from './SpotBoard';
+import { useDrillKeys } from '../hooks/useDrillKeys';
 
 const BB = 2;
 type Street = 'flop' | 'turn' | 'river';
@@ -39,6 +40,10 @@ type PosSel = Pos | 'random';
 type PotType = 'srp' | 'threebet' | 'fourbet';
 type Mode = 'single' | 'playout';
 type Actor = 'hero' | 'villain';
+// Number of villains still in the pot (single-decision mode only). 1 = heads-up,
+// 2 = 3-way. Multiway feeds the solver every opponent's range so hero's equity is
+// vs the whole FIELD (must beat everyone) and bets fold out more players.
+type Opponents = 1 | 2;
 
 const STREET_LABEL: Record<Street, string> = {
   flop: 'Flop (3 cards)',
@@ -363,6 +368,7 @@ export function PostflopLab() {
   const [street, setStreet] = useState<Street>('flop');
   const [position, setPosition] = useState<PosSel>('ip'); // selector: 'ip' | 'oop' | 'random'
   const [potType, setPotType] = useState<PotType>('srp');
+  const [opponents, setOpponents] = useState<Opponents>(1); // villains in the pot (single mode)
   // hide the equity number so you read the BOARD, not the solver. Revealed after
   // you answer (single) / when the hand completes (playout), so it stays a
   // teaching aid rather than a pre-answer spoiler.
@@ -373,13 +379,17 @@ export function PostflopLab() {
   const [chosen, setChosen] = useState<ActionId | null>(null);
 
   const sizing = sizingFor(potType, street);
+  // Each extra villain adds dead money, so a multiway pot starts bigger. Shared by
+  // the solver, the SPR readout, and the pot display so they never disagree.
+  const potShown = Math.round(sizing.pot * (1 + 0.6 * (opponents - 1)));
   const strategy = useMemo(() => {
     const v = villainById(spot.vId);
     return solvePostflop({
       hero: spot.hero,
       board: spot.board,
       oppRange: v.range,
-      pot: sizing.pot,
+      oppRanges: opponents > 1 ? Array.from({ length: opponents }, () => v.range) : undefined,
+      pot: potShown,
       toCall: 0,
       heroCommitted: 0,
       currentBet: 0,
@@ -392,7 +402,7 @@ export function PostflopLab() {
       rangeNote: v.label,
       position: spot.pos,
     });
-  }, [spot, sizing.pot, sizing.behind]);
+  }, [spot, potShown, sizing.behind, opponents]);
   const prescribed = rngPrescription(strategy, spot.roll);
   const newSpot = useCallback(
     (tx?: TextureFilter, st?: Street) => {
@@ -412,7 +422,7 @@ export function PostflopLab() {
   );
   const bestOpt = strategy.options.find((o) => o.id === strategy.bestId);
   const chosenOpt = chosen ? strategy.options.find((o) => o.id === chosen) : null;
-  const spr = (sizing.behind / sizing.pot).toFixed(1);
+  const spr = (sizing.behind / potShown).toFixed(1);
 
   // ---------------- play-it-out mode ----------------
   const [po, setPo] = useState<PlayState>(FIRST_PLAY);
@@ -481,11 +491,32 @@ export function PostflopLab() {
   const activePos: Pos = mode === 'single' ? spot.pos : po.pos;
   const activeVillain = villainById(mode === 'single' ? spot.vId : po.vId);
 
+  // keyboard: number keys pick the Nth on-screen action; Space/Enter = next hand
+  // once the single answer is revealed / the played-out hand is over.
+  const keyChoices = mode === 'single' ? orderedOptions.length : poOrdered.length;
+  useDrillKeys({
+    choices: keyChoices,
+    onPick: (i) => {
+      if (mode === 'single') {
+        const o = orderedOptions[i];
+        if (o && chosen == null) {
+          const l = evLoss(strategy, o.id);
+          playGrade(l <= 0.04 ? 'good' : l <= 0.4 ? 'ok' : 'bad');
+          setChosen(o.id);
+        }
+      } else if (!po.done && poOrdered[i]) {
+        playPick(poOrdered[i].id);
+      }
+    },
+    onNext: () => (mode === 'single' ? newSpot() : newPlay()),
+    revealed: mode === 'single' ? revealed : po.done,
+  });
+
   return (
     <div className="card">
       <h2>Postflop Lab — Training</h2>
       <p className="sub">
-        The open sandbox: <b>any</b> action, any villain, any SPR, and <b>play the hand out</b>
+        The open sandbox: <b>any</b> action, any villain, any SPR, <b>heads-up or 3-way</b> (single mode), and <b>play the hand out</b>
         {' '}flop→turn→river vs a villain who bets, raises &amp; folds — so you drill defending too. Pick
         before the answer shows. Set position or villain to <b>🎲 Random</b> to train reads you can't
         pre-plan, and hide equity to read the board. To drill bet <i>size</i> alone (⅓ / ¾ / pot) with a
@@ -529,6 +560,15 @@ export function PostflopLab() {
             </select>
           </div>
         )}
+        {mode === 'single' && (
+          <div className="lab-field">
+            <label className="inline-label">Players in pot</label>
+            <div className="pos-toggle">
+              <button className={opponents === 1 ? 'active' : ''} onClick={() => setOpponents(1)}>Heads-up</button>
+              <button className={opponents === 2 ? 'active' : ''} onClick={() => setOpponents(2)}>3-way</button>
+            </div>
+          </div>
+        )}
         <div className="lab-field">
           <label className="inline-label">Board texture</label>
           <select value={texture} onChange={(e) => { const tx = e.target.value as TextureFilter; setTexture(tx); if (mode === 'single') newSpot(tx); else setPo((p) => makeStartPlay(tx, potType, p.pos, p.vId)); }}>
@@ -565,7 +605,8 @@ export function PostflopLab() {
           bestOpt={bestOpt}
           chosenOpt={chosenOpt}
           potLabel={POT_LABEL[potType]}
-          pot={sizing.pot}
+          pot={potShown}
+          players={opponents + 1}
           spr={spr}
           posNote={activePos}
           villainLabel={activeVillain.label}
@@ -603,6 +644,7 @@ function SingleMode(props: {
   chosenOpt?: ReturnType<typeof solvePostflop>['options'][number] | null;
   potLabel: string;
   pot: number;
+  players: number;
   spr: string;
   posNote: Pos;
   villainLabel: string;
@@ -610,12 +652,12 @@ function SingleMode(props: {
   onPick: (id: ActionId) => void;
   onNext: () => void;
 }) {
-  const { spot, strategy, ordered, chosen, revealed, loss, prescribed, bestOpt, chosenOpt, potLabel, pot, spr, posNote, villainLabel, equityHidden, onPick, onNext } = props;
+  const { spot, strategy, ordered, chosen, revealed, loss, prescribed, bestOpt, chosenOpt, potLabel, pot, players, spr, posNote, villainLabel, equityHidden, onPick, onNext } = props;
   const chosenLabel = chosenOpt?.label;
   const bestLabel = bestOpt?.label;
   return (
     <>
-      <div className="lab-meta">vs {villainLabel} · {potLabel} · pot {pot} ({(pot / BB).toFixed(1)}bb) · SPR {spr}</div>
+      <div className="lab-meta">vs {villainLabel} · {players > 2 ? `${players}-way` : 'heads-up'} · {potLabel} · pot {pot} ({(pot / BB).toFixed(1)}bb) · SPR {spr}</div>
       <SpotBoard
         hero={spot.hero}
         board={spot.board}

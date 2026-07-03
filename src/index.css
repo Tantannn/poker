@@ -1205,6 +1205,10 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 }
 
 @media (max-width: 600px) {
+  /* selects sized for desktop overflow small phones — go full-width */
+  .chart-scenario select, .lab-field select { min-width: 0; width: 100%; }
+  /* the 13-col equity grid: tighten the gap so it fits <360px screens */
+  .eq-row { gap: 2px; }
   /* ---- the felt scales; give it more vertical room so seats breathe ---- */
   .felt { border-width: 9px; aspect-ratio: 4 / 3.2; }
   /* more vertical room so POT, flop cards & breadcrumb don't pile up */
@@ -1493,3 +1497,63 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .gp-special-row { margin: 8px 0; }
 .gp-special-row b { font-size: 13px; color: var(--txt); }
 .gp-special-row p { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+/* ---------- ICM advisory (tournament) ---------- */
+.icm-banner {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 14px; margin-bottom: 12px; font-size: 13px; color: var(--txt);
+}
+.icm-banner.bubble { border-color: var(--gold); background: rgba(231, 200, 115, 0.07); }
+.icm-banner.itm { border-color: var(--raise2); }
+.icm-banner .muted { color: var(--muted); }
+
+/* small reset button beside persisted drill scores */
+.qs-reset { margin-left: 6px; padding: 1px 7px; font-size: 12px; }
+
+/* settings tab sections */
+.set-block { margin: 16px 0; }
+.set-block .an-h { margin-bottom: 8px; }
+
+/* ---------- Review (spaced repetition) ---------- */
+.rv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rv-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 14px 0 8px; border: 1px solid var(--line); }
+.rv-seg { min-width: 2px; }
+.rv-seg.mastered { background: var(--raise2); }
+.rv-seg.due { background: var(--red); }
+.rv-seg.new { background: var(--chip); }
+.rv-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+.rv-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+.rv-legend .sw.mastered { background: var(--raise2); }
+.rv-legend .sw.due { background: var(--red); }
+.rv-legend .sw.new { background: var(--chip); border: 1px solid var(--line); }
+.rv-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 16px; }
+.rv-weak { margin-top: 8px; }
+.rv-weak-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.rv-weak-spot { color: var(--txt); }
+.rv-weak-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+.rv-weak-row.due .rv-weak-tag { color: var(--red); }
+.rv-weak-row.mastered .rv-weak-tag { color: var(--raise); }
+.rv-weak-acc { font-variant-numeric: tabular-nums; }
+
+/* ---------- Bankroll & variance ---------- */
+.bk-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin: 6px 0 8px; }
+.bk-field { display: flex; flex-direction: column; gap: 4px; }
+.bk-field input {
+  background: var(--chip); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 9px; font-size: 14px; width: 130px; font-variant-numeric: tabular-nums;
+}
+.bk-field input:focus { outline: none; border-color: var(--raise2); }
+.bk-run { align-self: flex-end; }
+.bk-mine { margin: 0 0 12px; }
+.bk-kpis { margin-top: 12px; }
+.bk-kpi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.bk-fan { margin: 16px 0 6px; }
+.bk-fan-svg { width: 100%; height: 200px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; }
+.bk-fan-zero { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.6; }
+.bk-fan-path { stroke-width: 1; opacity: 0.4; }
+.bk-fan-path.pos { stroke: var(--raise); }
+.bk-fan-path.neg { stroke: var(--red); }
+.bk-fan-ev { stroke: var(--gold); stroke-width: 2; stroke-dasharray: 6 4; }
+.bk-fan-cap { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.bk-notes code { background: rgba(46, 194, 126, 0.08); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+@media (max-width: 620px) { .bk-field input { width: 100%; } .bk-field { flex: 1 1 40%; } }

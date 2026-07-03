@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useGame } from '../hooks/useGame';
-import { accuracy, bbPer100, evLossPer100, rngAdherence, totalEvLoss, scoreBuckets, gtowScore } from '../store/stats';
+import { accuracy, bbPer100, evLossPer100, rngAdherence, totalEvLoss, scoreBuckets, gtowScore, downswing } from '../store/stats';
 import type { DecisionRecord } from '../store/stats';
+import { assessTilt } from '../analysis/tilt';
 import { downloadBackup, importBackup } from '../store/backup';
 import { PlayingCard } from './PlayingCard';
 import { CalcLabel } from './CalcTip';
@@ -49,6 +50,9 @@ export function Analytics({ g }: { g: G }) {
 
   const buckets = scoreBuckets(stats);
   const score = gtowScore(stats);
+  // swings & tilt — the historical view of what the live table shows in-session.
+  const ds = useMemo(() => downswing(stats), [stats]);
+  const tilt = useMemo(() => assessTilt(stats), [stats]);
 
   // cumulative net bb over hands (chronological — history is newest-first).
   // Built with reduce-push (no captured-variable reassignment) to satisfy the
@@ -146,6 +150,26 @@ export function Analytics({ g }: { g: G }) {
                 <span><i className="sw twrong" /> Wrong {buckets.wrong}</span>
                 <span><i className="sw tblunder" /> Blunder {buckets.blunder}</span>
               </div>
+            </div>
+
+            <div className="an-section">
+              <div className="an-h">Discipline &amp; swings</div>
+              <div className="kpi-grid">
+                <Kpi label="Swing size (σ / 100 hands)" value={`${ds.stdPer100.toFixed(0)} bb`} />
+                <Kpi label="Worst downswing" value={`−${ds.maxBB.toFixed(0)} bb`} tone={ds.maxBB > 150 ? 'neg' : ''} />
+                <Kpi
+                  label="Below session peak now"
+                  value={ds.currentBB > 0 ? `−${ds.currentBB.toFixed(0)} bb (${ds.buyins.toFixed(1)} bi)` : 'at peak ✓'}
+                  tone={ds.buyins >= 1 ? 'neg' : ds.currentBB > 0 ? '' : 'pos'}
+                />
+                <Kpi label="Tilt pressure" value={tilt ? `${tilt.score}/100` : 'calm ✓'} tone={tilt ? (tilt.level === 'high' ? 'neg' : '') : 'pos'} />
+              </div>
+              {tilt && (
+                <p className="note">
+                  {tilt.headline} — {tilt.signals.join(' ')} Feed these swings into the <b>💵 Bankroll</b> tab to
+                  see what variance this size implies long-run.
+                </p>
+              )}
             </div>
 
             <div className="an-grids">

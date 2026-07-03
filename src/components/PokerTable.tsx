@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { positionLabel, tournamentLevel, handsToNextLevel } from '../engine/table';
+import { icmRead, payoutTable } from '../engine/icm';
 import { getProfile } from '../ai/profiles';
 import { Seat } from './Seat';
 import { PositionHint } from './PositionHint';
@@ -126,6 +127,13 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
             {' '}<span className="tourney-next">(up in {handsToNextLevel(game.handNumber)})</span>
             {hero.stack > 0 && <> · your stack <b>{(hero.stack / game.bigBlind).toFixed(0)}bb</b></>}
           </div>
+        )}
+        {g.isTournament && started && hero.stack > 0 && (
+          <IcmBanner
+            stacks={game.players.map((p) => p.stack + p.committed)}
+            heroIdx={hero.id}
+            field={g.fieldSize}
+          />
         )}
         <TiltBanner t={tilt} />
         <AggroBanner w={aggroWarning} />
@@ -432,13 +440,25 @@ function TiltCoolOff({ t, onProceed }: { t: TiltState; onProceed: () => void }) 
   );
 }
 
-// Prize-pool split (fraction by 1-indexed place) for a single-table freezeout:
-// winner-take-all when tiny, top-2 short-handed, top-3 once it's a full ring —
-// the standard SNG payout shape. Prize pool = one buy-in per entrant.
-function payoutTable(field: number): number[] {
-  if (field <= 3) return [1];
-  if (field <= 5) return [0.65, 0.35];
-  return [0.5, 0.3, 0.2];
+// ICM advisory strip under the tournament banner: your prize equity in buy-ins
+// (Malmuth–Harville, from engine/icm) plus a bubble / in-the-money read. Display
+// only — it teaches WHY chip EV ≠ $EV without changing how the bots play.
+function IcmBanner({ stacks, heroIdx, field }: { stacks: number[]; heroIdx: number; field: number }) {
+  const r = icmRead(stacks, heroIdx, field);
+  const chipShare = (() => {
+    const total = stacks.reduce((a, b) => a + b, 0);
+    return total > 0 ? (stacks[heroIdx] ?? 0) / total : 0;
+  })();
+  const tax = chipShare - r.equityShare; // >0 → chips worth less than linear ($ capped per place)
+  return (
+    <div className={`icm-banner ${r.onBubble ? 'bubble' : r.inTheMoney ? 'itm' : ''}`}>
+      💠 ICM: your equity ≈ <b>{r.equityBuyins.toFixed(2)}</b> buy-ins
+      {' '}<span className="muted">({(r.equityShare * 100).toFixed(0)}% of pool · {(chipShare * 100).toFixed(0)}% of chips)</span>
+      {r.onBubble && <> · <b>🫧 BUBBLE</b> — one bust from the money: fold marginal spots, shove wider on shorter stacks, never call off light</>}
+      {r.inTheMoney && !r.onBubble && <> · 💰 in the money — ladder value shrinks, play for the win</>}
+      {!r.onBubble && !r.inTheMoney && tax > 0.02 && <> · big stack: chips above average are worth <i>less</i> per chip — pressure, don't gamble</>}
+    </div>
+  );
 }
 
 // Freezeout end screen: your finishing place, whether you cashed, and the payout

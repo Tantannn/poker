@@ -16,6 +16,8 @@ import type { HandClass } from '../strategy/handClass';
 import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
 import { PositionCheatSheet } from './PositionCheatSheet';
+import { useDrillKeys, drillKeysHint } from '../hooks/useDrillKeys';
+import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 
 interface RangeOpt {
   id: string;
@@ -158,7 +160,8 @@ export function RangeDrill() {
   const [rangeId, setRangeId] = useState('btn');
   const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<number | null>(null);
-  const [score, setScore] = useState({ correct: 0, total: 0 });
+  // lifetime calibration score, persisted across sessions (store/drillScore).
+  const [score, setScore] = useState(() => loadDrillScore('rangedrill'));
   const [showCheat, setShowCheat] = useState(false);
 
   const ropt = RANGES.find((r) => r.id === rangeId)!;
@@ -179,11 +182,14 @@ export function RangeDrill() {
   function pick(b: number) {
     if (revealed) return;
     setChosen(b);
-    setScore((s) => ({ correct: s.correct + (b === trueBand ? 1 : 0), total: s.total + 1 }));
+    setScore(recordDrillScore('rangedrill', b === trueBand));
     playGrade(b === trueBand);
   }
   function next() { setSpot(genSpot()); setChosen(null); }
   function switchRange(id: string) { setRangeId(id); setChosen(null); } // same hand, new villain — see the swing
+
+  // keyboard: 1..5 picks the equity band, Space/Enter deals the next spot.
+  useDrillKeys({ choices: BANDS.length, onPick: pick, onNext: next, revealed, enabled: !showCheat });
 
   const street = spot.board.length === 3 ? 'Flop' : 'Turn';
 
@@ -203,7 +209,13 @@ export function RangeDrill() {
       {showCheat && <PositionCheatSheet onClose={() => setShowCheat(false)} />}
       <div className="rd-rangenote">{ropt.note}</div>
 
-      <div className="quiz-score rd-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
+      <div className="quiz-score rd-score">
+        Score: <b>{score.correct}/{score.total}</b> ({pctScore}%)
+        {score.total > 0 && (
+          <button className="btn-small qs-reset" onClick={() => setScore(resetDrillScore('rangedrill'))} title="Reset your saved score">↺</button>
+        )}
+        <span className="muted"> {drillKeysHint(BANDS.length)}</span>
+      </div>
 
       <div className="lab-board">
         <div className="lab-hero">

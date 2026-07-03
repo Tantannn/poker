@@ -12,7 +12,7 @@ import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
-import { cellStrategy, getScenario } from './preflopChart';
+import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
 import { solvePostflop } from './postflopModel';
 
@@ -297,7 +297,7 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
 }
 
 function whyPreflop(kind: ActionOption['kind'], sc: PreflopScenario, code: string, freq: number): string {
-  const raiseWord = sc.facing === 'vs4bet' ? '5-bet' : sc.facing === 'vs3bet' ? '4-bet' : sc.facing === 'rfi' ? 'open' : '3-bet';
+  const raiseWord = facingRaiseWord(sc.facing);
   switch (kind) {
     case 'value':
       return `${code} is a value ${raiseWord} in "${sc.short}" — strong enough to build the pot and get called by worse.`;

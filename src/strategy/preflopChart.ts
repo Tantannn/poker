@@ -6,7 +6,7 @@ import type { Position } from '../engine/table';
 import { buildRange } from '../ai/preflop';
 import type { ActionId, ActionOption } from './types';
 
-export type Facing = 'rfi' | 'vsopen' | 'vs3bet' | 'vs4bet';
+export type Facing = 'rfi' | 'vsopen' | 'vs3bet' | 'vs4bet' | 'squeeze' | 'vslimp';
 export type TableSize = 6 | 5 | 4 | 3 | 2;
 
 export interface PreflopScenario {
@@ -318,6 +318,76 @@ export const SCENARIOS: PreflopScenario[] = [
     bluff: S([]),
     call: S(['QQ', 'AKs', 'AKo']),
   },
+  // ---- Squeeze (an open PLUS a caller in front). The caller adds dead money —
+  // so raise bigger (~4x) — but also caps his range (no premium, he'd have
+  // 3-bet), so a squeeze prints: value goes linear-strong, bluffs stay suited.
+  // Flatting behind ("over-calling") is reserved for hands that PLAY multiway:
+  // pairs (set-mine three ways) and suited connected stuff. Offsuit broadways,
+  // fine heads-up, are dominated multiway — they fold.
+  {
+    id: 'sq-btn',
+    label: 'Squeeze — BTN vs CO open + caller',
+    short: 'BTN Squeeze',
+    mnemonic: 'Open + caller = dead money and a capped caller. Squeeze TT+/AQs+/AKo big (~4x); bluff suited wheel aces; over-call only what plays multiway (pairs, suited connected). Offsuit broadways fold.',
+    facing: 'squeeze',
+    heroPos: 'BTN',
+    villainPos: 'CO',
+    bluffFreq: 0.4,
+    value: S(['TT+', 'AQs+', 'AKo']),
+    bluff: S(['A5s-A4s', 'KJs', 'T9s']),
+    call: S(['22-99', 'AJs', 'ATs', 'KQs', 'QJs', 'JTs', '98s', '87s', '76s']),
+  },
+  {
+    id: 'sq-bb',
+    label: 'Squeeze — BB vs BTN open + SB call',
+    short: 'BB Squeeze',
+    mnemonic: 'Classic squeeze seat: BTN opens wide, SB just calls (capped). 99+/AQs+/AJs value plus suited-ace and connector bluffs; defend the rest tighter than heads-up — you\'re OOP against two.',
+    facing: 'squeeze',
+    heroPos: 'BB',
+    villainPos: 'BTN',
+    bluffFreq: 0.45,
+    value: S(['99+', 'AQs+', 'AKo', 'AJs']),
+    bluff: S(['A5s-A2s', 'K9s', 'Q9s', '87s', '76s']),
+    call: S([
+      '22-88', 'ATs-A6s', 'KTs+', 'Q9s+', 'J9s+', 'T8s+', '97s+', '86s+', '75s+', '65s', '54s',
+      'AJo+', 'KQo',
+    ]),
+  },
+  // ---- Vs a limper (isolation). A limp is weakness — punish it in position by
+  // iso-raising wide (~3.5-4bb: the limper's call is the payoff, and you take
+  // the betting lead). On the BTN it's raise-or-fold: over-limping wastes the
+  // best seat at the table.
+  {
+    id: 'iso-btn',
+    label: 'BTN vs a limper (isolation raise)',
+    short: 'BTN Iso',
+    mnemonic: 'Limps are weak — attack them in position. Iso ~3.5-4bb with pairs, suited aces, broadways, good suited connectors, A9o+/KTo+. Raise or fold: over-limping the button wastes your seat.',
+    facing: 'vslimp',
+    heroPos: 'BTN',
+    bluffFreq: 0.5,
+    value: S([
+      '22+', 'A2s+', 'K9s+', 'Q9s+', 'J9s+', 'T8s+', '98s', '87s', '76s', '65s',
+      'A9o+', 'KTo+', 'QTo+', 'JTo',
+    ]),
+    bluff: S(['K7s', 'K8s', 'Q8s', 'A8o', '54s']),
+    call: S([]),
+  },
+  // ---- Cold vs a 3-bet (someone opened, someone else 3-bet, hero has invested
+  // NOTHING). Two players showing strength and you have no money in — continue
+  // only with premiums: cold 4-bet the top, flat a sliver, fold even AQ.
+  {
+    id: 'cold-vs-3bet',
+    label: 'Blinds cold vs open + 3-bet',
+    short: 'Cold v 3B',
+    mnemonic: 'Two players show strength and you\'ve invested nothing, so almost everything folds: cold 4-bet KK+ (A5s the lone bluff), flat QQ/JJ/AK — and yes, AQ is a fold.',
+    facing: 'vs3bet',
+    heroPos: 'BB',
+    villainPos: 'BTN',
+    bluffFreq: 0.3,
+    value: S(['KK+']),
+    bluff: S(['A5s']),
+    call: S(['QQ', 'JJ', 'AKs', 'AKo']),
+  },
   // ---- Heads-up (2 players). The SB IS the button: acts first preflop but in
   // position postflop, and opens a huge range. The "lop the top, reuse 6-max"
   // rule can't reach here — HU dynamics need their own ranges. Simplified
@@ -399,6 +469,16 @@ export function getScenario(id: string): PreflopScenario {
   return SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0];
 }
 
+/** Aggressive-action word for a facing, e.g. for explanations ("squeeze", "iso-raise"). */
+export function facingRaiseWord(f: Facing): string {
+  return f === 'vs4bet' ? '5-bet'
+    : f === 'vs3bet' ? '4-bet'
+    : f === 'squeeze' ? 'squeeze'
+    : f === 'vslimp' ? 'iso-raise'
+    : f === 'rfi' ? 'open'
+    : '3-bet';
+}
+
 /** Per-cell strategy for a 169-code in a scenario. Frequencies sum to ~1. */
 export function cellStrategy(sc: PreflopScenario, code: string): ActionOption[] {
   const opts: ActionOption[] = [];
@@ -410,8 +490,13 @@ export function cellStrategy(sc: PreflopScenario, code: string): ActionOption[] 
     } else opts.push(mk('fold', 'Fold', 1, 'fold'));
     return opts;
   }
-  // vs open / vs 3bet
-  const raiseLabel = sc.facing === 'vs4bet' ? '5-Bet' : sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
+  // vs open / vs 3bet / squeeze / vs limp
+  const raiseLabel =
+    sc.facing === 'vs4bet' ? '5-Bet'
+    : sc.facing === 'vs3bet' ? '4-Bet'
+    : sc.facing === 'squeeze' ? 'Squeeze'
+    : sc.facing === 'vslimp' ? 'Iso-raise'
+    : '3-Bet';
   if (sc.value?.has(code)) {
     opts.push(mk('raise', `${raiseLabel} (value)`, 1, 'value'));
   } else if (sc.bluff?.has(code)) {

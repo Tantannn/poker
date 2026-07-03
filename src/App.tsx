@@ -19,12 +19,15 @@ const Replay = lazy(() => import('./components/Replay').then((m) => ({ default: 
 const EquityDrill = lazy(() => import('./components/EquityDrill').then((m) => ({ default: m.EquityDrill })));
 const BetSizingDrill = lazy(() => import('./components/BetSizingDrill').then((m) => ({ default: m.BetSizingDrill })));
 const Gameplan = lazy(() => import('./components/Gameplan').then((m) => ({ default: m.Gameplan })));
+const Review = lazy(() => import('./components/Review').then((m) => ({ default: m.Review })));
+const BankrollSim = lazy(() => import('./components/BankrollSim').then((m) => ({ default: m.BankrollSim })));
+const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })));
 // antd lives only here — kept split so it never bloats the initial load.
 const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((m) => ({ default: m.PrinciplesPanel })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'sizing' | 'analytics' | 'reference';
+type Tab = 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'review' | 'sizing' | 'bankroll' | 'analytics' | 'reference' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'play', label: '♠ Play vs Bots' },
@@ -39,9 +42,12 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'principles', label: '📓 Principles' },
   { id: 'odds', label: 'Pot Odds' },
   { id: 'eqdrill', label: '🧠 Equity Drill' },
+  { id: 'review', label: '🔁 Review' },
   { id: 'sizing', label: '💰 Bet Sizing' },
+  { id: 'bankroll', label: '💵 Bankroll' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'reference', label: 'Reference' },
+  { id: 'settings', label: '⚙ Settings' },
 ];
 
 export default function App() {
@@ -72,9 +78,9 @@ export default function App() {
         </p>
       </header>
 
-      <nav className="app-nav">
+      <nav className="app-nav" role="tablist" aria-label="Trainer sections">
         {TABS.map((t) => (
-          <button key={t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
             {t.label}
           </button>
         ))}
@@ -135,9 +141,19 @@ export default function App() {
             <EquityDrill />
           </div>
         )}
+        {tab === 'review' && (
+          <div className="content-col">
+            <Review />
+          </div>
+        )}
         {tab === 'sizing' && (
           <div className="content-col">
             <BetSizingDrill />
+          </div>
+        )}
+        {tab === 'bankroll' && (
+          <div className="content-col">
+            <BankrollSim g={g} />
           </div>
         )}
         {tab === 'analytics' && (
@@ -148,6 +164,11 @@ export default function App() {
         {tab === 'reference' && (
           <div className="content-col">
             <Reference />
+          </div>
+        )}
+        {tab === 'settings' && (
+          <div className="content-col">
+            <Settings g={g} />
           </div>
         )}
        </Suspense>
