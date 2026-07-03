@@ -169,6 +169,11 @@ export function Reference() {
                 <tr><td>10. High Card</td><td></td></tr>
               </tbody>
             </table>
+            <p className="sub">
+              <b>Hook:</b> rarer = stronger. Only two trip people up — a <b>flush beats a straight</b> (five
+              of a suit is rarer than five in a row) and a <b>full house beats a flush</b>. Chant the
+              confusable middle: <i>straight → flush → full house → quads</i>.
+            </p>
           </div>
           <div>
             <h3>Common Preflop All-in Match-ups</h3>
@@ -184,6 +189,11 @@ export function Reference() {
                 <tr><td>Coin flip (AK vs QQ)</td><td className="num">~57 / 43</td></tr>
               </tbody>
             </table>
+            <p className="sub">
+              <b>Hook:</b> three landmarks and everything else falls between. A <b>race</b> (pair vs two
+              overs) ≈ <b>55/45</b>; <b>domination</b> (a card shared, AK vs AQ) ≈ <b>70/30</b>; <b>pair over
+              pair</b> (AA vs KK, KK vs 88) ≈ <b>80/20</b>.
+            </p>
           </div>
         </div>
       </Section>
@@ -221,6 +231,11 @@ export function Reference() {
                 <tr><td>Flush + gutshot</td><td className="num">12 → ~45%</td></tr>
               </tbody>
             </table>
+            <p className="sub">
+              <b>Hook:</b> memorize three out-counts — <b>9 = flush, 8 = OESD, 4 = gutshot</b> (two overcards
+              ≈ 6). Then ×4 flop / ×2 turn. The flush draw is your yardstick: ~<b>2-to-1 against</b> (~36%) on
+              the flop.
+            </p>
             <h4>Then check the price</h4>
             <p className="sub">
               Call when your equity ≥ <b>call ÷ (pot + call)</b>. By bet size:
@@ -270,6 +285,10 @@ export function Reference() {
                 <tr><td>Air, no draw</td><td className="num">&lt;15% → fold</td><td>7♦2♣ → K♠9♦4♥ (missed everything)</td></tr>
               </tbody>
             </table>
+            <p className="sub">
+              <b>Hook:</b> each rung down ≈ <b>15% less</b>. Anchor three and interpolate: <b>top pair ≈
+              60%</b>, a <b>big draw ≈ 35%</b>, a <b>gutshot ≈ 20%</b>.
+            </p>
           </div>
         </div>
 
@@ -292,6 +311,11 @@ export function Reference() {
               <tr><td>two+ overcards — K♠Q♦5♣</td><td><b>Underpair</b> (air-ish)</td><td className="num">&lt;40%</td></tr>
             </tbody>
           </table>
+          <p className="sub">
+            <b>Hook:</b> just <b>count the overcards</b> on the flop — <b>0</b> = overpair (70–80%), <b>1</b> =
+            pair below top (40–50%), <b>2+</b> = underpair / air. Pairing your own card instead = a <b>set</b>
+            (85%+).
+          </p>
           <p className="sub">
             Same idea for "top pair good kicker": your hole card must pair the board's <b>highest</b> card. 77 can
             only be top pair if the biggest card on the board is a 7.

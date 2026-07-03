@@ -96,6 +96,8 @@ export interface PersistSettings {
   scenario: string;
   speed: string;
   watchAfterFold: boolean;
+  /** show tilt banner + post-swing cool-off gate. Defaults on; false disables both. */
+  tiltWarnings?: boolean;
   difficulty: string;
   tableSize?: number;
   /** legacy single-mode flag — kept for back-compat reads; `activeMode` supersedes it. */

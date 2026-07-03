@@ -57,7 +57,9 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(rtk vitest *)",
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 40; \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 40)",
-      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 12)"
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 12)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 40; echo \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 40; echo \"EXIT=$LASTEXITCODE\")"
     ]
   }
 }

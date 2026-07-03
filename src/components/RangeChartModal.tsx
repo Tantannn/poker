@@ -4,11 +4,17 @@
 
 import type { NodeStrategy } from '../strategy';
 import { EQUITY_RULES_OF_THUMB } from '../engine/equity';
+import { getScenario } from '../strategy/preflopChart';
 import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR, KIND_LABEL } from './chartColors';
 
 export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy; onClose: () => void }) {
   const isPreflop = strategy.source === 'preflop-chart';
+  // getScenario falls back to SCENARIOS[0] on an unknown id (e.g. the 'pushfold'
+  // node), so only trust the mnemonic when the id actually matches — otherwise a
+  // push/fold chart would show the UTG-open note.
+  const preSc = isPreflop && strategy.scenarioId ? getScenario(strategy.scenarioId) : null;
+  const mnemonic = preSc && preSc.id === strategy.scenarioId ? preSc.mnemonic : undefined;
   const villainCalls = /defend|call/i.test(strategy.rangeNote ?? '');
   const inRgb = villainCalls ? '58,160,224' : '46,194,126';
   const villainActLabel = villainCalls ? 'Villain calls / defends these' : 'Villain raises (opens) these';
@@ -35,6 +41,12 @@ export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy;
                   This is your strategy grid for the spot. Your hand <b>{strategy.heroCode}</b> is outlined in gold —
                   its color shows the action mix.
                 </p>
+                {mnemonic && (
+                  <details className="equity-explain chart-mnemonic">
+                    <summary>💡 How to remember this range</summary>
+                    <p>{mnemonic}</p>
+                  </details>
+                )}
                 <div className="legend chart-legend">
                   <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {KIND_LABEL.value}</div>
                   <div><span className="sw" style={{ background: KIND_COLOR.call }} /> Call</div>

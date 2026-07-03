@@ -467,16 +467,23 @@ function computeAggro(
   // while deriving e2 from contFrac — for a shove that printed "76% called" in the EV
   // yet "4% continues" in the note: the same event with two numbers, which let the
   // jam bank a huge called-pot it almost never actually reaches.)
-  let contFrac = 1 / (1 + Math.max(0, s));
+  // PER-OPPONENT continue rate, driven by SIZE: vs a bet of `s` pots one opponent
+  // continues with ~his strongest 1/(1+s) of range. This size signal is what
+  // `rangeLift` (below) needs — it MUST NOT be overwritten by the multiway
+  // transform, or a large field would zero out the range-strength penalty exactly
+  // when the continuing range is STRONGEST (someone out of n holds a real hand).
+  let contHU = 1 / (1 + Math.max(0, s));
   // FLUSH DOMINATION, graded by level. Hero holds none of the board suit: on a 4+
   // flush board villain's one-card flushes never fold → he continues almost always;
   // on a 3-flush/monotone board a made flush needs both his cards suited (rare) and
   // the rest are draws, so only a mild FLOOR on how often he continues.
-  if (flushLevel >= 4) contFrac = Math.max(contFrac, 0.92);
-  else if (flushLevel === 3) contFrac = Math.max(contFrac, 0.72);
+  if (flushLevel >= 4) contHU = Math.max(contHU, 0.92);
+  else if (flushLevel === 3) contHU = Math.max(contHU, 0.72);
   // MULTIWAY: the bet only wins UNCONTESTED if EVERY opponent folds, so someone
-  // continuing is likelier as the field grows — P(≥1 continues) = 1 − (1−contFrac)^n.
-  if (oppCount > 1) contFrac = 1 - Math.pow(1 - contFrac, oppCount);
+  // continuing is likelier as the field grows — P(≥1 continues) = 1 − (1−contHU)^n.
+  // This inflates the CALL rate (correct for the pot-split & fold equity) but is
+  // kept SEPARATE from contHU so it can't distort the size-driven range strength.
+  let contFrac = oppCount > 1 ? 1 - Math.pow(1 - contHU, oppCount) : contHU;
   // POSITION & TEXTURE nudge — small and ADDITIVE, so it can't swing a shove's
   // call-rate (a multiplicative factor near contFrac≈1 would). In position hero's
   // bets fold a hair more out (lower contFrac), out of position a hair fewer; a wet
@@ -484,13 +491,14 @@ function computeAggro(
   contFrac = Math.max(0.02, Math.min(0.98, contFrac + (1 - feMult) * 0.15 + wetness));
   const fe = 1 - contFrac; // fold frequency == fold equity — the ONE number, used & shown
 
-  // EQUITY WHEN CALLED — built on the SAME contFrac. Against a bigger bet the
-  // continuing range is TIGHTER and STRONGER (1/(1+s) shrinks), so hero's realised
-  // equity when called collapses toward (then past) a coin flip. This is what makes
-  // over-bets and shoves -EV with a one-pair value hand: you fold out everything you
-  // beat and get called only by what beats you. Convex and UNCAPPED in size, so a
-  // 5–10x shove is punished far harder than a ¾-pot bet.
-  const rangeLift = 0.32 * (1 - contFrac); // strength gain of the continuing range
+  // EQUITY WHEN CALLED — built on the SIZE-driven per-opponent rate `contHU`, NOT
+  // the multiway-inflated contFrac. Against a bigger bet the continuing range is
+  // TIGHTER and STRONGER (1/(1+s) shrinks), so hero's realised equity when called
+  // collapses toward (then past) a coin flip. This is what makes over-bets and
+  // shoves -EV with a one-pair value hand: you fold out everything you beat and get
+  // called only by what beats you. The extra strength from FACING MORE CALLERS is
+  // handled by `multiTax` below, so it is not double-counted here.
+  const rangeLift = 0.32 * (1 - contHU); // strength gain of the continuing range
   // a shove reads scarier than the same chips as a bet, so the stack-off range is
   // a touch tighter — but only meaningfully once the shove is large vs the pot.
   // A sub-pot all-in (low SPR) is just a normal-sized bet and shouldn't be taxed

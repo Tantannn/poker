@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
 import { handCode } from '../ai/preflop';
-import type { Facing, TableSize } from '../strategy/preflopChart';
-import { cellStrategy, getScenario, scenariosForSize } from '../strategy/preflopChart';
+import type { Facing, PreflopScenario, TableSize } from '../strategy/preflopChart';
+import { cellStrategy, dominantKind, getScenario, scenariosForSize } from '../strategy/preflopChart';
 import { PlayingCard } from './PlayingCard';
 import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR } from './chartColors';
@@ -65,6 +65,84 @@ function dealRandom(scenarios: { id: string }[]): Dealt {
   return { scId: sc.id, cards: [a, b], code: handCode([a, b]) };
 }
 
+// ---- Borderline-weighted dealing --------------------------------------------
+// Uniform random deals mostly obvious trash (72o) or obvious premiums. The hands
+// worth drilling are the CLOSE ones: mixed-frequency cells, and cells right on a
+// range boundary (an open next to a fold, a fold next to an open, a value hand
+// next to a call). We weight toward those so reps land where memory actually
+// slips, not on hands whose answer is never in doubt.
+
+const CHAR_TO_RANK: Record<string, number> = {
+  A: 14, K: 13, Q: 12, J: 11, T: 10, '9': 9, '8': 8, '7': 7, '6': 6, '5': 5, '4': 4, '3': 3, '2': 2,
+};
+// Grid order (A→2) so cell neighbors map to adjacent hands, matching MiniRangeGrid.
+const GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+// The 169 code at grid cell (i,j): pair on the diagonal, suited above, offsuit below.
+function codeAt(i: number, j: number): string {
+  const r1 = GRID_RANKS[i];
+  const r2 = GRID_RANKS[j];
+  return i === j ? r1 + r1 : i < j ? r1 + r2 + 's' : r2 + r1 + 'o';
+}
+
+// Concrete cards for a 169 code (suits fixed — the trainer only reads the code).
+function cardsForCode(code: string): Card[] {
+  if (code.length === 2) {
+    const r = CHAR_TO_RANK[code[0]];
+    return [{ rank: r, suit: 0 }, { rank: r, suit: 1 }];
+  }
+  const hi = CHAR_TO_RANK[code[0]];
+  const lo = CHAR_TO_RANK[code[1]];
+  const suited = code[2] === 's';
+  return [{ rank: hi, suit: 0 }, { rank: lo, suit: suited ? 0 : 1 }];
+}
+
+// Per-cell deal weight for a scenario: mixed cells highest, then boundary cells
+// (a neighbor plays a different dominant action), then a low floor for clear
+// interior hands and a lower one for deep folds.
+function borderlineWeights(sc: PreflopScenario): { code: string; w: number }[] {
+  const N = GRID_RANKS.length;
+  const dom: string[][] = [];
+  const mixed: boolean[][] = [];
+  for (let i = 0; i < N; i++) {
+    dom[i] = [];
+    mixed[i] = [];
+    for (let j = 0; j < N; j++) {
+      const opts = cellStrategy(sc, codeAt(i, j));
+      dom[i][j] = dominantKind(opts) ?? 'fold';
+      mixed[i][j] = opts.length > 1; // a real frequency split (mixOpen / bluff cells)
+    }
+  }
+  const out: { code: string; w: number }[] = [];
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const k = dom[i][j];
+      const nb = [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]];
+      const boundary = nb.some(([ni, nj]) => ni >= 0 && nj >= 0 && ni < N && nj < N && dom[ni][nj] !== k);
+      const w = mixed[i][j] ? 6 : boundary ? 4 : k === 'fold' ? 0.3 : 1.2;
+      out.push({ code: codeAt(i, j), w });
+    }
+  }
+  return out;
+}
+
+function weightedPick(items: { code: string; w: number }[]): string {
+  const total = items.reduce((s, it) => s + it.w, 0);
+  let r = Math.random() * total;
+  for (const it of items) {
+    r -= it.w;
+    if (r <= 0) return it.code;
+  }
+  return items[items.length - 1].code;
+}
+
+// Pick a scenario, then a borderline-weighted hand within it.
+function borderlineDeal(scenarios: PreflopScenario[]): Dealt {
+  const sc = scenarios[Math.floor(Math.random() * scenarios.length)];
+  const code = weightedPick(borderlineWeights(sc));
+  return { scId: sc.id, cards: cardsForCode(code), code };
+}
+
 export function PreflopTrainer() {
   const [mode, setMode] = useState<Mode>('rfi');
   const [tableSize, setTableSize] = useState<TableSize>(6);
@@ -74,6 +152,9 @@ export function PreflopTrainer() {
   const [lastCorrect, setLastCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0, streak: 0 });
   const [showChart, setShowChart] = useState(false);
+  // Deal weighted toward borderline hands (mixed cells + range edges) instead of
+  // uniform random, so reps land on the close decisions, not obvious trash.
+  const [edgeFocus, setEdgeFocus] = useState(true);
 
   // scenarios reachable at the chosen table size, then narrowed to the mode;
   // the spot picker pins one (null = mix all).
@@ -110,11 +191,11 @@ export function PreflopTrainer() {
   const deal = useCallback(() => {
     const pool = dealPool.length ? dealPool : scenarios;
     if (!pool.length) return; // no spot for this mode + table size
-    setCur(dealRandom(pool));
+    setCur(edgeFocus ? borderlineDeal(pool) : dealRandom(pool));
     setAnswered(false);
     setLastCorrect(null);
     setShowChart(false);
-  }, [dealPool, scenarios]);
+  }, [dealPool, scenarios, edgeFocus]);
 
   // switching mode resets the current hand + spot so the scenario matches the buttons.
   const switchMode = useCallback((m: Mode) => {
@@ -231,6 +312,14 @@ export function PreflopTrainer() {
         ))}
       </div>
 
+      <label
+        className="sc-check trainer-edge-toggle"
+        title="Deal mostly borderline hands — mixed spots and hands right on the edge of the range — instead of uniformly random hands where most are obvious trash or obvious premiums."
+      >
+        <input type="checkbox" checked={edgeFocus} onChange={(e) => setEdgeFocus(e.target.checked)} />
+        🎯 Focus borderline hands
+      </label>
+
       <div className="trainer-scenario">
         {noSpots ? (
           <>No <b>{MODES.find((m) => m.id === mode)?.label}</b> spot at this table size — try another mode.</>
@@ -316,6 +405,12 @@ export function PreflopTrainer() {
                 <p className="modal-note">
                   {spot.sc.label}. Your hand <b>{cur.code}</b> is outlined in gold — its color shows the action.
                 </p>
+                {spot.sc.mnemonic && (
+                  <details className="equity-explain chart-mnemonic">
+                    <summary>💡 How to remember this range</summary>
+                    <p>{spot.sc.mnemonic}</p>
+                  </details>
+                )}
                 <div className="legend chart-legend">
                   <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {facingRaise ? `${raiseLabel} (value)` : 'Open / raise'}</div>
                   {facingRaise && <div><span className="sw" style={{ background: KIND_COLOR.call }} /> Call</div>}

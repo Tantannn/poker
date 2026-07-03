@@ -22,6 +22,8 @@ export interface PreflopScenario {
   value?: Set<string>; // 3-bet / 4-bet for value
   bluff?: Set<string>; // 3-bet / 4-bet bluffs (semi-mixed)
   call?: Set<string>;
+  /** One-line "how to remember this range" hook, shown as a collapsible note on the chart. */
+  mnemonic?: string;
   /** Restrict to specific table sizes. Default: derived from seats present —
    *  a spot survives at sizes 3-6 where both hero & villain are still seated.
    *  Heads-up (size 2) spots set this to [2] because their ranges differ. */
@@ -50,6 +52,16 @@ const MIX_OPEN: Partial<Record<Position, string[]>> = {
   SB: ['Q5s', 'J6s', 'K7o', 'Q8o', '64s'],
 };
 
+// One-line memory hook per RFI seat — surfaced as a collapsible note on the chart.
+const RFI_MNEMONIC: Record<Position, string> = {
+  UTG: 'Tightest seat. Base = pairs + strong suited aces + suited Broadways/connectors, plus AJo+/KQo. Not a pair, a strong ace, or two Broadway cards? Fold.',
+  MP: 'UTG plus one rung wider: A8s+, K9s+, add 87s and ATo+/KJo+/QJo. Same shape, a touch looser.',
+  CO: 'Steal seat opens up: every suited ace (A2s+), suited kings K8s+, suited connectors down to 54s, plus offsuit A9o+/KTo+/QTo+/JTo.',
+  BTN: 'Widest — open about half your hands. Any suited ace or king opens; offsuit needs two working cards (A2o+, K7o+, Q9o+, J9o+, T8o+, 98o, 87o).',
+  SB: 'Only the BB is behind, so steal wide like the button — but open or 3-bet, never limp. Offsuit down to A4o+/K8o+/Q9o+.',
+  BB: '',
+};
+
 const POS_LIST: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB'];
 
 export const SCENARIOS: PreflopScenario[] = [
@@ -62,11 +74,13 @@ export const SCENARIOS: PreflopScenario[] = [
     bluffFreq: 0.5,
     open: S(RFI[p]),
     mixOpen: S(MIX_OPEN[p] ?? []),
+    mnemonic: RFI_MNEMONIC[p],
   })),
   {
     id: 'btn-vs-utg',
     label: 'BTN vs UTG open',
     short: 'BTN v UTG',
+    mnemonic: 'Vs the tightest open: 3-bet only premiums (QQ+/AK/AQs) plus A5s-A4s/KJs bluffs; flat pairs and suited Broadways to set-mine in position.',
     facing: 'vsopen',
     heroPos: 'BTN',
     villainPos: 'UTG',
@@ -79,6 +93,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'co-vs-utg',
     label: 'CO vs UTG open',
     short: 'CO v UTG',
+    mnemonic: 'Like BTN-vs-UTG but flat tighter — you have position on UTG, but the blinds are still behind you.',
     facing: 'vsopen',
     heroPos: 'CO',
     villainPos: 'UTG',
@@ -91,6 +106,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'bb-vs-btn',
     label: 'BB vs BTN open (defense)',
     short: 'BB v BTN',
+    mnemonic: 'BTN opens wide, so defend widest (~40%). You already have 1bb in — mostly call with the price; 3-bet TT+/AQs+ value plus suited-wheel and suited-connector bluffs.',
     facing: 'vsopen',
     heroPos: 'BB',
     villainPos: 'BTN',
@@ -106,6 +122,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'bb-vs-sb',
     label: 'BB vs SB open',
     short: 'BB v SB',
+    mnemonic: 'You close the action with a great price vs a wide SB open — defend the most of any spot. 3-bet 99+/AJs+ value + suited bluffs, call the rest.',
     facing: 'vsopen',
     heroPos: 'BB',
     villainPos: 'SB',
@@ -121,6 +138,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'bb-vs-utg',
     label: 'BB vs UTG open (defense)',
     short: 'BB v UTG',
+    mnemonic: 'Tightest open means tightest defense: narrow 3-bet (QQ+/AK/AQs + A5s-A4s), flat pairs and suited Broadways/connectors; fold offsuit junk even at the BB price.',
     facing: 'vsopen',
     heroPos: 'BB',
     villainPos: 'UTG',
@@ -139,6 +157,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'bb-vs-mp',
     label: 'BB vs MP open (defense)',
     short: 'BB v MP',
+    mnemonic: 'A notch wider than vs UTG — MP opens slightly looser, so defend slightly wider.',
     facing: 'vsopen',
     heroPos: 'BB',
     villainPos: 'MP',
@@ -155,6 +174,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'co-vs-mp',
     label: 'CO vs MP open',
     short: 'CO v MP',
+    mnemonic: 'Position on MP, so 3-bet polar (JJ+/AQs+ value, A5s-A4s/KJs/QTs bluffs) and flat pairs + suited Broadways.',
     facing: 'vsopen',
     heroPos: 'CO',
     villainPos: 'MP',
@@ -167,6 +187,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'btn-vs-co',
     label: 'BTN vs CO open',
     short: 'BTN v CO',
+    mnemonic: 'Loose late opener and you have the button, so attack wide: 3-bet TT+/AQs+ value with more suited bluffs, flat everything playable in position.',
     facing: 'vsopen',
     heroPos: 'BTN',
     villainPos: 'CO',
@@ -179,6 +200,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'btn-vs-mp',
     label: 'BTN vs MP open',
     short: 'BTN v MP',
+    mnemonic: 'A true middle: MP sits between UTG and CO, so value is JJ+ (vs-UTG is QQ+, vs-CO is TT+). Flat wide in position.',
     facing: 'vsopen',
     heroPos: 'BTN',
     villainPos: 'MP',
@@ -195,6 +217,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'bb-vs-co',
     label: 'BB vs CO open (defense)',
     short: 'BB v CO',
+    mnemonic: 'CO opens ~25%, so defend wide from the BB price: 3-bet TT+/AQs+ value + suited bluffs, call the rest.',
     facing: 'vsopen',
     heroPos: 'BB',
     villainPos: 'CO',
@@ -210,6 +233,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'sb-vs-btn',
     label: 'SB vs BTN open (3-bet or fold)',
     short: 'SB v BTN',
+    mnemonic: 'Out of position vs a steal, so 3-bet or fold — no flatting. Value 99+/ATs+/AQo+ plus suited bluffs; flatting OOP just bleeds.',
     facing: 'vsopen',
     heroPos: 'SB',
     villainPos: 'BTN',
@@ -222,6 +246,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'btn-vs-3bet',
     label: 'BTN open vs a 3-bet',
     short: 'BTN v 3B',
+    mnemonic: 'In position, so flat wide (JJ-77/AQs/AJs). 4-bet only premiums (QQ+/AK) plus A5s/A4s wheel-ace bluffs.',
     facing: 'vs3bet',
     heroPos: 'BTN',
     bluffFreq: 0.5,
@@ -233,6 +258,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'co-vs-3bet',
     label: 'CO open vs a 3-bet',
     short: 'CO v 3B',
+    mnemonic: 'Same as BTN-vs-3bet but flat a touch tighter — not on the button.',
     facing: 'vs3bet',
     heroPos: 'CO',
     bluffFreq: 0.45,
@@ -244,6 +270,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'utg-vs-3bet',
     label: 'UTG open vs a 3-bet',
     short: 'UTG v 3B',
+    mnemonic: 'Your UTG open is already strong, so mostly continue: 4-bet KK+/AKs, flat QQ-TT/AKo/AQs/AJs/KQs; A5s the lone bluff.',
     facing: 'vs3bet',
     heroPos: 'UTG',
     bluffFreq: 0.4,
@@ -259,6 +286,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'btn-vs-4bet',
     label: 'BTN vs a 4-bet',
     short: 'BTN v 4B',
+    mnemonic: 'Vs a 4-bet stacks are committing, so it is premiums or fold: 5-bet/jam QQ+/AKs, flat a sliver (JJ/AKo/AQs), A5s the only bluff.',
     facing: 'vs4bet',
     heroPos: 'BTN',
     bluffFreq: 0.5,
@@ -270,6 +298,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'co-vs-4bet',
     label: 'CO vs a 4-bet',
     short: 'CO v 4B',
+    mnemonic: 'Premiums or fold: 5-bet KK+/AKs, flat QQ/AKo, A5s bluff — tighter than the button.',
     facing: 'vs4bet',
     heroPos: 'CO',
     bluffFreq: 0.4,
@@ -281,6 +310,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'utg-vs-4bet',
     label: 'UTG vs a 4-bet',
     short: 'UTG v 4B',
+    mnemonic: 'Tightest 4-bet-facing spot: only KK+ jams for value; AK/QQ/AKs just call, everything else folds.',
     facing: 'vs4bet',
     heroPos: 'UTG',
     bluffFreq: 0.3,
@@ -296,6 +326,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'hu-sb-rfi',
     label: 'Heads-up — SB (button) open',
     short: 'HU Open',
+    mnemonic: 'You are the button heads-up: open ~82%. Every suited hand and every pair opens; fold only the worst offsuit junk. Suited = raise.',
     facing: 'rfi',
     heroPos: 'SB',
     bluffFreq: 0.5,
@@ -312,6 +343,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'hu-bb-vs-sb',
     label: 'Heads-up — BB vs SB open',
     short: 'HU Defend',
+    mnemonic: 'Vs an ~82% SB open, defend ~65%. 3-bet a polar value+bluff set, flat the rest — overfolding just hands the blind back.',
     facing: 'vsopen',
     heroPos: 'BB',
     villainPos: 'SB',
@@ -330,6 +362,7 @@ export const SCENARIOS: PreflopScenario[] = [
     id: 'hu-sb-vs-3bet',
     label: 'Heads-up — SB open vs a 3-bet',
     short: 'HU v 3B',
+    mnemonic: 'You opened huge and got 3-bet, so keep continuing wide: 4-bet TT+/AK/AQs value + suited-wheel bluffs, flat the rest.',
     facing: 'vs3bet',
     heroPos: 'SB',
     bluffFreq: 0.5,

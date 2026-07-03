@@ -98,6 +98,10 @@ export function ScenarioBar({ g }: { g: G }) {
           <input type="checkbox" checked={g.watchAfterFold} onChange={(e) => g.setWatchAfterFold(e.target.checked)} />
           Watch after fold
         </label>
+        <label className="sc-check" title="Show the tilt-pressure banner and the post-swing cool-off gate. Off = no warnings and Repeat Hand stays available after a big swing">
+          <input type="checkbox" checked={g.tiltWarnings} onChange={(e) => g.setTiltWarnings(e.target.checked)} />
+          Tilt warnings
+        </label>
         <button className="sc-config-toggle" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide opponents' : 'Configure opponents'}
         </button>

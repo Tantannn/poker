@@ -157,6 +157,7 @@ export function useGame(initialProfiles: string[]) {
   const [stackDepth, setStackDepth] = useState<number>(SAVED?.stackDepth ?? STARTING_BB);
   const [tableSize, setTableSize] = useState<number>(SAVED?.tableSize ?? NUM_PLAYERS);
   const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
+  const [tiltWarnings, setTiltWarnings] = useState<boolean>(SAVED?.tiltWarnings ?? true);
   const [difficulty, setDifficulty] = useState<Difficulty>((SAVED?.difficulty as Difficulty) ?? 'normal');
 
   // running read on how the hero plays, fed to hard/extreme bots so they adapt.
@@ -447,12 +448,12 @@ export function useGame(initialProfiles: string[]) {
   }, [game, mode]);
   useEffect(() => {
     saveSettings({
-      profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize,
+      profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, tableSize,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, difficulty, tableSize, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, tableSize, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   useEffect(() => {
@@ -649,8 +650,10 @@ export function useGame(initialProfiles: string[]) {
   );
 
   // tilt pressure read off the recent result shape + decision quality — drives
-  // the cool-off gate on the deal button after a big swing.
-  const tilt = useMemo(() => assessTilt(stats), [stats]);
+  // the cool-off gate on the deal button after a big swing. Null when the user
+  // has switched tilt warnings off, which also removes the gate that would
+  // otherwise hide the Repeat Hand button after a swing.
+  const tilt = useMemo(() => (tiltWarnings ? assessTilt(stats) : null), [stats, tiltWarnings]);
 
   const doResetStats = useCallback(() => {
     setStats(resetStats());
@@ -802,6 +805,8 @@ export function useGame(initialProfiles: string[]) {
     applyTableSize,
     watchAfterFold,
     setWatchAfterFold,
+    tiltWarnings,
+    setTiltWarnings,
     difficulty,
     setDifficulty,
     finishHand,
