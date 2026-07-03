@@ -181,6 +181,10 @@ export function moveTier(evLoss: number, chosenEv = 0): MoveTier {
   if (loss <= TIER.correct) return 'correct';
   if (chosenEv <= BLUNDER_EV || loss > CATASTROPHE_LOSS) return 'blunder';
   if (chosenEv < 0 || loss > TIER.wrong) return 'wrong';
+  // magnitude backstop: even a +EV line that leaves > TIER.inaccuracy (1.5bb) on the
+  // table is a real error, not a mere inaccuracy. Without this the inaccuracy tier
+  // silently swallowed every +EV loss from 0.5 up to 4.0bb (the 1.5 constant was dead).
+  if (loss > TIER.inaccuracy) return 'wrong';
   return 'inaccuracy';
 }
 

@@ -296,7 +296,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
       kind: classKind(cls),
       why: whyBet(cls, eHU, d, outs, false, isRiver, frac),
-      math: `EV = fold% × pot + called% × (eq-when-called × final pot − you invest)${sv ? ' + multi-street value' : ''}\n   = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A})${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${sv ? `\n   (~${Math.round(d.contFrac * 100)}% of his range calls this size; the rest folds — a smaller bet keeps more worse hands in to pay later streets)` : ''}`,
+      math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${sv ? `\n   (~${Math.round(d.contFrac * 100)}% of his range calls this size; the rest folds — a smaller bet keeps more worse hands in to pay later streets)` : d.isThinValue ? `\n   (river: worse hands call and pay the bet, better hands call and beat you — betting profits only when more worse call than better)` : ''}`,
     });
   };
 
@@ -326,7 +326,11 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       why:
         whyBet(cls, eHU, d, outs, true, isRiver, allinFrac) +
         ` Note: a ${RISK.toFixed(1)}bb risk premium is applied (scaled to SPR ${spr.toFixed(1)} — deeper stacks risk more, so the premium is bigger) — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
-      math: `EV = ${pct1(d.fe)} × ${P} + ${pct1(1 - d.fe)} × (${pct1(d.e2)} × ${d.calledPot} − ${d.A}) = ${rawEv.toFixed(2)} bb\n   only ~${Math.round(d.contFrac * 100)}% of his range calls a shove (the strong part), so eq-when-called is just ${pct1(d.e2)}; and a jam forgoes all later-street value.\n   − ${RISK.toFixed(1)} bb risk premium (SPR ${spr.toFixed(1)}) → ${adjEv.toFixed(2)} bb`,
+      math: `EV = ${d.evExpr} = ${d.ev.toFixed(1)} chips ≈ ${rawEv.toFixed(2)} bb\n   ${
+        d.isThinValue
+          ? `river shove: worse hands FOLD and better hands CALL, so a jam prints only when more worse hands call than better — it can't fold out a made hand for value.`
+          : `only ~${Math.round(d.contFrac * 100)}% of his range calls a shove (the strong part), so eq-when-called is just ${pct1(d.e2)}; and a jam forgoes all later-street value.`
+      }\n   − ${RISK.toFixed(1)} bb risk premium (SPR ${spr.toFixed(1)}) → ${adjEv.toFixed(2)} bb`,
     });
   }
 
@@ -385,6 +389,15 @@ interface AggroDetail {
   streetValue: number;
   /** share of villain's range that continues at this size (minimum-defence). */
   contFrac: number;
+  /** the EV formula for THIS branch — symbolic form + the numbers plugged in — so the
+   *  displayed math matches what was actually computed. The flop/turn branch and the
+   *  river thin-value branch use different formulas; each supplies its own here rather
+   *  than letting solvePostflop print one hardcoded template that only fits the former. */
+  evLabel: string;
+  evExpr: string;
+  /** river thin-value branch (no more cards): worse hands fold, better hands call — a
+   *  different EV structure and a different all-in story than a flop/turn shove. */
+  isThinValue: boolean;
 }
 
 function computeAggro(
@@ -438,37 +451,45 @@ function computeAggro(
     const e2r = cont > 0 ? Cw / cont : 0; // hero equity GIVEN called
     const fer = Math.max(0.02, 1 - cont); // share that folds (worse, didn't cry-call)
     const evr = base * P + R * Cw - A * Cb; // showdown + thin-value increment
-    return { ev: evr, fe: fer, e2: e2r, calledPot: P + A + R, A, streetValue: 0, contFrac: cont };
+    // river math is a thin-value increment, NOT the generic fold-equity template —
+    // print the formula that was actually evaluated so the panel can't contradict it.
+    const evLabel = `showdown share × pot + bet × (worse hands that call) − you invest × (better hands that call)`;
+    const evExpr = `${pct1(base)} × ${P} + ${R} × ${pct1(Cw)} − ${A} × ${pct1(Cb)}`;
+    return { ev: evr, fe: fer, e2: e2r, calledPot: P + A + R, A, streetValue: 0, contFrac: cont, evLabel, evExpr, isThinValue: true };
   }
 
-  // Fold equity rises with size but SATURATES fast and never folds everything.
-  // A pot-sized bet already buys most of the folds; over-betting/shoving buys
-  // almost none more — so a 10x-pot shove is not "free money". Position nudges
-  // it (in position bets earn a touch more folds); wet boards lower it (villain
-  // has draws that keep calling).
-  let fe = (0.1 + 0.3 * Math.min(s, 1.2) - wetness) * feMult;
-  fe = Math.max(0.04, Math.min(0.6, fe));
-  // MULTIWAY: EVERY opponent has to fold for the bet to take it down. Treating
-  // their folds as roughly independent, the chance they ALL fold is fe^oppCount —
-  // so fold equity collapses fast as the field grows.
-  if (oppCount > 1) fe = Math.max(0.02, Math.pow(fe, oppCount));
-  // FLUSH DOMINATION, graded by level. On a 4+ flush board any one-card of the suit
-  // is already a made flush that never folds → collapse fold equity to a sliver. On
-  // a 3-flush/monotone board a MADE flush is rare (needs both villain cards suited);
-  // the callers are mostly single-suit DRAWS that DO fold sometimes and that hero
-  // still beats — so only a mild cap, not the collapse.
-  if (flushLevel >= 4) fe = Math.min(fe, 0.08);
-  else if (flushLevel === 3) fe = Math.min(fe, 0.28);
+  // ---- CONTINUE vs FOLD frequency: ONE model, shared by the EV pot-split, the
+  // equity-when-called (e2) below, AND the displayed math ----
+  // Minimum-defence: against a bet of `s` pots a villain continues with ~his
+  // strongest 1/(1+s) of range. This single number is the source of truth for "how
+  // often is hero called", so the EV split and the range strength can no longer
+  // disagree. (The OLD code split the pot on a SEPARATE saturating fold-equity term
+  // while deriving e2 from contFrac — for a shove that printed "76% called" in the EV
+  // yet "4% continues" in the note: the same event with two numbers, which let the
+  // jam bank a huge called-pot it almost never actually reaches.)
+  let contFrac = 1 / (1 + Math.max(0, s));
+  // FLUSH DOMINATION, graded by level. Hero holds none of the board suit: on a 4+
+  // flush board villain's one-card flushes never fold → he continues almost always;
+  // on a 3-flush/monotone board a made flush needs both his cards suited (rare) and
+  // the rest are draws, so only a mild FLOOR on how often he continues.
+  if (flushLevel >= 4) contFrac = Math.max(contFrac, 0.92);
+  else if (flushLevel === 3) contFrac = Math.max(contFrac, 0.72);
+  // MULTIWAY: the bet only wins UNCONTESTED if EVERY opponent folds, so someone
+  // continuing is likelier as the field grows — P(≥1 continues) = 1 − (1−contFrac)^n.
+  if (oppCount > 1) contFrac = 1 - Math.pow(1 - contFrac, oppCount);
+  // POSITION & TEXTURE nudge — small and ADDITIVE, so it can't swing a shove's
+  // call-rate (a multiplicative factor near contFrac≈1 would). In position hero's
+  // bets fold a hair more out (lower contFrac), out of position a hair fewer; a wet
+  // board keeps more draws in (higher contFrac).
+  contFrac = Math.max(0.02, Math.min(0.98, contFrac + (1 - feMult) * 0.15 + wetness));
+  const fe = 1 - contFrac; // fold frequency == fold equity — the ONE number, used & shown
 
-  // EQUITY WHEN CALLED — derived from minimum-defence frequency. Against a bet of
-  // `s` pots a defending villain continues with ~his strongest 1/(1+s) of range,
-  // so the BIGGER the bet the TIGHTER and STRONGER the range that calls, and
-  // hero's realised equity when called collapses toward (then past) a coin flip.
-  // This is the term that makes over-bets and shoves -EV with a one-pair value
-  // hand: you fold out everything you beat and get called only by what beats you.
-  // Convex and UNCAPPED in size, so a 5–10x shove is punished far harder than a
-  // ¾-pot bet — unlike a fixed penalty, which let the jam keep winning.
-  const contFrac = 1 / (1 + Math.max(0, s));
+  // EQUITY WHEN CALLED — built on the SAME contFrac. Against a bigger bet the
+  // continuing range is TIGHTER and STRONGER (1/(1+s) shrinks), so hero's realised
+  // equity when called collapses toward (then past) a coin flip. This is what makes
+  // over-bets and shoves -EV with a one-pair value hand: you fold out everything you
+  // beat and get called only by what beats you. Convex and UNCAPPED in size, so a
+  // 5–10x shove is punished far harder than a ¾-pot bet.
   const rangeLift = 0.32 * (1 - contFrac); // strength gain of the continuing range
   // a shove reads scarier than the same chips as a bet, so the stack-off range is
   // a touch tighter — but only meaningfully once the shove is large vs the pot.
@@ -500,11 +521,15 @@ function computeAggro(
     const futureExtract = Math.min(behind, 0.5 * calledPot); // ~½-pot next street
     const edge = Math.max(0, Math.min(1, (e2 - 0.5) * 2)); // how far ahead of callers
     const dryness = Math.max(0, 1 - 3 * wetness); // dry boards keep worse hands around
-    streetValue = (1 - fe) * contFrac * edge * futureExtract * 0.5 * dryness;
+    // contFrac === (1 − fe) now, so this is the single "worse hands that continue and
+    // pay a later street" factor (the old code multiplied both and double-counted it).
+    streetValue = contFrac * edge * futureExtract * 0.5 * dryness;
     ev += streetValue;
   }
 
-  return { ev, fe, e2, calledPot, A, streetValue, contFrac };
+  const evLabel = `fold% × pot + called% × (eq-when-called × final pot − you invest)`;
+  const evExpr = `${pct1(fe)} × ${P} + ${pct1(1 - fe)} × (${pct1(e2)} × ${calledPot} − ${A})`;
+  return { ev, fe, e2, calledPot, A, streetValue, contFrac, evLabel, evExpr, isThinValue: false };
 }
 
 /**
