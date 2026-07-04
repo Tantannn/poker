@@ -18,6 +18,10 @@ const ExploitTrainer = lazy(() => import('./components/ExploitTrainer').then((m)
 const Replay = lazy(() => import('./components/Replay').then((m) => ({ default: m.Replay })));
 const EquityDrill = lazy(() => import('./components/EquityDrill').then((m) => ({ default: m.EquityDrill })));
 const BetSizingDrill = lazy(() => import('./components/BetSizingDrill').then((m) => ({ default: m.BetSizingDrill })));
+const MathDrill = lazy(() => import('./components/MathDrill').then((m) => ({ default: m.MathDrill })));
+const MentalGame = lazy(() => import('./components/MentalGame').then((m) => ({ default: m.MentalGame })));
+const FlopHeatmap = lazy(() => import('./components/FlopHeatmap').then((m) => ({ default: m.FlopHeatmap })));
+const Curriculum = lazy(() => import('./components/Curriculum').then((m) => ({ default: m.Curriculum })));
 const Gameplan = lazy(() => import('./components/Gameplan').then((m) => ({ default: m.Gameplan })));
 const Review = lazy(() => import('./components/Review').then((m) => ({ default: m.Review })));
 const BankrollSim = lazy(() => import('./components/BankrollSim').then((m) => ({ default: m.BankrollSim })));
@@ -26,14 +30,16 @@ const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'review' | 'sizing' | 'bankroll' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'learn', label: '🎓 Learning Path' },
   { id: 'play', label: '♠ Play vs Bots' },
   { id: 'tournament', label: '🏆 Tournament' },
   { id: 'charts', label: 'Preflop Charts' },
   { id: 'trainer', label: 'Range Trainer' },
   { id: 'lab', label: 'Postflop Lab' },
+  { id: 'heatmap', label: '🔥 Flop Heatmap' },
   { id: 'gameplan', label: '📋 Gameplan' },
   { id: 'quiz', label: 'Leak Quiz' },
   { id: 'exploit', label: '🎯 Read & Exploit' },
@@ -41,9 +47,11 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'principles', label: '📓 Principles' },
   { id: 'odds', label: 'Pot Odds' },
   { id: 'eqdrill', label: '🧠 Equity Drill' },
+  { id: 'mathdrill', label: '🧮 Math Trainer' },
   { id: 'review', label: '🔁 Review' },
   { id: 'sizing', label: '💰 Bet Sizing' },
   { id: 'bankroll', label: '💵 Bankroll' },
+  { id: 'mental', label: '🧘 Mental Game' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'reference', label: 'Reference' },
   { id: 'settings', label: '⚙ Settings' },
@@ -87,6 +95,11 @@ export default function App() {
 
       <main className="app-main">
        <Suspense fallback={<div className="card"><p className="sub">Loading…</p></div>}>
+        {tab === 'learn' && (
+          <div className="content-col">
+            <Curriculum onGo={(t) => selectTab(t as Tab)} />
+          </div>
+        )}
         {(tab === 'play' || tab === 'tournament') && (
           <PokerTable g={g} hudEnabled={hudEnabled} onToggleHud={() => setHudEnabled((v) => !v)} />
         )}
@@ -103,6 +116,11 @@ export default function App() {
         {tab === 'lab' && (
           <div className="content-col">
             <PostflopLab />
+          </div>
+        )}
+        {tab === 'heatmap' && (
+          <div className="content-col">
+            <FlopHeatmap />
           </div>
         )}
         {tab === 'gameplan' && (
@@ -140,6 +158,11 @@ export default function App() {
             <EquityDrill />
           </div>
         )}
+        {tab === 'mathdrill' && (
+          <div className="content-col">
+            <MathDrill />
+          </div>
+        )}
         {tab === 'review' && (
           <div className="content-col">
             <Review />
@@ -153,6 +176,11 @@ export default function App() {
         {tab === 'bankroll' && (
           <div className="content-col">
             <BankrollSim g={g} />
+          </div>
+        )}
+        {tab === 'mental' && (
+          <div className="content-col">
+            <MentalGame />
           </div>
         )}
         {tab === 'analytics' && (
