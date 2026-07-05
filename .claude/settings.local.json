@@ -72,7 +72,11 @@
       "PowerShell(npx vitest run --reporter=dot 2>&1 | Select-Object -Last 12)",
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 10; npx eslint src/strategy/postflopModel.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 10)",
       "PowerShell(npx vitest run 2>&1 | Select-Object -Last 40)",
-      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 10)"
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 10)",
+      "Bash(sed -n \"/sixMaxRfiEquivalent/,+30p\" D:/code/poker/src/engine/table.ts)",
+      "Bash(sed -n \"/export function positionLabel/,+25p\" D:/code/poker/src/engine/table.ts)",
+      "Bash(sed -n \"/const RFI_LADDER/,+3p\" D:/code/poker/src/engine/table.ts)",
+      "Bash(sed -n \"/export function tablePositions/,+12p\" D:/code/poker/src/engine/table.ts)"
     ]
   }
 }

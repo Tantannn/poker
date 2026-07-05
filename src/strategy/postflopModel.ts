@@ -390,11 +390,18 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ev: 0,
       kind: 'fold',
       // Say the truth about the price: when the call makes money, folding is the
-      // line that gives up EV — don't tell the user they "only have" enough.
+      // line that gives up EV — don't tell the user they "only have" enough. The
+      // raw price (e vs need) and the full EV (with implied odds + realisation)
+      // can disagree, so the wording keys on BOTH, never claiming "price met"
+      // when only implied odds carry the call.
       why:
         evCall > 0.05
-          ? `You need ${pct(need)} equity and have ~${pct(e)} — the price is met, so folding surrenders a profitable call. Fold only with a strong read that this opponent never bluffs here.`
-          : `You need ${pct(need)} equity to call but only have ~${pct(e)}. Folding forfeits the pot but loses the least.`,
+          ? e >= need
+            ? `You need ${pct(need)} equity and have ~${pct(e)} — the price is met, so folding surrenders a profitable call. Fold only with a strong read that this opponent never bluffs here.`
+            : `The raw price isn't met (~${pct(e)} vs ${pct(need)} needed), but implied odds make calling profitable — folding still surrenders EV.`
+          : e >= need
+            ? `~${pct(e)} vs ${pct(need)} needed — technically enough, but the call is about break-even at best once realisation is counted, so folding gives up almost nothing.`
+            : `You need ${pct(need)} equity to call but only have ~${pct(e)}. Folding forfeits the pot but loses the least.`,
       math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)}; you have ~${pct(e)}.\nEV(fold) = 0 bb (you put in nothing more).`,
     });
     cands.push({

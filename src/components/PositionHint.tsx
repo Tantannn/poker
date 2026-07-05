@@ -5,9 +5,10 @@
 
 import { positionLabel, sixMaxRfiEquivalent, type Position } from '../engine/table';
 
-// the 6-max opening ladder, widest-acting last. The chip matching your seat's
-// equivalent lights up — that's the range to open.
-const LADDER: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB'];
+// the 6-max opening ladder, widest range last (matches this app's charts, where
+// BTN ~45% opens wider than SB ~40%). The chip matching your seat's equivalent
+// lights up — that's the range to open.
+const LADDER: Position[] = ['UTG', 'MP', 'CO', 'SB', 'BTN'];
 
 const SIZE_LABEL: Record<number, string> = { 2: 'HU', 3: '3-max', 4: '4-max', 5: '5-max', 6: '6-max' };
 

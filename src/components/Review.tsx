@@ -101,7 +101,7 @@ export function Review() {
         <div className="kpi"><div className="kpi-value">{s.acc == null ? '—' : `${Math.round(s.acc * 100)}%`}</div><div className="kpi-label">Overall accuracy</div></div>
       </div>
 
-      <div className="rv-bar" title={`${s.mastered} mastered · ${s.due} due · ${s.untouched} not seen`}>
+      <div className="rv-mastery" title={`${s.mastered} mastered · ${s.due} due · ${s.untouched} not seen`}>
         <div className="rv-seg mastered" style={{ flexGrow: Math.max(0.001, s.mastered) }} />
         <div className="rv-seg due" style={{ flexGrow: Math.max(0.001, s.due) }} />
         <div className="rv-seg new" style={{ flexGrow: Math.max(0.001, s.untouched) }} />
@@ -113,7 +113,7 @@ export function Review() {
         <span className="muted">{masteredPct}% mastered</span>
       </div>
 
-      <div className="rv-actions">
+      <div className="rv-mastery-actions">
         <button className="btn btn-deal" onClick={() => startSession(false)} disabled={s.due === 0}>
           {s.due > 0 ? `Review ${s.due} due card${s.due === 1 ? '' : 's'} →` : 'Nothing due — caught up ✓'}
         </button>

@@ -1664,7 +1664,9 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 
 /* ---------- Review (spaced repetition) ---------- */
 .rv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.rv-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 14px 0 8px; border: 1px solid var(--line); }
+/* NB: NOT `.rv-bar` — that class is the Hand Review toolbar (see "hand review"
+   section above); reusing the name here once squashed that toolbar to 14px. */
+.rv-mastery { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 14px 0 8px; border: 1px solid var(--line); }
 .rv-seg { min-width: 2px; }
 .rv-seg.mastered { background: var(--raise2); }
 .rv-seg.due { background: var(--red); }
@@ -1674,7 +1676,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .rv-legend .sw.mastered { background: var(--raise2); }
 .rv-legend .sw.due { background: var(--red); }
 .rv-legend .sw.new { background: var(--chip); border: 1px solid var(--line); }
-.rv-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 16px; }
+.rv-mastery-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 16px; }
 .rv-weak { margin-top: 8px; }
 .rv-weak-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .rv-weak-spot { color: var(--txt); }

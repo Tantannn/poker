@@ -28,6 +28,11 @@ export function RangeGrid() {
 
   const selOpts = sel ? cellStrategy(sc, sel) : null;
 
+  // the aggressive action's name depends on the scenario — a "3-bet bluff" legend
+  // over a vs-3-bet chart mislabels what the orange cells actually do (4-bet).
+  const RAISE_WORD: Record<string, string> = { rfi: 'Open', vsopen: '3-Bet', vs3bet: '4-Bet', vs4bet: '5-Bet', squeeze: 'Squeeze', vslimp: 'Iso-raise' };
+  const raiseWord = RAISE_WORD[sc.facing] ?? '3-Bet';
+
   return (
     <div className="card">
       <h2>Preflop Range Charts</h2>
@@ -79,9 +84,9 @@ export function RangeGrid() {
 
         <div className="grid-side">
           <div className="legend chart-legend">
-            <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {KIND_LABEL.value}</div>
+            <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {sc.facing === 'rfi' ? KIND_LABEL.value : `${raiseWord} (value)`}</div>
             {sc.facing !== 'rfi' && <div><span className="sw" style={{ background: KIND_COLOR.call }} /> Call</div>}
-            {sc.facing !== 'rfi' && <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> 3-Bet bluff</div>}
+            {sc.facing !== 'rfi' && <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> {raiseWord} bluff</div>}
             <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> Fold</div>
           </div>
 

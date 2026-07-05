@@ -67,7 +67,7 @@ const POS_EXPLAIN: Record<Pos, string> = {
 const VILLAINS: { id: string; label: string; range: WeightedRange }[] = [
   { id: 'utg', label: 'UTG open (~14%, tight)', range: rangeFromSet(RFI_RANGES.UTG) },
   { id: 'mp', label: 'MP open (~18%)', range: rangeFromSet(RFI_RANGES.MP) },
-  { id: 'co', label: 'CO open (~27%)', range: rangeFromSet(RFI_RANGES.CO) },
+  { id: 'co', label: 'CO open (~25%)', range: rangeFromSet(RFI_RANGES.CO) },
   { id: 'btn', label: 'BTN open (~45%, wide)', range: rangeFromSet(RFI_RANGES.BTN) },
   { id: 'sb', label: 'SB open (~40%)', range: rangeFromSet(RFI_RANGES.SB) },
   { id: 'bbdef', label: 'BB defend (very wide)', range: rangeFromSet(BB_DEFEND_RANGE) },
@@ -229,7 +229,9 @@ function villainDecision(s: PlayState): PlayState {
         vBehind: s.vBehind - size,
         raises: s.raises + 1,
         actor: 'hero',
-        villMsg: `Villain ${value ? 'bets' : 'bluffs'} ${size} (~⅔ pot).`,
+        // never say "bluffs" — this message shows BEFORE hero responds and would
+        // spoil the exact read the mode trains
+        villMsg: `Villain bets ${size} (~⅔ pot).`,
       };
     }
     // check: pass to hero if villain acts first, else both checked → close
@@ -288,13 +290,14 @@ function applyHeroAction(s: PlayState, opt: { id: ActionId; amount?: number }): 
     });
   }
   if (toCall > 0) {
-    // call — matches villain, closes the street
+    // call — matches villain, closes the street. drive() so an OOP villain takes
+    // his first action on the NEW street (closeStreet may hand him the actor).
     const delta = Math.min(toCall, s.behind);
-    return closeStreet({ ...s, pot: s.pot + delta, heroCommit: s.heroCommit + delta, behind: s.behind - delta });
+    return drive(closeStreet({ ...s, pot: s.pot + delta, heroCommit: s.heroCommit + delta, behind: s.behind - delta }));
   }
   // check: pass to villain if hero acts first, else hero checked behind → close
   if (heroIsFirst(s)) return drive({ ...s, actor: 'villain', villMsg: '' });
-  return closeStreet(s);
+  return drive(closeStreet(s));
 }
 
 function makeStartPlay(texture: TextureFilter, potType: PotType, pos: Pos, vId: string): PlayState {

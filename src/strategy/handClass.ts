@@ -148,7 +148,7 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
     )
       return {
         label: 'Playing the Board',
-        blurb: 'Your best five cards are all on the board — every player has at least this hand, so a chop is your ceiling and anyone who improves on the board beats you. Check it down; fold to serious bets.',
+        blurb: 'Your best five cards are all on the board — every player has at least this hand, so a chop is your ceiling. Fold to serious bets when the board can be beaten; if nothing beats the board, never fold — the worst you can do is split.',
         strength: 1,
       };
   }
