@@ -10,6 +10,7 @@ import { equityVsRange, equityVsField, countOuts, exactOutsEquity } from '../eng
 import { evaluate7 } from '../engine/evaluator';
 import { requiredEquityForBet } from '../engine/potOdds';
 import { classifyFlop } from '../engine/board';
+import type { TextureInfo } from '../engine/board';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { mixFromEv } from './types';
 
@@ -151,6 +152,120 @@ interface Candidate {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
+
+/** Narrative overview shown above the option grid. Composed from spot-specific
+ *  signals so different spots read differently — an equity tier, how far the
+ *  price is from the equity (when facing a bet), ONE street-specific idea, a
+ *  texture warning only when the texture actually shifts the maths, and stack
+ *  depth only when it binds. Replaces the old single template, which printed
+ *  the same skeleton for every spot and read as boilerplate. */
+function buildNote(a: {
+  e: number;
+  eHU: number;
+  nOpp: number;
+  street: 'flop' | 'turn' | 'river';
+  P: number;
+  C: number;
+  bb: number;
+  outs: number;
+  cardsToCome: number;
+  hasMade: boolean;
+  implied: number;
+  cleanFrac: number;
+  flushLevel: number;
+  tex: TextureInfo | null;
+  spr: number;
+  sprKnown: boolean;
+  canRaise: boolean;
+}): string {
+  const s: string[] = [];
+  const ePct = Math.round(a.e * 100);
+
+  // 1) where the hand stands — tiered, with the multiway penalty spelled out
+  const field =
+    a.nOpp > 1 ? ` in this ${a.nOpp + 1}-way pot (you must beat everyone at once — each extra player cuts your share)` : '';
+  if (a.e >= 0.65) s.push(`You'd win about ${ePct}% of showdowns${field} — a clear favourite.`);
+  else if (a.e >= 0.5) s.push(`You'd win about ${ePct}%${field} — slightly ahead, but not by enough to pile money in.`);
+  else if (a.e >= 0.35) s.push(`You'd win about ${ePct}%${field} — behind, but live.`);
+  else if (a.e >= 0.2) s.push(`You'd win only about ${ePct}%${field} — well behind the ranges you're up against.`);
+  else s.push(`You'd win only about ${ePct}%${field} — you're beaten almost everywhere.`);
+
+  // 2) the price, when facing a bet — say HOW FAR off it is, not just the numbers
+  if (a.C > 0) {
+    const need = a.C / (a.P + a.C);
+    const needPct = Math.round(need * 100);
+    const gapPts = Math.round((a.e - need) * 100);
+    const draw = a.implied > 0;
+    if (gapPts >= 8) s.push(`The price is great: you need ${needPct}% and have ~${ePct}% — ${gapPts} points to spare, calling clearly makes money.`);
+    else if (gapPts >= 2) s.push(`The price works: you need ${needPct}% and have ~${ePct}%, a ${gapPts}-point edge.`);
+    else if (gapPts > -2) s.push(`Razor-thin: you need ${needPct}% and have ~${ePct}%. Either line costs almost nothing — coin-flips like this barely matter.`);
+    else if (gapPts > -8)
+      s.push(
+        `You're ${-gapPts} points short of the ${needPct}% the price demands${draw ? ' on raw equity — only the implied odds from hitting your draw can rescue a call' : ' — a fold, unless this opponent bluffs noticeably too often'}.`,
+      );
+    else s.push(`You're nowhere near the price: ${needPct}% needed vs ~${ePct}% held, ${-gapPts} points short. ${draw ? 'Even with a draw the maths is not close.' : 'Calling burns money no matter how the hand "feels".'}`);
+  }
+
+  // 3) exactly one street-specific idea
+  if (a.street === 'river') {
+    if (a.C > 0 && a.e >= 0.65)
+      s.push(`On the river nothing can improve, but you beat enough of his betting range that this is a value call — raising only folds out the bluffs you already beat.`);
+    else if (a.C > 0)
+      s.push(
+        `On the river nothing can improve: a medium hand is a pure bluff-catcher, so that ~${ePct}% really asks "how often is this bet a bluff?". River bets are polarized — strong value and bluffs, little between.`,
+      );
+    else
+      s.push(`On the river no more cards are coming, so a bet only makes money when MORE worse hands call than better ones — with a middling hand, checking usually beats betting.`);
+  } else if (a.outs >= 4 && a.e < 0.55) {
+    const hit = Math.round(exactOutsEquity(a.outs, a.cardsToCome));
+    s.push(
+      `You have ~${a.outs} outs — roughly ${hit}% to get there ${a.cardsToCome === 1 ? 'on the river (the ×2 rule)' : 'by the river (the ×4 rule)'}.${
+        a.implied > 0
+          ? ` Chips behind add implied odds (~${(a.implied / a.bb).toFixed(1)}bb extra when you hit), but only ~${Math.round(a.cleanFrac * 100)}% of those outs win cleanly against this range, so the draw is discounted.`
+          : ''
+      }`,
+    );
+  } else if (a.nOpp > 1 && !a.hasMade) {
+    s.push(`Multiway, a bet mainly thins the field: with fewer players in, a modest hand wins far more often, and a small bet denies free cards.`);
+  } else if (a.cardsToCome === 1) {
+    s.push(`One card to come: ranges are nearly set, so think in terms of value hands vs bluff-catchers rather than draws.`);
+  }
+
+  // 4) texture, only when it actually changes the maths
+  if (a.flushLevel >= 4)
+    s.push(
+      `Danger: ${a.flushLevel} cards of one suit are on board and you hold none — ANY single card of that suit already beats you, so the range that continues against a bet is a wall of flushes.`,
+    );
+  else if (a.flushLevel === 3)
+    s.push(`Three of one suit are out and you hold none — made flushes are rare (both hole cards must match), but flush draws are everywhere: charge them, don't panic.`);
+  else if (a.tex?.connected && a.hasMade && a.e < 0.62)
+    s.push(`The board is connected, so straights are live — a one-pair hand shrinks on boards like this.`);
+  else if (a.tex?.paired && !a.hasMade && a.e < 0.5)
+    s.push(`The board is paired — trips and full houses are possible, and drawing hands lose value when the board can fill up.`);
+
+  // 5) stack depth, only when it binds
+  if (a.sprKnown && a.P > 0) {
+    if (a.spr < 1) s.push(`SPR ${a.spr.toFixed(1)} — barely a pot-sized bet behind, so the money goes in fast: commit or fold, no room to maneuver.`);
+    else if (a.spr > 4 && a.street !== 'river')
+      s.push(`Stacks are deep (SPR ${a.spr.toFixed(1)}): big pots want big hands, and position and later streets matter more than this one bet.`);
+  }
+
+  // 6) sizing guidance, only when hero can actually bet/raise. The value tier
+  // needs BOTH numbers: eHU (a raise only has to beat the one caller) AND the
+  // field equity e — otherwise a hand that's "well behind" multiway gets told
+  // it can value-bet, contradicting the opening sentence.
+  if (a.canRaise) {
+    const verb = a.C > 0 ? 'raise' : 'bet';
+    if (a.eHU >= 0.65 && (a.C === 0 || a.e >= 0.5))
+      s.push(`You're strong enough to ${verb} for value — size to the worst hand that still calls; oversizing folds out your customers.`);
+    else if (a.eHU >= 0.45 && a.e >= 0.35)
+      s.push(`Bigger bets only get called by stronger hands, so with a hand this strength ${verb === 'raise' ? 'raising' : 'betting'} huge or shoving isn't rewarded.`);
+    else s.push(`With this little equity a ${verb} is a bluff — it profits only from folds, so it needs a believable story and good blockers, not a "maybe I'm good" hope.`);
+  }
+
+  s.push(`This is a quick estimate to guide you, not a perfect solver.`);
+  return s.join(' ');
+}
 
 export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const ranges = inp.oppRanges && inp.oppRanges.length ? inp.oppRanges : [inp.oppRange];
@@ -384,7 +499,25 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     bestEv: round2(bestEv),
     bestId: best.id,
     source: 'postflop-model',
-    note: `You win about ${Math.round(e * 100)}% of the time if the hand just gets checked down${nOpp > 1 ? `, because in a ${nOpp + 1}-way pot you have to beat everyone at once` : ''}.${nOpp > 1 && !isRiver ? ` The key idea: betting chases the weak hands out. With fewer players left in, your hand wins more often — so a bet can be worth more than checking, even when your hand doesn't look strong yet. A small bet is cheap and stops opponents from getting a free card.` : ''}${isRiver ? ` It's the river, so no more cards are coming. Betting only helps if more worse hands call than better ones — so a so-so hand is better off just checking.` : ''}${inp.effStack != null ? (spr < 1 ? ` Not much money is left behind, so the hand plays out fast.` : ` There's a lot of money left behind, so a draw that hits can win a big pot — and going all-in risks a lot.`) : ''} Bigger bets only get called by stronger hands, so betting huge or shoving usually isn't rewarded here. This is a quick estimate to guide you, not a perfect solver.`,
+    note: buildNote({
+      e,
+      eHU,
+      nOpp,
+      street: isRiver ? 'river' : cardsToCome === 1 ? 'turn' : 'flop',
+      P,
+      C,
+      bb,
+      outs,
+      cardsToCome,
+      hasMade,
+      implied,
+      cleanFrac,
+      flushLevel,
+      tex,
+      spr,
+      sprKnown: inp.effStack != null,
+      canRaise: inp.canRaise && inp.maxRaiseTo > inp.currentBet,
+    }),
     equity: e,
     rangeNote: inp.rangeNote,
     heroCode: inp.heroCode,
