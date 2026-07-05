@@ -21,7 +21,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
   easy: {
     id: 'easy',
     label: 'Easy',
-    blurb: 'Beginner — calls too much, misreads hands, no plan.',
+    blurb: 'Raw fish — limps everything, chases, calls too much, random bluffs.',
     mistakeRate: 0.45,
     equityNoise: 0.2,
     adapt: 0,

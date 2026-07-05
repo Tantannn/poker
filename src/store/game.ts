@@ -99,6 +99,12 @@ export interface PersistSettings {
   /** show tilt banner + post-swing cool-off gate. Defaults on; false disables both. */
   tiltWarnings?: boolean;
   difficulty: string;
+  /** per-seat difficulty overrides aligned with `profiles` (seat 1..N-1);
+   *  '' / missing = follow the table-wide `difficulty`. Enables a mixed table
+   *  (one fish, two regs, a shark) like a real game. */
+  seatDiffs?: string[];
+  /** hide bot archetypes — hero builds reads from observed stats and guesses. */
+  anonymousVillains?: boolean;
   tableSize?: number;
   /** legacy single-mode flag — kept for back-compat reads; `activeMode` supersedes it. */
   tournament?: boolean;

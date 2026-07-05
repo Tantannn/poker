@@ -24,7 +24,22 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const i = state.toAct;
   const p = state.players[i];
   const la = legalActions(state);
-  const profile = getProfile(p.profileId);
+  // Tilt (persisted on the Player, set by the engine after big losses) warps the
+  // profile: more bluffs, more aggression, worse calls — visible in behavior, not
+  // labels, so the hero has to SPOT the steaming player and attack. Extreme bots
+  // stay disciplined (part of what "extreme" means).
+  const baseProfile = getProfile(p.profileId);
+  const tiltAmt = opts?.diff?.id === 'extreme' ? 0 : (p.tilt ?? 0);
+  const profile =
+    tiltAmt > 0.05
+      ? {
+          ...baseProfile,
+          bluffFreq: Math.min(1, baseProfile.bluffFreq * (1 + tiltAmt * 0.9)),
+          aggression: Math.min(1, baseProfile.aggression + tiltAmt * 0.25),
+          callStation: Math.min(1, baseProfile.callStation + tiltAmt * 0.3),
+          cbetFreq: Math.min(1, baseProfile.cbetFreq + tiltAmt * 0.15),
+        }
+      : baseProfile;
   const pos = positionLabel(i, state.buttonIndex, state.players.length);
   const pot = potTotal(state);
   // Deterministic per-decision RNG. Seeded from the hand's seed + how many
@@ -39,6 +54,10 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const r = makeRng(decisionSeed);
   const diff = opts?.diff ?? DIFFICULTIES.normal;
   const reads = opts?.reads;
+  // easy = raw beginner: doesn't play a real strategy at all. Limps everything
+  // preflop, only raises when its cards look good, calls too much, and fires the
+  // occasional random bluff. Handled by its own path below, not the skill knobs.
+  const isNoob = diff.id === 'easy';
 
   const liveOpponents = state.players.filter((q) => !q.folded && q.id !== p.id).length;
   // effective stack (bb): the shorter of hero vs the deepest live opponent — drives
@@ -108,7 +127,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // ---- difficulty: weaker bots make mistakes ----
   // With probability mistakeRate, abandon the correct line and play "fishy":
   // call too much, spaz-raise, or stab randomly — exactly how a beginner leaks.
-  if (diff.mistakeRate > 0 && r() < diff.mistakeRate) {
+  if (!isNoob && diff.mistakeRate > 0 && r() < diff.mistakeRate) {
     if (la.callAmount > 0) {
       if (la.canRaise && r() < 0.12) return sizeTo(jitter(0.6), false); // random spaz raise
       return { type: 'call' }; // station call — pays off too much
@@ -123,6 +142,31 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     const code = handCode(p.holeCards);
     const strength = preflopStrength(code);
     const facingRaise = state.currentBet > state.bigBlind;
+
+    // ---- easy = raw beginner preflop ----
+    // A real fish limps in with everything, raises only when the cards "look
+    // good" (a premium), and every so often spazzes a random bluff-raise. It
+    // never open-raises a normal hand and hates folding, so it just calls.
+    if (isNoob) {
+      const goodHand = strength > 0.8; // ~TT+/AK/AQs — "ooh, good cards, raise!"
+      const bluffRaise = r() < 0.08; // rare spaz raise with air
+      if (!facingRaise) {
+        if (la.callAmount === 0) {
+          // BB option / limped pot — raise the premiums (or a random bluff), else free flop
+          if ((goodHand || bluffRaise) && la.canRaise) return sizeTo(0.9, true);
+          return { type: 'check' };
+        }
+        // folded / limped to us — the fish LIMPS instead of opening for a raise
+        if ((goodHand || bluffRaise) && la.canRaise) return sizeTo(1.1, false);
+        return { type: 'call' };
+      }
+      // facing a raise: raise the nuts, occasional bluff-raise, dump only the true
+      // trash, otherwise call it off (station — calls way too much preflop)
+      if ((goodHand || bluffRaise) && la.canRaise) return sizeTo(1.0, false);
+      if (strength < 0.3 && r() < 0.5) return { type: 'fold' };
+      return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
+    }
+
     const inRFI = RFI_RANGES[pos]?.has(code) ?? false;
 
     // ---- short stack: push/fold (≤15bb) ----
@@ -222,6 +266,30 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   let equity = eqRes.equity;
   if (diff.equityNoise > 0) {
     equity = Math.max(0, Math.min(1, equity + (r() * 2 - 1) * diff.equityNoise));
+  }
+
+  // ---- easy = raw beginner postflop ----
+  // Bets/raises when the hand "looks good", fires a random bluff now and then,
+  // and otherwise just calls — a classic calling station that hates folding.
+  // Uses its noisy equity read above, so it misreads and pays off too much.
+  if (isNoob) {
+    const bluff = r() < 0.18; // random stab / spaz raise
+    // SIZING TELL: a fish sizes its bet by how good its hand looks — big bet =
+    // big hand, small stab = weak/probe. Readable, exploitable, and exactly what
+    // low-stakes players do. Bluffs go small (scared money), monsters go big.
+    const tellSize = 0.3 + equity * 0.7; // ~⅓ pot weak … ~pot-size monster
+    const stabSize = 0.3; // timid small stab with air
+    if (la.callAmount > 0) {
+      // facing a bet
+      if (equity > 0.62 && la.canRaise) return sizeTo(jitter(tellSize), false, { willCommit: equity > 0.8 });
+      if (bluff && liveOpponents === 1 && la.canRaise) return sizeTo(jitter(stabSize + 0.2), false); // spaz raise heads-up
+      if (equity < 0.18 && r() < 0.5) return { type: 'fold' }; // folds pure air — only sometimes
+      return { type: 'call' }; // otherwise pays it off (station)
+    }
+    // checked to us / leading
+    if (equity > 0.6) return sizeTo(jitter(tellSize), true, { willCommit: equity > 0.78 }); // value bet, sized to strength
+    if (bluff) return sizeTo(jitter(stabSize), true); // timid small stab at the pot
+    return { type: 'check' };
   }
 
   // ---- adaptation: hard/extreme bots exploit the hero's leaks ----

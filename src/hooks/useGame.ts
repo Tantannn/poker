@@ -45,6 +45,8 @@ import type { HistoryHand, DecisionSnapshot } from '../store/history';
 import { loadHistory, saveHistory, capHistory } from '../store/history';
 import type { GameMode } from '../store/game';
 import { loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '../store/game';
+import type { ObsCounters } from '../analysis/observed';
+import { accumulateHand } from '../analysis/observed';
 
 export type { HistoryHand } from '../store/history';
 
@@ -139,6 +141,30 @@ export function useGame(initialProfiles: string[]) {
   const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
   const [tiltWarnings, setTiltWarnings] = useState<boolean>(SAVED?.tiltWarnings ?? true);
   const [difficulty, setDifficulty] = useState<Difficulty>((SAVED?.difficulty as Difficulty) ?? 'normal');
+  // per-seat difficulty overrides aligned with `profiles` (index 0 = seat 1);
+  // '' = follow the table-wide difficulty. Lets the table mix a fish, regs and a
+  // shark like a real game — the hero must adjust per villain, not per table.
+  const [seatDiffs, setSeatDiffs] = useState<string[]>(SAVED?.seatDiffs ?? []);
+  // anonymous villains: hide bot archetypes/exploit plans — the hero must build
+  // reads from observed behavior (VPIP/PFR/AF) and GUESS each villain's type.
+  const [anonymousVillains, setAnonymousVillains] = useState<boolean>(SAVED?.anonymousVillains ?? false);
+  // seat → guessed profileId. A guess reveals the truth for that seat (the
+  // pedagogic payoff). Cleared when the lineup changes; not persisted (a fresh
+  // session is a fresh read exercise).
+  const [villainGuesses, setVillainGuesses] = useState<Record<number, string>>({});
+  const guessVillain = useCallback((seat: number, profileId: string) => {
+    setVillainGuesses((m) => ({ ...m, [seat]: profileId }));
+  }, []);
+  // per-seat observed stats (VPIP/PFR/AF), accumulated hand-by-hand because the
+  // engine's action log only keeps the last ~10 hands. Session-scoped like guesses.
+  const [obsCounters, setObsCounters] = useState<Record<number, ObsCounters>>({});
+
+  // resolve which difficulty drives a given seat's bot
+  const diffFor = useCallback(
+    (seat: number): DifficultyParams =>
+      DIFFICULTIES[(seatDiffs[seat - 1] as Difficulty) || difficulty] ?? DIFFICULTIES[difficulty],
+    [seatDiffs, difficulty],
+  );
 
   // running read on how the hero plays, fed to hard/extreme bots so they adapt.
   const heroReadsRef = useRef<HeroReads>(emptyReads());
@@ -163,6 +189,8 @@ export function useGame(initialProfiles: string[]) {
 
   const applyProfiles = useCallback((next: string[]) => {
     setProfiles(next);
+    setVillainGuesses({}); // new lineup — old archetype guesses no longer apply
+    setObsCounters({}); // …and old observed stats describe the old lineup
     setGame(createGame(tableSize, stackDepth, BIG_BLIND, next, mode === 'tourney'));
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
@@ -178,6 +206,8 @@ export function useGame(initialProfiles: string[]) {
   // profile list (createGame pads with 'tag'), so no profile resize is needed.
   const applyTableSize = useCallback((size: number) => {
     setTableSize(size);
+    setVillainGuesses({}); // seats moved — old archetype guesses no longer apply
+    setObsCounters({});
     setGame(createGame(size, stackDepth, BIG_BLIND, profiles, mode === 'tourney'));
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
@@ -384,11 +414,11 @@ export function useGame(initialProfiles: string[]) {
       // to the end immediately. When watch is on, leave it — the AI-stepping
       // effect plays the runout out at the normal speed so the user can see it.
       if (next.players[0].folded && !watchAfterFold) {
-        runoutToEnd(next, DIFFICULTIES[difficulty]);
+        runoutToEnd(next, diffFor);
       }
       return next;
     });
-  }, [watchAfterFold, difficulty]);
+  }, [watchAfterFold, diffFor]);
 
   // instantly finish the current hand (bots play to the end) — used by the
   // "skip to end" button while watching a folded hand run out.
@@ -396,10 +426,10 @@ export function useGame(initialProfiles: string[]) {
     setGame((prev) => {
       if (prev.street === 'complete' || prev.toAct === 0) return prev;
       const next = structuredClone(prev);
-      runoutToEnd(next, DIFFICULTIES[difficulty]);
+      runoutToEnd(next, diffFor);
       return next;
     });
-  }, [difficulty]);
+  }, [diffFor]);
 
   // ---- AI stepping ----
   useEffect(() => {
@@ -409,13 +439,13 @@ export function useGame(initialProfiles: string[]) {
       setGame((prev) => {
         if (prev.toAct < 0 || prev.toAct === 0 || prev.street === 'complete') return prev;
         const next = structuredClone(prev);
-        const action = decideAction(next, { diff: DIFFICULTIES[difficulty], reads: heroReadsRef.current });
+        const action = decideAction(next, { diff: diffFor(next.toAct), reads: heroReadsRef.current });
         applyAction(next, action);
         return next;
       });
     }, SPEED_DELAY[speed]);
     return () => clearTimeout(timer);
-  }, [game, speed, difficulty]);
+  }, [game, speed, diffFor]);
 
   // if we restored a finished hand, mark it recorded so the result effect below
   // doesn't double-count it into stats/history after a refresh. Runs once on mount.
@@ -430,12 +460,13 @@ export function useGame(initialProfiles: string[]) {
   }, [game, mode]);
   useEffect(() => {
     saveSettings({
-      profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, tableSize,
+      profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
+      anonymousVillains,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, tableSize, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
@@ -488,6 +519,9 @@ export function useGame(initialProfiles: string[]) {
     if (recordedHand.current === game.handNumber) return;
     if (game.handNumber === 0) return;
     recordedHand.current = game.handNumber;
+
+    // fold this hand's actions into the per-seat observed stats (anonymous mode)
+    setObsCounters((m) => accumulateHand(m, game.log, game.handNumber));
 
     const delta = handResults(game).find((r) => r.playerId === 0)?.deltaBB ?? 0;
     setStats((s) => {
@@ -712,6 +746,13 @@ export function useGame(initialProfiles: string[]) {
     setTiltWarnings,
     difficulty,
     setDifficulty,
+    seatDiffs,
+    setSeatDiffs,
+    anonymousVillains,
+    setAnonymousVillains,
+    villainGuesses,
+    guessVillain,
+    obsCounters,
     finishHand,
     setSpeed,
     setScenario,
@@ -727,7 +768,8 @@ export function useGame(initialProfiles: string[]) {
 }
 
 // Run the bots to the end of the hand in place (hero is out / not to act).
-function runoutToEnd(state: GameState, diff?: DifficultyParams): void {
+// `diffFor` resolves each seat's difficulty so a mixed table stays mixed here too.
+function runoutToEnd(state: GameState, diffFor?: (seat: number) => DifficultyParams): void {
   let guard = 0;
   while (
     state.street !== 'complete' &&
@@ -736,7 +778,7 @@ function runoutToEnd(state: GameState, diff?: DifficultyParams): void {
     state.toAct !== 0 &&
     guard++ < 400
   ) {
-    applyAction(state, decideAction(state, { diff }));
+    applyAction(state, decideAction(state, { diff: diffFor?.(state.toAct) }));
   }
 }
 

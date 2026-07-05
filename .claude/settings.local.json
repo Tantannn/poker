@@ -64,7 +64,9 @@
       "Bash(git commit -m ' *)",
       "Bash(npm outdated *)",
       "Bash(npm update *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(rtk proxy *)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

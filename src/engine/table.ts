@@ -68,6 +68,10 @@ export interface Player {
   startStack: number; // stack at the start of the current hand (for P/L this hand)
   buyIn: number; // standard buy-in (chips) — busted players rebuy to THIS, not to
   // the chip leader, so the table looks like a real cash game (most seats ~100bb).
+  /** 0..1 emotional tilt. Bumped when this player loses a big pot, decays over
+   *  the following hands. Bots on tilt bluff more, call worse, and spew — a real
+   *  table dynamic the hero can learn to spot and attack. Optional for old saves. */
+  tilt?: number;
 }
 
 export interface ActionRecord {
@@ -620,6 +624,7 @@ function doShowdown(state: GameState) {
 
   state.street = 'complete';
   state.toAct = -1;
+  updateTilt(state);
 
   // Explain the win: name each winner's hand (and which pot, when an all-in made
   // side pots — that's the only way two *different* hands can both win).
@@ -671,6 +676,7 @@ function awardUncontested(state: GameState) {
   state.winners = [{ playerId: winner.id, amount: pot, potIndex: 0, handDesc: 'uncontested' }];
   state.street = 'complete';
   state.toAct = -1;
+  updateTilt(state);
   state.message = `${winner.name} wins ${pot} uncontested.`;
 }
 
@@ -680,4 +686,17 @@ export function handResults(state: GameState): { playerId: number; deltaBB: numb
     playerId: p.id,
     deltaBB: (p.stack - p.startStack) / state.bigBlind,
   }));
+}
+
+/** Update every player's tilt at hand completion: decay a little each hand, then
+ *  bump on a big loss (scaled by how big). ~30bb stings, a 100bb+ cooler maxes it.
+ *  Winning a big pot calms tilt fast (the classic "unstuck" reset). */
+function updateTilt(state: GameState): void {
+  for (const p of state.players) {
+    const deltaBB = (p.stack - p.startStack) / state.bigBlind;
+    let t = (p.tilt ?? 0) * 0.85; // natural decay: fades over ~10 hands
+    if (deltaBB <= -30) t += Math.min(0.6, -deltaBB / 100); // big loss → steam
+    if (deltaBB >= 40) t *= 0.3; // big win → mostly calms down
+    p.tilt = t < 0.02 ? 0 : Math.min(1, t);
+  }
 }

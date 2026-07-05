@@ -46,6 +46,8 @@ export interface HudInfo {
 
 export interface VillainInfo {
   name: string;
+  /** table seat index — stable across hands; keys observed stats + archetype guesses. */
+  seat: number;
   position: string;
   profileId: string;
   tag: string;
@@ -130,6 +132,7 @@ export function computeHudNode(game: GameState): HudNodeResult {
     const heroInPosition = orderRank(0) > orderRank(vIdx);
     villain = {
       name: vp.name,
+      seat: vIdx,
       position: positionLabel(vIdx, game.buttonIndex, np),
       profileId: vp.profileId,
       tag: getProfile(vp.profileId).tag,

@@ -17,6 +17,7 @@ import { Feedback } from './Feedback';
 import { ScenarioBar } from './ScenarioBar';
 import type { AggroWarning } from '../analysis/aggression';
 import type { TiltState } from '../analysis/tilt';
+import { toStats } from '../analysis/observed';
 
 type G = ReturnType<typeof useGame>;
 
@@ -304,6 +305,10 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               enabled={oppEnabled}
               loading={hudLoading}
               onToggle={() => setOppEnabled((v) => !v)}
+              anonymous={g.anonymousVillains}
+              observed={villain ? toStats(g.obsCounters[villain.seat]) : null}
+              guessedId={villain ? g.villainGuesses[villain.seat] : undefined}
+              onGuess={villain ? (pid) => g.guessVillain(villain.seat, pid) : undefined}
             />
             <details className="mini-tips">
           <summary>ℹ️ Reading the panels &amp; bet types</summary>

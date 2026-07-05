@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useGame, type HeroPositionPref, type Speed } from '../hooks/useGame';
 import { tablePositions } from '../engine/table';
 import { PROFILE_LIST } from '../ai/profiles';
 import { DIFFICULTY_LIST } from '../ai/difficulty';
+import { coachDrill } from '../analysis/coach';
 
 type G = ReturnType<typeof useGame>;
 
@@ -20,9 +21,13 @@ const TABLE_SIZES: { n: number; label: string }[] = [
 
 export function ScenarioBar({ g }: { g: G }) {
   const [open, setOpen] = useState(false);
+  // coach chip dismissal — per suggestion, so a new leak shows a new chip
+  const [dismissed, setDismissed] = useState<string | null>(null);
   const handInProgress = g.game.handNumber > 0 && !g.handOver;
   // which seat labels actually exist at the current table size
   const validSeats = new Set(tablePositions(g.tableSize));
+  // leak-targeted drill suggestion from the analytics engine
+  const drill = useMemo(() => coachDrill(g.leaks), [g.leaks]);
 
   return (
     <div className="scenario-bar">
@@ -102,16 +107,41 @@ export function ScenarioBar({ g }: { g: G }) {
           <input type="checkbox" checked={g.tiltWarnings} onChange={(e) => g.setTiltWarnings(e.target.checked)} />
           Tilt warnings
         </label>
+        <label className="sc-check" title="Hide who the bots are — build your own read from their stats (VPIP/PFR/AF) and guess each villain's archetype. Guessing reveals the answer.">
+          <input type="checkbox" checked={g.anonymousVillains} onChange={(e) => g.setAnonymousVillains(e.target.checked)} />
+          Anonymous villains
+        </label>
         <button className="sc-config-toggle" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide opponents' : 'Configure opponents'}
         </button>
       </div>
 
+      {drill && dismissed !== drill.leak && (
+        <div className="sc-coach">
+          <span className="sc-coach-msg">🎯 Coach: {drill.why}</span>
+          <button
+            className="sc-coach-apply"
+            disabled={handInProgress}
+            title="Sets the villains, their skill, and your seat to drill this leak"
+            onClick={() => {
+              g.applyProfiles(drill.profiles);
+              g.setSeatDiffs(drill.seatDiffs);
+              g.setScenario(drill.scenario as HeroPositionPref);
+            }}
+          >
+            Set up drill table
+          </button>
+          <button className="sc-coach-dismiss" onClick={() => setDismissed(drill.leak)} title="Hide this suggestion">
+            ✕
+          </button>
+        </div>
+      )}
+
       {open && (
         <div className="sc-opponents">
           <p className="sc-hint">
-            Set each opponent's archetype (applies on the next hand). Practice vs a maniac, a calling
-            station, or a balanced GTO-ish field.
+            Set each opponent's archetype and skill (archetype applies on the next hand). A mixed table —
+            one fish, a couple of regs, a shark — plays like a real game: adjust per villain, not per table.
           </p>
           <div className="sc-presets">
             <span>Quick fill:</span>
@@ -126,6 +156,17 @@ export function ScenarioBar({ g }: { g: G }) {
             </button>
             <button onClick={() => g.applyProfiles(['tag', 'lag', 'lp', 'maniac', 'gto'])} disabled={handInProgress}>
               Mixed
+            </button>
+            <button
+              onClick={() => {
+                // realistic low-stakes lineup: a fish, regs of mixed skill, one shark
+                g.applyProfiles(['lp', 'tag', 'maniac', 'gto', 'nit']);
+                g.setSeatDiffs(['easy', 'hard', 'normal', 'extreme', 'normal']);
+              }}
+              disabled={handInProgress}
+              title="Fish + mixed-skill regs + a shark — like a real table"
+            >
+              Real table
             </button>
           </div>
           <div className="sc-seat-grid">
@@ -144,6 +185,23 @@ export function ScenarioBar({ g }: { g: G }) {
                   {PROFILE_LIST.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={g.seatDiffs[idx] ?? ''}
+                  title="This seat's skill — overrides the table-wide Bots setting"
+                  onChange={(e) => {
+                    const next = [...g.seatDiffs];
+                    while (next.length <= idx) next.push('');
+                    next[idx] = e.target.value;
+                    g.setSeatDiffs(next);
+                  }}
+                >
+                  <option value="">Table skill</option>
+                  {DIFFICULTY_LIST.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
                     </option>
                   ))}
                 </select>
