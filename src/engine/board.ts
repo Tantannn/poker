@@ -37,14 +37,27 @@ export interface TextureInfo {
 }
 
 export function classifyFlop(board: Card[]): TextureInfo {
-  const cards = board.slice(0, 3);
-  const suits = new Set(cards.map((c) => c.suit));
-  const suitPattern = suits.size === 1 ? 'monotone' : suits.size === 2 ? 'twotone' : 'rainbow';
+  // Reads the WHOLE board, not just the flop — a turn/river card that pairs the
+  // board (or completes a 3-flush) changes the texture, and slicing to the first
+  // three cards made AAQT read as an unpaired "connected" board.
+  const cards = board;
+  // suit pattern by the LARGEST single-suit count, so it means the same thing on
+  // every street: 3+ of a suit → flushes live ("monotone"), exactly 2 → a flush
+  // draw is out there ("twotone"), all distinct → none yet. Identical to the old
+  // set-size logic on a 3-card flop.
+  const suitCounts = [0, 0, 0, 0];
+  for (const c of cards) suitCounts[c.suit]++;
+  const maxSuit = Math.max(...suitCounts);
+  const suitPattern = maxSuit >= 3 ? 'monotone' : maxSuit === 2 ? 'twotone' : 'rainbow';
   const ranks = cards.map((c) => c.rank).sort((a, b) => b - a);
-  const paired = ranks[0] === ranks[1] || ranks[1] === ranks[2];
-  const spread = ranks[0] - ranks[2];
-  const gaps = [ranks[0] - ranks[1], ranks[1] - ranks[2]];
-  const connected = !paired && (spread <= 4 || gaps.some((g) => g === 1));
+  const paired = ranks.some((r, i) => i > 0 && ranks[i - 1] === r);
+  // connectedness over UNIQUE ranks (dupes fake closeness): any touching pair, or
+  // any 3 ranks within a 4-spread window. Matches the old flop rule exactly.
+  const uniq = [...new Set(ranks)];
+  const gapOne = uniq.some((r, i) => i > 0 && uniq[i - 1] - r === 1);
+  let windowed = false;
+  for (let i = 0; i + 2 < uniq.length; i++) if (uniq[i] - uniq[i + 2] <= 4) windowed = true;
+  const connected = !paired && (gapOne || windowed);
   const highCard = ranks[0];
 
   const tags: string[] = [];
@@ -69,7 +82,7 @@ export interface TextureDescription {
 
 /**
  * Human-readable read of a board's texture for the gameplan/feedback panels.
- * Built from the flop classification; later streets describe the flop core.
+ * Classifies the FULL current board, so a pairing turn/river updates the read.
  */
 export function describeTexture(board: Card[]): TextureDescription {
   if (board.length < 3) {
@@ -104,10 +117,10 @@ export function describeTexture(board: Card[]): TextureDescription {
 
   const suitSentence =
     t.suitPattern === 'monotone'
-      ? ' All three cards share a suit, so flushes and flush draws dominate.'
+      ? ' Three or more cards share a suit, so flushes and flush draws dominate.'
       : t.suitPattern === 'twotone'
         ? ' Two cards share a suit, putting a flush draw out there.'
-        : ' Three different suits — no flush draws yet.';
+        : ' No two cards share a suit — no flush draws yet.';
   const connSentence = t.paired
     ? ' The board is paired, which adds trips/full-house combos and removes some straights.'
     : t.connected

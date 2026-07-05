@@ -178,8 +178,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const outs = inp.board.length >= 3 && inp.board.length < 5 ? countOuts(inp.hero, inp.board).outs : 0;
   const isRiver = inp.board.length === 5;
   // does hero hold a MADE hand (pair or better)? gates value-vs-semibluff labelling
-  // so a high-equity DRAW is called a semi-bluff, not a value bet.
-  const hasMade = inp.board.length >= 3 && evaluate7([...inp.hero, ...inp.board]).categoryRank >= 1;
+  // so a high-equity DRAW is called a semi-bluff, not a value bet. Must be measured
+  // as a LIFT over the bare board — on a paired board every hand "has" the board's
+  // pair, and the absolute check labelled K-high on AAQT a value bet.
+  const hasMade =
+    inp.board.length >= 3 &&
+    evaluate7([...inp.hero, ...inp.board]).categoryRank > evaluate7(inp.board).categoryRank;
 
   const tex = inp.board.length >= 3 ? classifyFlop(inp.board) : null;
   const wetness =
@@ -232,6 +236,10 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
 
   // passive line
   if (inp.canCheck) {
+    // On the river an IP check-back is pure showdown — no realisation boost
+    // applies (there are no more cards to realise anything with). The OOP
+    // discount stays: checking OOP still lets villain bet you off your share.
+    const checkEq = isRiver && !oop ? e : eReal;
     const posClause = inp.position
       ? ` (${ip ? 'in position you realise it well — you can check back and take a free card' : 'out of position you realise less — villain can barrel you off it'})`
       : '';
@@ -247,10 +255,10 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     cands.push({
       id: 'check',
       label: 'Check',
-      ev: (eReal * P) / bb,
+      ev: (checkEq * P) / bb,
       kind: 'passive',
       why: checkWhy,
-      math: `EV = equity × pot${inp.position ? ` × realise(${realize})` : ''} = ${pct1(eReal)} × ${P} = ${(eReal * P).toFixed(1)} chips ≈ ${((eReal * P) / bb).toFixed(2)} bb`,
+      math: `EV = equity × pot${checkEq !== e ? ` × realise(${realize})` : ''} = ${pct1(checkEq)} × ${P} = ${(checkEq * P).toFixed(1)} chips ≈ ${((checkEq * P) / bb).toFixed(2)} bb`,
     });
   }
   if (C > 0) {
@@ -263,15 +271,20 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       why: `You need ${pct(need)} equity to call but only have ~${pct(e)}. Folding forfeits the pot but loses the least.`,
       math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)}; you have ~${pct(e)}.\nEV(fold) = 0 bb (you put in nothing more).`,
     });
+    // A river call CLOSES the action: there are no later streets to be outplayed
+    // on, so the position realisation factor must NOT apply — you always get to
+    // showdown for exactly your equity. (Flop/turn calls keep it: OOP you realise
+    // less of the equity you're paying for.)
+    const callEq = isRiver ? e : eReal;
     cands.push({
       id: 'call',
       label: `Call ${C}`,
-      ev: (eReal * (P + C) - C + implied) / bb,
+      ev: (callEq * (P + C) - C + implied) / bb,
       kind: 'passive',
-      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${eReal >= need || implied > 0 ? 'profitable' : 'marginal/-EV'}.${
-        oop ? ' Out of position you realise less of that equity, so call tighter.' : ip ? ' In position you realise it well.' : ''
+      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${callEq >= need || implied > 0 ? 'profitable' : 'marginal/-EV'}.${
+        !isRiver && oop ? ' Out of position you realise less of that equity, so call tighter.' : !isRiver && ip ? ' In position you realise it well.' : ''
       }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}${riverCallNote(isRiver, e, need)}`,
-      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(eReal)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(eReal * (P + C) - C + implied).toFixed(1)} chips ≈ ${((eReal * (P + C) - C + implied) / bb).toFixed(2)} bb`,
+      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(callEq)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(callEq * (P + C) - C + implied).toFixed(1)} chips ≈ ${((callEq * (P + C) - C + implied) / bb).toFixed(2)} bb`,
     });
   }
 
@@ -439,7 +452,11 @@ function computeAggro(
   // folds). Score the river shove with the same thin-value model; the all-in risk
   // premium is still layered on afterward in solvePostflop.
   if (cardsToCome === 0) {
-    const base = Math.min(1, eField * realize); // showdown EV baseline, == the check
+    // Showdown share. NO realisation factor on the river: a called bet always
+    // reaches showdown for exact equity (and folds win outright). The OOP check
+    // keeps its discount in solvePostflop — that asymmetry is the block-bet
+    // logic: betting OOP locks in your price instead of facing villain's.
+    const base = Math.min(1, eField); // showdown EV baseline
     const worse = base; // hands hero beats vs the field
     const better = 1 - base; // hands that beat hero
     // cry-call rate: share of WORSE hands that still call, shrinking with size — a

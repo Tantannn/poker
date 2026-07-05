@@ -269,6 +269,15 @@ export function countOuts(hero: Card[], board: Card[]): OutsInfo {
     const heroGain = next.categoryRank - current;
     const boardGain = boardNext - boardNow;
     if (boardGain >= heroGain) continue;
+    // Reject board-driven boats/quads: the card pairs a BOARD rank hero doesn't
+    // hold, so hero's "improvement" is board trips propping up his existing pair
+    // (99 on AAQT: an ace makes aces-full-of-NINES — every pocket pair boats the
+    // same way and every Qx/Tx boats BIGGER). Counting these let a 2-out
+    // bluff-catcher qualify as a real draw and collect implied odds. A card that
+    // pairs the board can still be an out when it completes a flush (category
+    // stays below full house) or trips hero's own rank (hero holds the rank).
+    const pairsBoardOnly = board.some((b) => b.rank === c.rank) && !hero.some((h) => h.rank === c.rank);
+    if (pairsBoardOnly && next.categoryRank >= 6) continue;
     outCards.push(c);
     const arr = groups.get(next.category) ?? [];
     arr.push(c);

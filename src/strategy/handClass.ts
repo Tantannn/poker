@@ -135,8 +135,24 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
         ? { label: 'Set', blurb: 'A disguised monster — bet/raise for value, you are almost always ahead.', strength: 5 }
         : { label: 'Trips', blurb: 'Very strong but face-up on a paired board — value bet, mind kicker on big bets.', strength: 4 };
     }
-    case 2:
+    case 2: {
+      // "Two pair" where one of the pairs is the BOARD's own pair is really ONE
+      // pair plus a pair everyone shares (99 on AAQT = aces-and-nines, but every
+      // hand has the aces). It plays like a bluff-catcher, not a value hand — and
+      // higher board cards can counterfeit it. Real two pair uses both hole cards.
+      const boardPairRank = boardRanks.find((r, i) => i > 0 && boardRanks[i - 1] === r);
+      const pairRanks = made.tiebreakers.slice(0, 2);
+      if (boardPairRank != null && pairRanks.includes(boardPairRank) && !hero.some((c) => c.rank === boardPairRank)) {
+        const own = pairRanks.find((r) => r !== boardPairRank && hero.some((c) => c.rank === r));
+        return {
+          label: own != null ? `Pair of ${RC(own)}s + Board Pair` : 'Board Two Pair',
+          blurb:
+            'Half this "two pair" sits on the board and belongs to everyone — it plays like ONE pair: a bluff-catcher. Keep the pot small, don\'t stack off, and beware higher cards counterfeiting your pair.',
+          strength: 2,
+        };
+      }
       return { label: 'Two Pair', blurb: 'A strong made hand — bet for value and charge draws; beware paired boards.', strength: 4 };
+    }
     case 1: {
       const pr = made.tiebreakers[0];
       // overpair / pocket pair vs board

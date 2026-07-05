@@ -66,7 +66,11 @@
       "Bash(npm update *)",
       "Bash(git add *)",
       "Bash(rtk proxy *)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "PowerShell(npx vitest run --reporter=dot 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 10; npx eslint src/strategy/index.ts src/strategy/handClass.ts src/engine/equity.ts src/engine/board.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 10)",
+      "PowerShell(npx vitest run --reporter=dot 2>&1 | Select-Object -Last 12)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 10; npx eslint src/strategy/postflopModel.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 10)"
     ]
   }
 }

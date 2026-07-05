@@ -406,9 +406,12 @@ function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | u
   const pot = potTotal(state);
   const toCall = Math.max(0, state.currentBet - hero.committed);
   const facingBet = toCall > 0;
-  // bet size as a fraction of the pot (pot already includes the villain's bet) —
-  // a size proxy that drives how POLARIZED the conditioned range becomes.
-  const betFrac = pot > 0 ? toCall / pot : 0;
+  // bet size as a fraction of the pot BEFORE the bet (pot includes the villain's
+  // bet, so strip it back out). This is the conventional "% of pot" number, and
+  // it drives how POLARIZED the conditioned range becomes — dividing by the
+  // bet-inclusive pot understated every size (a real ¾-pot barrel read as ~43%),
+  // so big bets never polarized fully and junk kept too much weight.
+  const betFrac = pot - toCall > 0 ? toCall / (pot - toCall) : 1;
   return (a: Card, b: Card) => betConditionedWeight(a, b, board, facingBet, betFrac);
 }
 
@@ -416,21 +419,33 @@ function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | u
  *  take the action they took, given the board. Value/strong-draw hands bet; air
  *  mostly gives up — and a bigger bet thins the weak end harder (polarization). */
 function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolean, betFrac: number): number {
-  const cat = evaluate7([a, b, ...board]).categoryRank; // 0 high card .. 8 straight flush
+  const held = evaluate7([a, b, ...board]);
+  const cat = held.categoryRank; // 0 high card .. 8 straight flush
   const outs = board.length < 5 ? countOuts([a, b], board).outs : 0; // draws (flop/turn)
   if (!facingBet) {
     // Villain CHECKED to us → capped range: the strongest hands usually would have
     // bet, so down-weight them slightly. (Hero is the aggressor in this branch.)
     return cat >= 6 ? 0.6 : cat >= 4 ? 0.85 : 1;
   }
-  // Villain BET → value-weighted, polarized. Made-hand strength sets the base.
+  // Villain BET → value-weighted, polarized. Strength must be measured as the LIFT
+  // over the bare board, not the absolute category: on a paired board (say AAQT)
+  // every combo "has" at least the board's pair, so absolute category rated any K5
+  // as "one pair — bets some" and any Qx as value two pair. The betting range came
+  // out far too weak and inflated a bluff-catcher's equity. A hand whose category
+  // equals what the board plays by itself is bluffing when it bets (a same-category
+  // hand that only out-kicks the board — e.g. the higher straight on a straight
+  // board — still counts as improvement via the score check, river only, where the
+  // board's 5 cards make the scores comparable).
+  const boardEval = evaluate7(board);
+  const lift = cat - boardEval.categoryRank;
+  const improves = lift > 0 || (lift === 0 && board.length === 5 && held.score > boardEval.score);
   let w: number;
-  if (cat >= 5) w = 1.3; // flush / full house / quads / straight flush
+  if (!improves) w = 0.18; // plays the board / no real improvement — mostly gives up (a few bluffs)
+  else if (cat >= 5) w = 1.3; // flush / full house / quads / straight flush
   else if (cat === 4) w = 1.2; // straight
   else if (cat === 3) w = 1.15; // trips / set
-  else if (cat === 2) w = 1.0; // two pair
-  else if (cat === 1) w = 0.55; // one pair — bets some, checks some
-  else w = 0.18; // high card / air — mostly gives up (a few bluffs)
+  else if (cat === 2) w = lift === 1 ? 0.55 : 1.0; // own pair + BOARD pair plays like one pair; true two pair is value
+  else w = 0.55; // one pair above the board — bets some, checks some
   // strong draws semi-bluff too (flop/turn only; the river has no draws)
   if (outs >= 8) w = Math.max(w, 0.85);
   else if (outs >= 4) w = Math.max(w, 0.45);
@@ -464,6 +479,18 @@ function postflopStrategy(
   const oppStacks = state.players.filter((p) => !p.folded && p.id !== heroIdx).map((p) => p.stack);
   const effStack = Math.min(hero.stack, ...(oppStacks.length ? oppStacks : [hero.stack]));
 
+  // Hero's position vs the primary villain. Postflop order starts left of the
+  // button, so the higher order-rank acts LATER (= in position). Drives equity
+  // realisation and fold equity in the model — omitting it made the BB realise
+  // OOP equity at 100% and rated thin bluff-catches as clear calls.
+  const vIdx = primaryVillain(state, heroIdx);
+  let position: 'ip' | 'oop' | undefined;
+  if (vIdx >= 0) {
+    const np = state.players.length;
+    const orderRank = (seat: number) => (seat - (state.buttonIndex + 1) + np) % np;
+    position = orderRank(heroIdx) > orderRank(vIdx) ? 'ip' : 'oop';
+  }
+
   return solvePostflop({
     hero: hero.holeCards,
     board: state.board,
@@ -484,6 +511,7 @@ function postflopStrategy(
     effStack,
     precomputedEquity: equityOverride,
     comboWeight,
+    position,
   });
 }
 
