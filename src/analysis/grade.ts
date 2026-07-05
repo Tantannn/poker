@@ -20,7 +20,7 @@ const HEADLINE: Record<Verdict, (loss: number) => string> = {
   best: () => '✓ Best — top of the solver line',
   correct: (l) => `✓ Correct — sound line (−${l.toFixed(2)} bb vs best)`,
   inaccuracy: (l) => `≈ Inaccuracy (−${l.toFixed(2)} bb vs best)`,
-  wrong: (l) => `✗ Wrong — your line is -EV (−${l.toFixed(2)} bb vs best)`,
+  wrong: (l) => `✗ Wrong — a costly line (−${l.toFixed(2)} bb vs best)`,
   blunder: (l) => `✗✗ Blunder (−${l.toFixed(2)} bb vs best)`,
 };
 

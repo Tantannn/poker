@@ -82,7 +82,8 @@ export function PotOddsCalc() {
         </div>
         <div className="info-block" style={{ marginTop: 18 }}>
           <b>Rule of 2 and 4:</b> on the flop (2 cards to come) multiply outs × 4; on the turn (1 card)
-          multiply outs × 2. With ≥9 outs on the flop subtract a couple % for accuracy.
+          multiply outs × 2. With ≥9 outs on the flop, subtract (outs − 8) — the figures shown here already
+          include that correction.
         </div>
       </div>
 
@@ -126,7 +127,7 @@ export function PotOddsCalc() {
             {BET_SIZES.map(([name, frac]) => (
               <tr key={name}>
                 <td>{name}</td>
-                <td>{(1 / frac).toFixed(2)} : 1</td>
+                <td>{((1 + frac) / frac).toFixed(2)} : 1</td>
                 <td className="num">{(requiredEquityForBet(frac) * 100).toFixed(1)}%</td>
                 <td className="num">{(requiredEquityForBet(frac) * 100).toFixed(1)}%</td>
                 <td className="num">{(mdf(1, frac) * 100).toFixed(0)}%</td>

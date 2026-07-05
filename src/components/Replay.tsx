@@ -14,6 +14,7 @@ import { describeTexture } from '../engine/board';
 import { equityVsRange, countOuts, ruleOf2and4 } from '../engine/equity';
 import type { NodeStrategy } from '../strategy/types';
 import type { DecisionSnapshot, HistoryHand } from '../store/history';
+import { moveTier, type MoveTier } from '../store/stats';
 import { PlayingCard } from './PlayingCard';
 import { RangeChartModal } from './RangeChartModal';
 
@@ -78,26 +79,28 @@ function sessionLabel(s: Session): string {
   return `💵 Cash · ${s.hands.length} hands · ${fmtBB(s.net)}`;
 }
 
-// Plain-language tier for an EV loss (in bb) — what the mistake actually cost.
-function evLossTier(loss: number): { label: string; cls: string; gloss: string } {
-  if (loss <= 0.05) return { label: 'Optimal', cls: 'good', gloss: 'matches the solver line — no EV given up.' };
-  if (loss <= 0.5) return { label: 'Minor', cls: 'okv', gloss: 'a small leak; close spot, cheap to get slightly wrong.' };
-  if (loss <= 1.5) return { label: 'Mistake', cls: 'bad', gloss: 'a clear error — the better line wins meaningfully more.' };
-  return { label: 'Blunder', cls: 'bad', gloss: 'a big punt — this is where stacks leak fastest.' };
-}
+// Plain-language rendering of the scorecard's five move tiers (store/stats
+// moveTier), so the deep dive never contradicts the live grade or the scorecard.
+const TIER_TEXT: Record<MoveTier, { label: string; cls: string; gloss: string }> = {
+  best: { label: 'best move', cls: 'good', gloss: 'matches the solver line — no EV given up.' },
+  correct: { label: 'correct move', cls: 'good', gloss: 'a sound alternative the solver also plays — nothing meaningful given up.' },
+  inaccuracy: { label: 'inaccuracy', cls: 'okv', gloss: 'clearly suboptimal, but not a punt — patch it before it compounds.' },
+  wrong: { label: 'wrong move', cls: 'bad', gloss: 'a real error — the better line wins meaningfully more.' },
+  blunder: { label: 'blunder', cls: 'bad', gloss: 'a big punt — this is where stacks leak fastest.' },
+};
 
 /** Deep-dive on a single decision: pot-odds math, equity vs price, EV cost over
  *  a sample, and a concept hook. Renders as a collapsible under the decision. */
 function DecisionDeepDive({ d, bigBlind }: { d: DecisionSnapshot; bigBlind: number }) {
   const req = d.toCall > 0 ? d.toCall / (d.pot + d.toCall) : null;
-  const tier = evLossTier(d.evLoss);
   const bestOpt = d.options.find((o) => o.id === d.bestId);
   const chosenOpt = d.options.find((o) => o.id === d.chosenId);
+  const tier = TIER_TEXT[moveTier(d.evLoss, chosenOpt?.ev ?? 0)];
   const ahead = req != null && d.equity != null ? d.equity >= req : null;
 
   return (
     <details className="rv-deep">
-      <summary>🔬 Deep dive — why this is a {tier.label.toLowerCase()}</summary>
+      <summary>🔬 Deep dive — why this grades “{tier.label}”</summary>
       <div className="rv-deep-body">
         {req != null ? (
           <div className="rv-deep-block">
@@ -109,7 +112,7 @@ function DecisionDeepDive({ d, bigBlind }: { d: DecisionSnapshot; bigBlind: numb
               {d.equity != null && (
                 <> You actually held <b>{pct(d.equity)}</b> — {ahead
                   ? <span className="good">a profitable call on raw equity alone.</span>
-                  : <span className="bad">short of the price, so a pure call needs implied odds or fold equity to justify.</span>}
+                  : <span className="bad">short of the price, so a call needs implied odds to justify — fold equity only comes from raising.</span>}
                 </>
               )}
             </p>
@@ -133,7 +136,7 @@ function DecisionDeepDive({ d, bigBlind }: { d: DecisionSnapshot; bigBlind: numb
             {' '}The highest-EV line was <b>{d.bestLabel}</b>
             {bestOpt && <> at {bestOpt.ev >= 0 ? '+' : ''}{bestOpt.ev.toFixed(2)}bb</>}.
             {d.evLoss > 0.001
-              ? <> The gap is <b className="bad">−{d.evLoss.toFixed(2)}bb</b>: repeated every time this exact spot comes up, that's roughly <b>{(d.evLoss * 100).toFixed(0)}bb per 100 hands</b> bleeding off. <span className={tier.cls === 'good' ? 'good' : 'muted'}>{tier.gloss}</span></>
+              ? <> The gap is <b className="bad">−{d.evLoss.toFixed(2)}bb</b>: repeated, that's roughly <b>{(d.evLoss * 100).toFixed(0)}bb per 100 times this spot comes up</b> bleeding off. <span className={tier.cls === 'good' ? 'good' : 'muted'}>{tier.gloss}</span></>
               : <> You picked the top line — <span className="good">{tier.gloss}</span></>}
           </p>
         </div>
@@ -412,8 +415,8 @@ export function Replay({ g }: { g: G }) {
             <p>
               You were dealt <b>{heroCode}</b>{preflopClass ? <> ({preflopClass.label})</> : null}.{' '}
               {equityCurve.length > 1 && eqFirst && eqLast && (
-                <>Equity vs a typical opening range moved from <b>{pct(eqFirst.equity)}</b> on the{' '}
-                {eqFirst.street} to <b>{pct(eqLast.equity)}</b> by the {eqLast.street}
+                <>Equity vs a typical opening range moved from <b>{pct(eqFirst.equity)}</b>{' '}
+                {eqFirst.street === 'preflop' ? 'preflop' : <>on the {eqFirst.street}</>} to <b>{pct(eqLast.equity)}</b> by the {eqLast.street}
                 {swungUp && <> — the board <span className="good">ran in your favour</span> (you picked up equity)</>}
                 {swungDown && <> — the board <span className="bad">ran against you</span> (your hand faded)</>}
                 {!swungUp && !swungDown && <> — a flat run-out, roughly the equity you started with</>}.{' '}</>

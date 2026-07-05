@@ -103,7 +103,7 @@ function FlashcardDrill() {
             <button key={c} className={cat === c ? 'active' : ''} onClick={() => switchCat(c)}>{c}</button>
           ))}
         </div>
-        <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
+        <div className="quiz-score">Score: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
       </div>
       <p className="note">
         🔁 Adaptive — cards you miss come back more often, mastered ones fade.

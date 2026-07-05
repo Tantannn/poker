@@ -186,7 +186,7 @@ export function Reference() {
                 <tr><td>Two overs vs two unders (AK vs QJ)</td><td className="num">~60 / 40</td></tr>
                 <tr><td>Dominated (AK vs AQ)</td><td className="num">~72 / 28</td></tr>
                 <tr><td>AA vs KK</td><td className="num">~82 / 18</td></tr>
-                <tr><td>Coin flip (AK vs QQ)</td><td className="num">~57 / 43</td></tr>
+                <tr><td>Coin flip (QQ vs AK)</td><td className="num">~57 / 43</td></tr>
               </tbody>
             </table>
             <p className="sub">
@@ -277,17 +277,18 @@ export function Reference() {
               </thead>
               <tbody>
                 <tr><td>Nuts / near-nuts</td><td className="num">85%+</td><td>7♦7♠ → 7♣9♠2♦ (flopped set); nut flush</td></tr>
-                <tr><td>Two pair, sets, strong made</td><td className="num">70–80%</td><td>A♣K♦ → A♠K♣4♥ (two pair); T♥T♠ → 7♦5♣2♠ (overpair)</td></tr>
+                <tr><td>Two pair, overpair, strong made</td><td className="num">70–80%</td><td>A♣K♦ → A♠K♣4♥ (two pair); T♥T♠ → 7♦5♣2♠ (overpair)</td></tr>
                 <tr><td>Top pair good kicker</td><td className="num">55–65%</td><td>A♣K♦ → K♠8♦3♣ (pairs the <b>highest</b> board card, ace kicker)</td></tr>
-                <tr><td>Middle / weak top pair</td><td className="num">40–50%</td><td>K♦J♠ → A♣J♦4♥ (pair <b>below</b> the top card); 7♦7♠ → 9♣4♦2♠ (underpair)</td></tr>
-                <tr><td>Flush or open-ender</td><td className="num">30–40%</td><td>A♥5♥ → K♥8♥2♣ (flush draw); 9♠8♠ → 7♦6♣2♥ (open-ended straight draw)</td></tr>
+                <tr><td>Middle / weak top pair</td><td className="num">40–50%</td><td>K♦J♠ → A♣J♦4♥ (pair <b>below</b> the top card); 7♦7♠ → 9♣4♦2♠ (pair below the top card)</td></tr>
+                <tr><td>Flush draw or open-ender</td><td className="num">30–40%</td><td>A♥5♥ → K♥8♥2♣ (flush draw); 9♠8♠ → 7♦6♣2♥ (open-ended straight draw)</td></tr>
                 <tr><td>Gutshot / two overcards</td><td className="num">15–25%</td><td>J♠T♠ → Q♦8♣3♥ (gutshot, need a 9); A♦Q♣ → 9♠5♦2♣ (two overcards)</td></tr>
                 <tr><td>Air, no draw</td><td className="num">&lt;15% → fold</td><td>7♦2♣ → K♠9♦4♥ (missed everything)</td></tr>
               </tbody>
             </table>
             <p className="sub">
               <b>Hook:</b> each rung down ≈ <b>15% less</b>. Anchor three and interpolate: <b>top pair ≈
-              60%</b>, a <b>big draw ≈ 35%</b>, a <b>gutshot ≈ 20%</b>.
+              60%</b>, a <b>big draw ≈ 35%</b>, a <b>gutshot ≈ 20%</b>. The draw rungs are <b>flop</b> numbers
+              (two cards to come) — roughly halve them on the turn.
             </p>
           </div>
         </div>
@@ -296,7 +297,7 @@ export function Reference() {
           <h4>Pocket pairs: where do they land?</h4>
           <p className="sub">
             A pocket pair (e.g. <b>7♦7♠</b>) is <b>not</b> on the ladder by itself preflop — it's just one pair,
-            roughly a coin-flip vs a single hand and often <i>behind</i> a tight opening range (which is heavy with
+            roughly a coin-flip vs two overcards and often <i>behind</i> a tight opening range (which is heavy with
             bigger pairs and big aces). That's why 77 reads ~47% equity-vs-range preflop, not 70%. Which rung it
             climbs to is decided by the <b>flop</b>:
           </p>
@@ -336,9 +337,9 @@ export function Reference() {
               move later, you add a layer outward — never reshuffle, just widen:
             </p>
             <ul className="tips">
-              <li><b>UTG / MP</b> — premiums only: 22+, A9s+/ATo+, KTs+/AJo+, top suited connectors.</li>
+              <li><b>UTG / MP</b> — premiums only: 22+, A9s+/AJo+, KTs+/KQo, top suited connectors.</li>
               <li><b>CO</b> — add <b>all suited aces (A2s+)</b> + more suited gappers + offsuit Broadways.</li>
-              <li><b>BTN</b> — add the offsuit junk: K2s+, any Ax-offsuit, T8o/98o. Widest.</li>
+              <li><b>BTN</b> — add the junk: any suited king (K2s+), any offsuit ace, T8o/98o. Widest.</li>
               <li><b>SB</b> — BTN-ish width but mixed/3-bet flavored (no one acts after you).</li>
             </ul>
             <p className="sub">
@@ -449,7 +450,7 @@ export function Reference() {
             <h4>Sizing</h4>
             <ul className="tips">
               <li><b>In position:</b> ~3× the open (3bb → 9bb).</li>
-              <li><b>Out of position:</b> ~4× the open (3bb → 12bb) — more fold equity / higher SPR to simplify.</li>
+              <li><b>Out of position:</b> ~4× the open (3bb → 12bb) — more fold equity, and a lower SPR simplifies playing OOP.</li>
               <li><b>Squeeze (raiser + caller):</b> 4–5× the raise, +1× per caller.</li>
             </ul>
           </div>
@@ -548,10 +549,10 @@ export function Reference() {
             <h4>The five textures</h4>
             <ul className="tips">
               <li><b>Dry / high</b> (K72r, A84r): raiser's range advantage. Small bets, high frequency.</li>
-              <li><b>Wet / dynamic</b> (T98ss, 765): equities swing; caller often catches up. Polarize.</li>
+              <li><b>Wet / dynamic</b> (T98ss, J98ss): equities swing; caller often catches up. Polarize.</li>
               <li><b>Monotone</b> (K♠7♠2♠): flushes made, draws everywhere. Bet smaller / less often.</li>
               <li><b>Paired high</b> (KK4, AA7): huge range advantage — they rarely have trips. Bet small, often.</li>
-              <li><b>Connected middling</b> (765, 987): favors BB defender. Check most, bet only strong.</li>
+              <li><b>Connected middling</b> (765, 654): favors BB defender. Check most, bet only strong.</li>
             </ul>
             <p className="sub">
               <b>Size follows advantage:</b> range+nut → any size (small is fine) · range only → small to deny
@@ -671,8 +672,8 @@ export function Reference() {
               <li><b>6</b> combos per pocket pair · <b>16</b> per unpaired hand (<b>4</b> suited + <b>12</b> offsuit).</li>
               <li><b>Good bluff blockers:</b> hold a card that kills their value — the A♠ on a spade board
                 (blocks the nut flush), a straight card, top-pair kicker.</li>
-              <li><b>Unblock their folds:</b> bluffing a <i>missed</i> draw is great — they can't hold it, so
-                your bluff doesn't fold out their busted hands.</li>
+              <li><b>Unblock their folds:</b> the best bluff cards don't block the hands villain folds. Missed
+                draws still make prime bluffs — they have zero showdown value, so checking wins nothing anyway.</li>
               <li><b>Read by elimination:</b> put them on a <i>range</i>, then remove hands their line rules out
                 — never one specific hand.</li>
             </ul>
@@ -682,7 +683,7 @@ export function Reference() {
 
       <Section id="coolers" title="Coolers: when one pair is in trouble" open={isOpen('coolers')} onToggle={() => toggle('coolers')}>
         <p className="sub">
-          The fastest way to lose a stack is paying off a <b>set</b> (a pocket pair that flopped trips)
+          The fastest way to lose a stack is paying off a <b>set</b> (a pocket pair that flopped three of a kind)
           with one pair. You can't dodge every cooler — but you can stop them from costing 100bb.
         </p>
         <div className="two-col">
@@ -727,11 +728,11 @@ export function Reference() {
             <ul className="tips">
               <li><b>Non-nut flush draws:</b> 7♥3♥ on a heart board — the flush comes and you still lose a stack
                 to a bigger one. The 9 outs are real; the payoff isn't.</li>
-              <li><b>Idiot-end straight draws:</b> 65 on 789 — a 5 makes the <i>low</i> end while a T makes the
-                higher straight. You bink your out and get stacked.</li>
+              <li><b>Idiot-end straight draws:</b> 65 on 78x — hitting your 9 makes only the <i>bottom</i> straight
+                (JT and T6 make higher ones). You bink your out and get stacked.</li>
               <li><b>Dominated top pair OOP:</b> KJ on K-Q-x out of position — you pair, then pay off AK/KQ/sets
                 across three streets with no fold button.</li>
-              <li><b>Weak kickers:</b> A5o flopping an ace — every other ace has you out-kicked.</li>
+              <li><b>Weak kickers:</b> A5o flopping an ace — almost every other ace has you out-kicked.</li>
             </ul>
           </div>
           <div>
@@ -757,7 +758,7 @@ export function Reference() {
               <li><b>Polar</b> (value + blocker-bluffs, flat the middle): <b>in position</b>, where you can
                 profitably call the medium hands — so your 3-bet is nuts-or-air.</li>
               <li><b>Linear / merged</b> (all your best hands, no flatting): <b>out of position</b>, from the
-                <b> SB</b>, and vs <b>weak / late opens</b> — flatting OOP realises poorly, so raise or fold.</li>
+                <b> SB</b>, and vs <b>weak / late opens</b> — flatting OOP realizes poorly, so raise or fold.</li>
               <li>Hook: <b>"can I comfortably flat here?"</b> Yes → 3-bet polar. No → 3-bet linear.</li>
             </ul>
             <h4>Capped vs uncapped ranges</h4>
@@ -820,7 +821,7 @@ export function Reference() {
             <h4>Postflop</h4>
             <ul className="tips">
               <li><b>Equity vs your actual range</b> (their seat + your action), not vs random cards.</li>
-              <li><b>Realisation:</b> in position ×1.06, out of position ×0.90 — the same swing this page
+              <li><b>Realization:</b> in position ×1.06, out of position ×0.90 — the same swing this page
                 teaches. OOP they fold &amp; check more; IP they continue and value-bet thinner.</li>
               <li><b>Barrelling:</b> c-bet wide on the flop; turn/river barrel <i>less</i> often and only with
                 equity or fold equity — a bricked bluff gives up instead of firing every street.</li>

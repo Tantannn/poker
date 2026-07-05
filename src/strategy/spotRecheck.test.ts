@@ -58,6 +58,50 @@ describe('AAQT / 99 spot recheck', () => {
     expect(h.strength).toBe(4);
   });
 
+  it('does not label the board pair as hero\'s pair (J9 on T88 = a draw, not "Middle Pair")', () => {
+    const h = classifyHandClass(cards('Js 9d'), cards('8c Td 8h'));
+    expect(h.label).toBe('Open-Ended Straight Draw');
+    expect(h.blurb).toContain("board's");
+    expect(h.strength).toBe(3);
+  });
+
+  it('does not label board trips as hero\'s trips (J9 on T888 = a draw, not "Trips")', () => {
+    const h = classifyHandClass(cards('Js 9d'), cards('8c Td 8h 8d'));
+    expect(h.label).toBe('Open-Ended Straight Draw');
+    expect(h.blurb).toContain("board's");
+  });
+
+  it('keeps real middle pair and real trips when hero holds the rank', () => {
+    expect(classifyHandClass(cards('Ah 9d'), cards('Qc 9s 5h')).label).toBe('Middle Pair');
+    expect(classifyHandClass(cards('Ah 8d'), cards('8c Td 8h')).label).toBe('Trips');
+  });
+
+  it('board pair + no draw is Air, with the shared-pair note', () => {
+    const h = classifyHandClass(cards('Ah 3d'), cards('8c Td 8h'));
+    expect(h.label).toBe('Air');
+    expect(h.blurb).toContain('pair of 8s');
+  });
+
+  it('double-paired board with no hero pair is not "two pair" (A3 on 8877Q = Air + note)', () => {
+    const h = classifyHandClass(cards('Ah 3d'), cards('8c 8h 7d 7s Qs'));
+    expect(h.label).toBe('Air');
+    expect(h.blurb).toContain("board's");
+    expect(h.blurb).toContain('two pair (8s and 7s)');
+  });
+
+  it('keeps the bluff-catcher read when hero pairs one rank on a double-paired board', () => {
+    // 99 on AAQT: hero's own nines + the board's aces — one pair + shared pair
+    expect(classifyHandClass(hero, board).label).toBe('Pair of 9s + Board Pair');
+  });
+
+  it('labels a board-played river hand "Playing the Board", not a value hand', () => {
+    const h = classifyHandClass(cards('2h 3d'), cards('4s 5c 6h 7d 8s'));
+    expect(h.label).toBe('Playing the Board');
+    expect(h.strength).toBe(1);
+    // hero who improves on the board keeps the real label
+    expect(classifyHandClass(cards('9h 3d'), cards('4s 5c 6h 7d 8s')).label).toBe('Straight');
+  });
+
   it('rates fold >= call for the drill spot once OOP + no phantom implied odds', () => {
     // Exact drill node: pot 75 (incl. villain 34), call 34, bb 2, deep stacks,
     // hero OOP, HUD equity 32.3%.

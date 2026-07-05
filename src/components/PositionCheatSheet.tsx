@@ -77,13 +77,13 @@ export function PositionCheatSheet({ onClose }: { onClose: () => void }) {
         </div>
 
         <ol className="cs-rules">
-          <li><b>BB ≈ BTN.</b> Both hold ~half the deck → equity within 1–2 pts. Treat them the same.</li>
+          <li><b>BB ≈ BTN.</b> Both play ~half of all hands → equity within 1–2 pts. Treat them the same.</li>
           <li><b>Each tightening ≈ −5 pts.</b> BTN→CO and CO→UTG are steady stair-steps down.</li>
-          <li><b>3-bet is a cliff, not a step.</b> Medium hands fall off a wall: KQs 57→31, KTo 52→26 (~−20 in one jump).</li>
+          <li><b>3-bet is a cliff, not a step.</b> Medium hands fall off a wall: KQs 45→31, KTo 39→26 (~−13 in that final jump, vs −5 per step before it).</li>
         </ol>
 
         <div className="cs-who">
-          <span><b className="cs-good">AA flat ~84</b> everywhere — premiums ignore position.</span>
+          <span><b className="cs-good">AA flat ~84</b> everywhere — only the very top ignores range width (even AKs slides 66→50).</span>
           <span><b className="cs-mid">Medium hands swing hardest</b> (KQs, KTo, 99): ~25 pts wide→3-bet.</span>
           <span><b className="cs-bad">Trash barely moves</b> (72o ~30→24) — already behind, nowhere to fall.</span>
         </div>

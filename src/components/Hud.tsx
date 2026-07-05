@@ -188,9 +188,9 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
                 {hud.equity >= hud.requiredEquity
                   ? `✓ Calling is +EV on raw equity (${pct(hud.equity)} vs ${pct(hud.requiredEquity)} needed)`
                   : hideAnswer
-                    ? `Raw pot odds: ${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed — a pure call is short. Implied odds / fold equity may still continue. Decide, then reveal.`
+                    ? `Raw pot odds: ${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed — a pure call is short.${street === 'river' ? '' : ' Implied odds (or raising) may still justify continuing.'} Decide, then reveal.`
                     : solverContinues
-                      ? `~ Immediate pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)}), but the solver's best line is ${solverBest?.label} — implied odds / fold equity tip it. See 🧭 below.`
+                      ? `~ Immediate pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)}), but the solver's best line is ${solverBest?.label} — ${street === 'river' ? "the EV model's read of his range tips it (no implied odds on the river)" : 'implied odds or the fold equity of raising tip it'}. See 🧭 below.`
                       : `✗ Pure pot odds say fold (${pct(hud.equity)} < ${pct(hud.requiredEquity)} needed)`}
               </div>
             </div>
@@ -203,7 +203,7 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
                 <button className="peek-btn" onClick={onPeek}>👁 Reveal</button>
               </div>
               <div className="hud-verdict">
-                🎓 Study mode — call it yourself first. The solver's raise / call / fold + reasoning reveals after you act
+                🎓 Study mode — call it yourself first. The solver's raise / call / fold + reasoning is revealed after you act
                 (or hit Reveal to peek).
               </div>
             </div>
@@ -213,8 +213,10 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
 
           {street === 'river' && hud.toCall > 0 && (
             <div className="hud-river-note">
-              {hud.equity < 0.7 ? (
+              {hud.equity < 0.5 ? (
                 <>🎯 River = pure pot odds (no more cards), and a river bet is <b>polarized</b> — strong value + bluffs, little between. This is a <b>bluff-catch</b>: you beat his bluffs, never his value, and can't improve. Your <b>{pct(hud.equity)}</b> ≈ how often he's bluffing — call only if it clears the <b>{pct(hud.requiredEquity)}</b> price <i>and</i> he actually bluffs here.</>
+              ) : hud.equity < 0.7 ? (
+                <>🎯 River = pure pot odds (no more cards). Your <b>{pct(hud.equity)}</b> beats his bluffs <i>and</i> part of his value — stronger than a pure bluff-catcher. The price is <b>{pct(hud.requiredEquity)}</b>; calling rates to be good unless this opponent never bluffs.</>
               ) : (
                 <>🎯 River value spot — your <b>{pct(hud.equity)}</b> beats enough of his value to call. Raising mostly folds out the bluffs you beat, so calling captures them.</>
               )}
@@ -236,7 +238,9 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
                       <span className="tip-what">{CALC.ruleOf24.what}</span>
                       <code className="tip-formula">
                         {street === 'flop'
-                          ? `≈ outs × 4 = ${hud.outs} × 4 = ${hud.ruleEstimate}%`
+                          ? hud.outs >= 9
+                            ? `≈ outs × 4 − (outs − 8) = ${hud.outs} × 4 − ${hud.outs - 8} = ${hud.ruleEstimate}%`
+                            : `≈ outs × 4 = ${hud.outs} × 4 = ${hud.ruleEstimate}%`
                           : `≈ outs × 2 = ${hud.outs} × 2 = ${hud.ruleEstimate}%`}
                       </code>
                       <code className="tip-formula">
@@ -257,7 +261,7 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
               {hud.ruleEstimate / 100 - hud.equity > 0.1 && (
                 <div className="out-caveat">
                   ⚠ Optimistic — this counts <i>every</i> out as a winner.
-                  {softOuts(hud) > 0 && ` ${softOuts(hud)} of them only make a weak pair that may not beat villain's range.`}
+                  {softOuts(hud) > 0 && ` ${softOuts(hud)} of them only make a pair or weak two pair that may not beat villain's range.`}
                   {' '}Your real win chance is <b>{pct(hud.equity)}</b> (the equity up top) — trust that for the call.
                 </div>
               )}
@@ -343,7 +347,7 @@ function DecisionGuide({ hud, street, best }: { hud: HudInfo; street: string; be
                 '  equity ≥ 70% ............ RAISE for value',
                 '  equity ≥ need + 12% ..... CALL (raise if confident)',
                 '  equity ≥ need ........... CALL (thin)',
-                '  equity < need + 8 outs .. peel only w/ implied odds',
+                '  equity < need, 8+ outs .. peel only w/ implied odds',
                 '  equity < need, no draw .. FOLD',
                 '',
                 'NO BET (you act first):',

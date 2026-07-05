@@ -194,7 +194,7 @@ export function LeakQuiz({ g }: { g: G }) {
         </div>
       </div>
 
-      <div className="quiz-goal">🎯 Goal: <b>{DRILLS[drill].goal}</b> — avoid {DRILLS[drill].mistake}. <span className="muted">{drillKeysHint(9)}</span></div>
+      <div className="quiz-goal">🎯 Goal: <b>{DRILLS[drill].goal}</b> — avoid {DRILLS[drill].mistake}. <span className="muted">{drillKeysHint(ordered.length)}</span></div>
 
       <div className="lab-board">
         <div className="lab-hero">

@@ -89,7 +89,7 @@ export function assessTilt(stats: SessionStats): TiltState | null {
   if (ds.buyins >= 0.75) {
     score += Math.min(20, ds.buyins * 12);
     signals.push(
-      `You're ${ds.currentBB.toFixed(0)} bb (${ds.buyins.toFixed(1)} buy-in${ds.buyins >= 1.5 ? 's' : ''}) below your session peak.`,
+      `You're ${ds.currentBB.toFixed(0)} bb (${ds.buyins.toFixed(1)} buy-in${ds.buyins.toFixed(1) === '1.0' ? '' : 's'}) below your session peak.`,
     );
   }
   if (recentDecs.length >= 4 && recentErr >= 0.3 && recentErr > baseErr + 0.15) {
@@ -120,7 +120,7 @@ export function assessTilt(stats: SessionStats): TiltState | null {
     level === 'high' ? '🛑 Tilt warning — take a breath before the next hand' : '⚠ Watch your tilt';
 
   const detail = lastWasWin
-    ? `You just won a pot — good. But you're still below your session peak, and right after a win is when players loosen up and give it back. Bank it; keep playing tight.`
+    ? `You just won a pot — good.${ds.currentBB > 0 ? " But you're still below your session peak, and" : ' But'} right after a win is when players loosen up and give it back. Bank it; keep playing tight.`
     : level === 'high'
       ? `That swing is exactly when players chase losses and spew off another stack. The last result is gone — it can't be won back this hand. Reset before you deal again.`
       : `Pressure is building. Stay deliberate — don't speed up or size up to get even.`;
@@ -130,7 +130,9 @@ export function assessTilt(stats: SessionStats): TiltState | null {
         "Don't let a win loosen you up — keep opening the same range you would cold.",
         'Keep bet sizing standard. One pot back is not a reason to start punting.',
         'Read the solver mix and equity before you act — let the math drive, not relief.',
-        "You're still down on the session; bank the win, don't gamble it back.",
+        ds.currentBB > 0
+          ? "You're still below your session peak; bank the win, don't gamble it back."
+          : "Bank the win — don't let it talk you into playing looser.",
       ]
     : [
         'Stand up. 30–60 seconds away from the table resets the impulse.',

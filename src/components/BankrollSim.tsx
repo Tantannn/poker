@@ -78,7 +78,7 @@ export function BankrollSim({ g }: { g?: { stats: SessionStats } }) {
         <Kpi label="5th–95th %ile" value={`${fmt(result.percentiles.p5)} … ${fmt(result.percentiles.p95)}`} sub="bb range (90% band)" />
         <Kpi label="Chance of loss" value={`${(result.probLoss * 100).toFixed(1)}%`} sub={`over ${result.hands.toLocaleString()} hands`} tone={pctTone(result.probLoss, 0.2, 0.4)} />
         <Kpi label="Risk of ruin" value={params.bankroll > 0 ? `${(result.riskOfRuinSim * 100).toFixed(1)}%` : '—'} sub={params.bankroll > 0 ? `${bi(params.bankroll).toFixed(0)} buy-in roll` : 'set a bankroll'} tone={pctTone(result.riskOfRuinSim, 0.05, 0.2)} />
-        <Kpi label="Downswing risk" value={`${fmt(result.worst)} bb`} sub={`worst of ${result.trials.toLocaleString()} trials`} tone="neg" />
+        <Kpi label="Worst outcome" value={`${fmt(result.worst)} bb`} sub={`worst final result of ${result.trials.toLocaleString()} trials`} tone="neg" />
       </div>
 
       <Fan result={result} />
@@ -87,7 +87,8 @@ export function BankrollSim({ g }: { g?: { stats: SessionStats } }) {
         <p className="note">
           <b>Risk of ruin</b> — sim {params.bankroll > 0 ? `${(result.riskOfRuinSim * 100).toFixed(1)}%` : '—'} vs
           closed-form {params.bankroll > 0 ? `${(result.riskOfRuinAnalytic * 100).toFixed(1)}%` : '—'}
-          {' '}(<code>e^(−2·wr·roll/σ²)</code>). They should roughly agree; the sim also counts busting <i>mid-sample</i>.
+          {' '}(<code>e^(−2·wr·roll/σ²)</code>). The closed form assumes an infinite horizon, so the finite-hands sim
+          (which counts busting <i>mid-sample</i>) usually reads a touch lower.
           {result.riskOfRuinAnalytic >= 0.99 && params.winRate <= 0 && ' A break-even or losing player busts any finite bankroll eventually.'}
         </p>
         {result.breakEvenHands != null ? (
@@ -97,7 +98,9 @@ export function BankrollSim({ g }: { g?: { stats: SessionStats } }) {
             about your true edge.
           </p>
         ) : (
-          <p className="note">With a non-positive win rate there's no horizon where the edge overtakes variance — the model only shows how fast a roll erodes.</p>
+          <p className="note">{params.winRate > 0
+            ? 'Set a positive standard deviation to estimate the break-even horizon.'
+            : 'With a zero or negative win rate the edge never overtakes variance — results stay swing-dominated at any sample size.'}</p>
         )}
       </div>
     </div>

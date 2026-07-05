@@ -96,9 +96,13 @@ export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy;
                   <p>
                     So <b>{((strategy.equity ?? 0) * 100).toFixed(1)}%</b> means that on average you take
                     about {((strategy.equity ?? 0) * 100).toFixed(1)}% of the pot.{' '}
-                    {(strategy.equity ?? 0) >= 0.5
-                      ? 'Over 50% — you’re a slight favourite.'
-                      : 'Under 50% — you’re a slight underdog.'}
+                    {(strategy.equity ?? 0) >= 0.65
+                      ? 'Well over 50% — you’re a clear favourite.'
+                      : (strategy.equity ?? 0) >= 0.5
+                        ? 'Over 50% — you’re a slight favourite.'
+                        : (strategy.equity ?? 0) >= 0.35
+                          ? 'Under 50% — you’re a slight underdog.'
+                          : 'Well under 50% — you’re a clear underdog.'}
                   </p>
                   <p className="equity-rules-head">
                     No solver in your head? Memorize these instead:

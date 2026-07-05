@@ -119,7 +119,7 @@ export function aggressionWarning(
 
   let detail =
     `Last ${episodes} big postflop bets: villains called or raised ${pct}% of them, and you're ` +
-    `${netBB.toFixed(0)} bb on those hands. Bets that never fold anyone out buy no fold equity — ` +
+    `down ${Math.abs(netBB).toFixed(0)} bb on those hands. Bets that never fold anyone out buy no fold equity — ` +
     `you're either bluffing a station or getting called only by better. ` +
     `Fix: value bet hands that beat their CALLING range, bet smaller for thin value, and check your air instead of barrelling.`;
   if (raiseRate >= 0.4) {

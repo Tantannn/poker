@@ -46,7 +46,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
         <div className="strat-hidden">Waiting for your turn…</div>
       ) : hideAnswer ? (
         <div className="strat-locked">
-          <p>🎓 <b>Study mode</b> — the solver's mix &amp; EVs are hidden so you commit first. They reveal the moment you act (the Feedback box grades you), or peek now.</p>
+          <p>🎓 <b>Study mode</b> — the solver's mix &amp; EVs are hidden so you commit first. They're revealed the moment you act (the Feedback box grades you), or peek now.</p>
           <button className="peek-btn" onClick={onPeek}>👁 Reveal the solver mix</button>
         </div>
       ) : (

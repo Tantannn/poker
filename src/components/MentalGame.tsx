@@ -84,7 +84,7 @@ export function MentalGame() {
     <div className="card">
       <h2>Mental Game</h2>
       <p className="sub">
-        The off-table half of poker. Because you play rarely, each session is high-pressure and rusty —
+        The off-table half of poker. Because you play rarely, each session is high-pressure and you arrive rusty —
         so <b>warm up</b> before you sit, know your <b>A-game vs C-game</b>, and pre-write the <b>logic</b>
         {' '}you'll inject when a trigger hits. Everything here saves locally and rides along in your backup.
       </p>

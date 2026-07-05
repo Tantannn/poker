@@ -180,7 +180,7 @@ function GameplanDrill() {
           First to act (or facing a check) — bet or check? Read the <b>board texture</b> and the <b>bets in pot</b>,
           then decide whether your hand is in the tier that bets.
         </div>
-        <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
+        <div className="quiz-score">Score: <b>{score.correct}/{score.total}</b> ({pctScore}%)</div>
       </div>
 
       <div className="lab-meta">

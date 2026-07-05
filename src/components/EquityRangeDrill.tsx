@@ -89,7 +89,9 @@ function whyRange(
     math =
       width === 'wide'
         ? `You beat almost their whole range → ~${eq}%.`
-        : `Even a strong hand only beats the bottom of a tight value range → ~${eq}%.`;
+        : eq >= 62
+          ? `A monster stays ahead of even a tight value range → ~${eq}%.`
+          : `Strong, but a tight value range fights back — you're ahead of only part of it → ~${eq}%.`;
   } else if (s >= 3) {
     math =
       width === 'wide'

@@ -97,7 +97,7 @@ export function describeTexture(board: Card[]): TextureDescription {
   if (hc === 14) {
     height = 'Ace-High';
     heightSentence = 'There is an ace on board, anchoring the high end of the range.';
-  } else if (board.slice(0, 3).every((c) => c.rank >= 10)) {
+  } else if (board.every((c) => c.rank >= 10)) {
     height = 'Broadway';
     heightSentence = 'The board is all broadway cards (T or higher) — it hits high, raise-heavy ranges hard.';
   } else if (hc <= 9) {
@@ -115,16 +115,26 @@ export function describeTexture(board: Card[]): TextureDescription {
   if (t.paired) extras.push('Paired');
   else if (t.connected) extras.push('Connected');
 
+  // on the river there are no more draws — say what IS possible, not what's brewing
+  const river = board.length === 5;
   const suitSentence =
     t.suitPattern === 'monotone'
-      ? ' Three or more cards share a suit, so flushes and flush draws dominate.'
+      ? river
+        ? ' Three or more cards share a suit, so made flushes are live.'
+        : ' Three or more cards share a suit, so flushes and flush draws dominate.'
       : t.suitPattern === 'twotone'
-        ? ' Two cards share a suit, putting a flush draw out there.'
-        : ' No two cards share a suit — no flush draws yet.';
+        ? river
+          ? ' Only two cards share a suit, so no flush is possible.'
+          : ' Two cards share a suit, putting a flush draw out there.'
+        : river
+          ? ' No two cards share a suit, so no flush is possible.'
+          : ' No two cards share a suit — no flush draws yet.';
   const connSentence = t.paired
     ? ' The board is paired, which adds trips/full-house combos and removes some straights.'
     : t.connected
-      ? ' The cards are connected, so straights and straight draws are live.'
+      ? river
+        ? ' The cards are connected, so straights are live.'
+        : ' The cards are connected, so straights and straight draws are live.'
       : ' The cards are disconnected, so straights are unlikely.';
 
   // who it favours (single-raised-pot heuristic)

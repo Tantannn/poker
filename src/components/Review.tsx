@@ -201,7 +201,7 @@ function ReviewSession({ pool, srs, onRecord }: { pool: Flash[]; srs: SrsMap; on
   return (
     <>
       <div className="quiz-bar">
-        <div className="quiz-score">Streak: <b>{score.correct}/{score.total}</b> ({pctScore}%) <span className="muted">{drillKeysHint(options.length)}</span></div>
+        <div className="quiz-score">Score: <b>{score.correct}/{score.total}</b> ({pctScore}%) <span className="muted">{drillKeysHint(options.length)}</span></div>
         <div className="quiz-score">{dueLeft > 0 ? <><b>{dueLeft}</b> still due</> : <span className="pos">All caught up ✓</span>}</div>
       </div>
 
