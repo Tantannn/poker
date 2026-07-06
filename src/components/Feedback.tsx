@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import type { NodeFeedback } from '../analysis/grade';
 import { RangeChartModal } from './RangeChartModal';
+import { SizingCheatSheet } from './SizingCheatSheet';
 import { KIND_COLOR } from './chartColors';
 import { CalcLabel } from './CalcTip';
 
 export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boolean }) {
   const [explain, setExplain] = useState(false);
   const [showChart, setShowChart] = useState(false);
+  const [showCheat, setShowCheat] = useState(false);
   const [prevFb, setPrevFb] = useState(fb);
 
   // when a new decision is graded, auto-open the gameplan for a leak/mistake
@@ -43,8 +45,21 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
           <button className="toggle" onClick={() => setShowChart(true)} title="See the range chart for this spot">
             📊 Chart
           </button>
+          <button
+            className={`toggle ${showCheat ? 'on' : ''}`}
+            onClick={() => setShowCheat((v) => !v)}
+            title="Postflop sizing cheat sheet — what to do in each spot"
+          >
+            📐 Cheat sheet
+          </button>
         </div>
       </div>
+
+      {showCheat && (
+        <div className="fb-cheat">
+          <SizingCheatSheet />
+        </div>
+      )}
 
       {peeked && (
         <div className="fb-peeked">👁 You revealed the solver before acting — this rep isn't unaided. Counts in your score, but don't read it as a clean solve.</div>
@@ -78,7 +93,10 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
 
               {ctx.street !== 'preflop' && (
                 <div className="gp-block">
-                  <div className="gp-h">Board texture: {ctx.boardLabel}</div>
+                  <div className="gp-h">
+                    Board texture: {ctx.boardLabel}
+                    {ctx.boardType && <span className={`board-type ${ctx.boardType.toLowerCase().replace('-', '')}`}>{ctx.boardType}</span>}
+                  </div>
                   <p>{ctx.boardSentence}</p>
                   {ctx.boardFavours && <p className="gp-muted">{ctx.boardFavours}</p>}
                 </div>

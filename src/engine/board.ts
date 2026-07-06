@@ -129,13 +129,23 @@ export function describeTexture(board: Card[]): TextureDescription {
         : river
           ? ' No two cards share a suit, so no flush is possible.'
           : ' No two cards share a suit — no flush draws yet.';
+  // Straight-draw axis, consistent with boardWetScore: any two ranks within 2
+  // (e.g. 9-7) put gutshots/one-gappers out there — the board isn't bone dry even
+  // when classifyFlop's stricter `connected` test (gap 1 / 4-window) says so.
+  const uniqAsc = [...new Set(board.map((c) => c.rank))].sort((a, b) => a - b);
+  let straighty = false;
+  for (let i = 0; i + 1 < uniqAsc.length; i++) if (uniqAsc[i + 1] - uniqAsc[i] <= 2) straighty = true;
   const connSentence = t.paired
     ? ' The board is paired, which adds trips/full-house combos and removes some straights.'
     : t.connected
       ? river
         ? ' The cards are connected, so straights are live.'
         : ' The cards are connected, so straights and straight draws are live.'
-      : ' The cards are disconnected, so straights are unlikely.';
+      : straighty
+        ? river
+          ? ' A two-gap sits on board, so some straights are possible.'
+          : ' A two-gap sits on board (like 9-7), so gutshot/one-gapper straight draws are live — not bone dry.'
+        : ' The cards are disconnected, so straights are unlikely.';
 
   // who it favours (single-raised-pot heuristic)
   const favours =

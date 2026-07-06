@@ -9,7 +9,7 @@ import { buildSampleTable, sampleCombo } from '../engine/range';
 import { equityVsRange, equityVsField, countOuts, exactOutsEquity } from '../engine/equity';
 import { evaluate7 } from '../engine/evaluator';
 import { requiredEquityForBet } from '../engine/potOdds';
-import { classifyFlop } from '../engine/board';
+import { classifyFlop, boardWetScore } from '../engine/board';
 import type { TextureInfo } from '../engine/board';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { mixFromEv } from './types';
@@ -153,6 +153,14 @@ interface Candidate {
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
 
+/** Binomial pmf P(K=k) for small n — used to average hero's equity-when-called over
+ *  the number of opponents who actually continue against a bet. */
+function binomPmf(n: number, k: number, p: number): number {
+  let c = 1;
+  for (let i = 0; i < k; i++) c = (c * (n - i)) / (i + 1);
+  return c * Math.pow(p, k) * Math.pow(1 - p, n - k);
+}
+
 /** Narrative overview shown above the option grid. Composed from spot-specific
  *  signals so different spots read differently — an equity tier, how far the
  *  price is from the equity (when facing a bet), ONE street-specific idea, a
@@ -174,6 +182,7 @@ function buildNote(a: {
   cleanFrac: number;
   flushLevel: number;
   tex: TextureInfo | null;
+  wet01: number;
   spr: number;
   sprKnown: boolean;
   canRaise: boolean;
@@ -228,7 +237,11 @@ function buildNote(a: {
   } else if (a.nOpp > 1 && !a.hasMade) {
     s.push(`Multiway, a bet mainly thins the field: with fewer players in, a modest hand wins far more often, and a small bet denies free cards.`);
   } else if (a.cardsToCome === 1) {
-    s.push(`One card to come: ranges are nearly set, so think in terms of value hands vs bluff-catchers rather than draws.`);
+    s.push(
+      a.wet01 >= 0.35
+        ? `One card to come, but the board is draw-heavy — straight/flush draws can still complete on the river, so charge them now rather than treating ranges as set.`
+        : `One card to come: ranges are nearly set, so think in terms of value hands vs bluff-catchers rather than draws.`,
+    );
   }
 
   // 4) texture, only when it actually changes the maths
@@ -256,7 +269,11 @@ function buildNote(a: {
   // it can value-bet, contradicting the opening sentence.
   if (a.canRaise) {
     const verb = a.C > 0 ? 'raise' : 'bet';
-    if (a.eHU >= 0.65 && (a.C === 0 || a.e >= 0.5))
+    if (a.sprKnown && a.spr < 1 && a.eHU >= 0.6)
+      s.push(`SPR is under 1 and you hold a strong hand, so you're committed: the stack goes in over the streets regardless. Any committing size is close in EV — a token ${verb} just gives draws a cheap card first, so ${verb} big (or jam) and take the equity now.`);
+    else if (a.wet01 >= 0.35 && a.e >= 0.5 && a.eHU >= 0.6)
+      s.push(`The board is draw-heavy, so ${verb} bigger — charging the straight/flush draws and denying their equity is worth more than the extra thin calls a small ${verb} would pick up.`);
+    else if (a.eHU >= 0.65 && (a.C === 0 || a.e >= 0.5))
       s.push(`You're strong enough to ${verb} for value — size to the worst hand that still calls; oversizing folds out your customers.`);
     else if (a.eHU >= 0.45 && a.e >= 0.35)
       s.push(`Bigger bets only get called by stronger hands, so with a hand this strength ${verb === 'raise' ? 'raising' : 'betting'} huge or shoving isn't rewarded.`);
@@ -305,6 +322,10 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     tex == null
       ? 0
       : (tex.connected ? 0.06 : 0) + (tex.suitPattern !== 'rainbow' ? 0.05 : 0) + (tex.paired ? -0.03 : 0);
+  // 0..1 draw-pressure, from the shared wet score (dry 0 · semi ~0.4 · wet ≥0.8). Drives
+  // the equity-denial (charge draws) and multi-street (keep worse hands in) tradeoff so
+  // sizing follows texture: small on dry, big on wet. Same source as the Dry/Wet badge.
+  const wet01 = tex == null ? 0 : Math.min(1, boardWetScore(inp.board) / 2.5);
 
   // hero can't make the board flush and holds none of it → flush-dominated (see
   // helper). The LEVEL (3 vs 4+) scales the fold-equity/equity-when-called penalty
@@ -426,9 +447,10 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel);
+    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);
     const cls = classifyBet(eHU, outs, hasMade);
     const sv = d.streetValue > 0.05;
+    const dv = d.denial > 0.05;
     cands.push({
       id,
       label,
@@ -437,7 +459,17 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
       kind: classKind(cls),
       why: whyBet(cls, eHU, d, outs, false, isRiver, frac),
-      math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${sv ? `\n   (~${Math.round(d.contFrac * 100)}% of his range calls this size; the rest folds — a smaller bet keeps more worse hands in to pay later streets)` : d.isThinValue ? `\n   (river: worse hands call and pay the bet, better hands call and beat you — betting profits only when more worse call than better)` : ''}`,
+      math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${
+        d.committed
+          ? `\n   (SPR < 1: you're committed, so the effective stack goes in over the streets whatever you bet now — every committing size wins ~the same; only the draws you deny THIS street differ, so sizing is a minor EV choice here)`
+          : sv
+          ? `\n   (~${Math.round(d.contFrac * 100)}% of his range calls this size; the rest folds — a smaller bet keeps more worse hands in to pay later streets)`
+          : dv
+            ? `\n   (equity denial: a bigger bet folds live draws off this wet board — denying that equity beats the extra crying calls a small bet would earn)`
+            : d.isThinValue
+              ? `\n   (river: worse hands call and pay the bet, better hands call and beat you — betting profits only when more worse call than better)`
+              : ''
+      }`,
     });
   };
 
@@ -446,7 +478,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel);
+    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);
     const cls = classifyBet(eHU, outs, hasMade);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
@@ -527,6 +559,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       cleanFrac,
       flushLevel,
       tex,
+      wet01,
       spr,
       sprKnown: inp.effStack != null,
       canRaise: inp.canRaise && inp.maxRaiseTo > inp.currentBet,
@@ -546,6 +579,10 @@ interface AggroDetail {
   A: number;
   /** extra EV from getting to value bet a later street (0 for all-in / river). */
   streetValue: number;
+  /** extra EV from folding live draws off a wet board (equity denial; 0 on dry). */
+  denial: number;
+  /** low-SPR spot where the stacks go in regardless of size (sizing barely matters). */
+  committed: boolean;
   /** share of villain's range that continues at this size (minimum-defence). */
   contFrac: number;
   /** the EV formula for THIS branch — symbolic form + the numbers plugged in — so the
@@ -575,10 +612,17 @@ function computeAggro(
   cardsToCome = 0,
   eField = e,
   flushLevel = 0, // 0 = not flush-dominated; 3 = monotone/3-flush (mild); 4+ = made-flush wall
+  wet01 = 0, // 0..1 draw pressure — drives the denial (charge) vs multi-street (keep-in) tradeoff
 ): AggroDetail {
-  const R = target - currentBet; // pressure on top of a call
-  const A = target - heroCommitted; // total hero invests now
-  const s = R / Math.max(1, P + C); // raise size relative to the pot
+  // Cap the bet by the EFFECTIVE stack: chips past what opponents can call come back,
+  // so a jam vs a short stack is NOT a giant overbet — it's whatever fraction of the
+  // pot the effective stack covers. Capping here means `s` (hence fold/continue rates),
+  // hero's at-risk chips, and the called pot all use the real, callable size, so at low
+  // SPR a 75%/pot/all-in bet converge instead of the shove reading as a 4× overbet.
+  const cap = effStack > 0 ? effStack : Infinity;
+  const R = Math.min(target - currentBet, cap); // callable pressure on top of a call
+  const A = Math.min(target - heroCommitted, cap); // hero's real at-risk chips
+  const s = R / Math.max(1, P + C); // effective raise size relative to the pot
 
   // ---- RIVER: thin-value model (no more cards to come) ----
   // Minimum-defence (below) answers "does villain fold enough vs a BLUFF?" — the
@@ -618,89 +662,126 @@ function computeAggro(
     // print the formula that was actually evaluated so the panel can't contradict it.
     const evLabel = `showdown share × pot + bet × (worse hands that call) − you invest × (better hands that call)`;
     const evExpr = `${pct1(base)} × ${P} + ${R} × ${pct1(Cw)} − ${A} × ${pct1(Cb)}`;
-    return { ev: evr, fe: fer, e2: e2r, calledPot: P + A + R, A, streetValue: 0, contFrac: cont, evLabel, evExpr, isThinValue: true };
+    return { ev: evr, fe: fer, e2: e2r, calledPot: P + A + R, A, streetValue: 0, denial: 0, committed: false, contFrac: cont, evLabel, evExpr, isThinValue: true };
   }
 
-  // ---- CONTINUE vs FOLD frequency: ONE model, shared by the EV pot-split, the
-  // equity-when-called (e2) below, AND the displayed math ----
-  // Minimum-defence: against a bet of `s` pots a villain continues with ~his
-  // strongest 1/(1+s) of range. This single number is the source of truth for "how
-  // often is hero called", so the EV split and the range strength can no longer
-  // disagree. (The OLD code split the pot on a SEPARATE saturating fold-equity term
-  // while deriving e2 from contFrac — for a shove that printed "76% called" in the EV
-  // yet "4% continues" in the note: the same event with two numbers, which let the
-  // jam bank a huge called-pot it almost never actually reaches.)
-  // PER-OPPONENT continue rate, driven by SIZE: vs a bet of `s` pots one opponent
-  // continues with ~his strongest 1/(1+s) of range. This size signal is what
-  // `rangeLift` (below) needs — it MUST NOT be overwritten by the multiway
-  // transform, or a large field would zero out the range-strength penalty exactly
-  // when the continuing range is STRONGEST (someone out of n holds a real hand).
+  // ---- PER-OPPONENT continue rate, driven by SIZE ----
+  // Minimum-defence: vs a bet of `s` pots ONE opponent continues with ~his strongest
+  // 1/(1+s) of range. This single rate feeds the caller-count distribution, the
+  // pot-split, and the range-strength lift below, so they can't disagree.
   let contHU = 1 / (1 + Math.max(0, s));
-  // FLUSH DOMINATION, graded by level. Hero holds none of the board suit: on a 4+
-  // flush board villain's one-card flushes never fold → he continues almost always;
-  // on a 3-flush/monotone board a made flush needs both his cards suited (rare) and
-  // the rest are draws, so only a mild FLOOR on how often he continues.
+  // FLUSH DOMINATION floor: hero holds none of the board suit, so on a 4+ flush board
+  // one-card flushes never fold; on a 3-flush board made flushes are rare but draws
+  // are everywhere — a milder floor.
   if (flushLevel >= 4) contHU = Math.max(contHU, 0.92);
   else if (flushLevel === 3) contHU = Math.max(contHU, 0.72);
-  // MULTIWAY: the bet only wins UNCONTESTED if EVERY opponent folds, so someone
-  // continuing is likelier as the field grows — P(≥1 continues) = 1 − (1−contHU)^n.
-  // This inflates the CALL rate (correct for the pot-split & fold equity) but is
-  // kept SEPARATE from contHU so it can't distort the size-driven range strength.
-  let contFrac = oppCount > 1 ? 1 - Math.pow(1 - contHU, oppCount) : contHU;
-  // POSITION & TEXTURE nudge — small and ADDITIVE, so it can't swing a shove's
-  // call-rate (a multiplicative factor near contFrac≈1 would). In position hero's
-  // bets fold a hair more out (lower contFrac), out of position a hair fewer; a wet
-  // board keeps more draws in (higher contFrac).
-  contFrac = Math.max(0.02, Math.min(0.98, contFrac + (1 - feMult) * 0.15 + wetness));
-  const fe = 1 - contFrac; // fold frequency == fold equity — the ONE number, used & shown
+  // position/texture nudge on the PER-OPPONENT rate (IP folds a hair more out, a wet
+  // board keeps a hair more in). `q` is the one continue rate everything below reads.
+  const q = Math.max(0.02, Math.min(0.98, contHU + (1 - feMult) * 0.15 + wetness));
 
-  // EQUITY WHEN CALLED — built on the SIZE-driven per-opponent rate `contHU`, NOT
-  // the multiway-inflated contFrac. Against a bigger bet the continuing range is
-  // TIGHTER and STRONGER (1/(1+s) shrinks), so hero's realised equity when called
-  // collapses toward (then past) a coin flip. This is what makes over-bets and
-  // shoves -EV with a one-pair value hand: you fold out everything you beat and get
-  // called only by what beats you. The extra strength from FACING MORE CALLERS is
-  // handled by `multiTax` below, so it is not double-counted here.
-  const rangeLift = 0.32 * (1 - contHU); // strength gain of the continuing range
-  // a shove reads scarier than the same chips as a bet, so the stack-off range is
-  // a touch tighter — but only meaningfully once the shove is large vs the pot.
-  // A sub-pot all-in (low SPR) is just a normal-sized bet and shouldn't be taxed
-  // like a 10x overbet, so scale the tax with size.
-  const allinTax = isAllIn ? 0.06 * Math.min(1, s) : 0;
-  const multiTax = 0.04 * (oppCount - 1); // each extra caller tightens it further
-  // when flush-dominated, the hands that CALL a bet skew to the suit. On a 4+ flush
-  // board those are made flushes that crush hero — generic rangeLift (≤0.32) is far
-  // too small, so a heavy tax pushes equity-when-called toward ~0 (this is what stops
-  // the model jamming a no-flush hand into a made-flush board). On a 3-flush board the
-  // callers are mostly DRAWS hero still beats, so only a small tax.
+  // FOLD EQUITY = EVERY opponent folds. The number who actually call, given ≥1 does,
+  // is Binomial(oppCount, q): a bet takes the pot uncontested only when ALL fold, and
+  // multiway that's rare (someone out of n usually has a hand).
+  const pAllFold = Math.pow(1 - q, oppCount);
+  let fe = Math.max(0.02, pAllFold);
+  let contFrac = 1 - fe; // P(≥1 continues) — the "called%" shown in the math
+  const kbar = (oppCount * q) / Math.max(1e-6, 1 - pAllFold); // E[callers | called]
+
+  // ---- EQUITY WHEN CALLED — hero must beat EVERY caller ----
+  // Base = equity vs ONE tightened caller: a bigger bet folds the weak part, so the
+  // continuer is stronger (`rangeLift`). Then correct for facing SEVERAL callers with
+  // ρ — the per-extra-opponent equity multiplier IMPLIED by this hand's own heads-up
+  // vs field drop (eField ≈ eHU·ρ^(n−1)) — averaged over the caller-count distribution.
+  // Result: when almost everyone calls (small bet) e2 is pulled DOWN toward the field
+  // number; when a big bet isolates to one caller, e2 rises toward the heads-up value.
+  // This kills the old bug where equity-when-called sat ABOVE the field equity, and it
+  // replaces the flat multiTax with a size-aware isolation reward — so charging or
+  // isolating multiway is no longer graded worse than a token bet.
+  const rangeLift = 0.32 * (1 - contHU); // continuing range is tighter for bigger bets
+  // a shove reads scarier than the same chips as a bet, so the stack-off range is a
+  // touch tighter — but ONLY once the jam is a real OVERBET (s > 1 pot). A sub-pot jam
+  // at low SPR is just a normal committing bet and shouldn't be taxed at all, or a
+  // standard low-SPR shove reads as a blunder vs the same-size sized bet.
+  const allinTax = isAllIn ? 0.06 * Math.min(1, Math.max(0, s - 1)) : 0;
+  // flush-dominated: callers skew to the suit. 4+ flush board → made flushes that crush
+  // hero (heavy tax toward ~0); 3-flush → mostly draws hero still beats (small tax).
   const flushTax = flushLevel >= 4 ? 0.25 : flushLevel === 3 ? 0.08 : 0;
-  const e2 = Math.max(0, Math.min(1, e * realize) - rangeLift - allinTax - multiTax - flushTax);
+  const eOne = Math.max(0, Math.min(1, e * realize) - rangeLift - allinTax - flushTax); // vs one caller
+  let e2 = eOne;
+  if (oppCount > 1) {
+    const rho = Math.max(0.2, Math.min(1, Math.pow(Math.max(0.01, eField) / Math.max(0.01, e), 1 / (oppCount - 1))));
+    let acc = 0;
+    for (let k = 1; k <= oppCount; k++) acc += binomPmf(oppCount, k, q) * Math.pow(rho, k - 1);
+    e2 = Math.max(0, eOne * (acc / Math.max(1e-6, contFrac)));
+  }
 
-  const calledPot = P + A + R;
-  let ev = fe * P + (1 - fe) * (e2 * calledPot - A);
+  // pot at showdown = dead pot + hero's (callable) chips + each caller's match (R, already
+  // capped to the effective stack above, so this can't bank chips nobody can call).
+  let calledPot = P + A + kbar * R;
+  let ev = fe * P + contFrac * (e2 * calledPot - A);
 
-  // MULTI-STREET VALUE — the thing a single-street EV misses, and the reason a
-  // sized value bet beats a jam on a dry board even though the immediate pot is
-  // smaller. A value hand that bets a NON-all-in amount on the flop/turn keeps
-  // worse hands in AND gets to bet again on a later street. That future value is
-  // largest when MORE worse hands continue (i.e. for SMALLER bets — high contFrac)
-  // and is FORGONE entirely by shoving (no next street). Bounded by the stack
-  // behind, and faded on wet boards where you'd rather charge/fold draws now.
+  // MULTI-STREET VALUE — favours SMALLER bets, and only on DRY boards. A non-all-in
+  // value bet keeps worse hands in AND lets hero bet again later; that future value is
+  // largest when more worse hands continue (small bets) and fades to ~0 as the board
+  // gets wetter (there you'd rather charge/deny now) or when shoving (no next street).
   let streetValue = 0;
   if (!isAllIn && cardsToCome > 0 && e > 0.55 && flushLevel < 4) {
     const behind = Math.max(0, effStack - A); // wagerable on later streets
     const futureExtract = Math.min(behind, 0.5 * calledPot); // ~½-pot next street
     const edge = Math.max(0, Math.min(1, (e2 - 0.5) * 2)); // how far ahead of callers
-    const dryness = Math.max(0, 1 - 3 * wetness); // dry boards keep worse hands around
-    // contFrac === (1 − fe) now, so this is the single "worse hands that continue and
-    // pay a later street" factor (the old code multiplied both and double-counted it).
+    const dryness = Math.max(0, 1 - wet01); // dry boards keep worse hands around
     streetValue = contFrac * edge * futureExtract * 0.5 * dryness;
     ev += streetValue;
   }
 
-  const evLabel = `fold% × pot + called% × (eq-when-called × final pot − you invest)`;
-  const evExpr = `${pct1(fe)} × ${P} + ${pct1(1 - fe)} × (${pct1(e2)} × ${calledPot} − ${A})`;
-  return { ev, fe, e2, calledPot, A, streetValue, contFrac, evLabel, evExpr, isThinValue: false };
+  // EQUITY DENIAL — favours BIGGER bets, and only on WET boards. Folding a live draw
+  // off the board stops it outdrawing hero; the benefit scales with how many hands the
+  // bet folds out (bigger = more) and how much equity they carried (wetter = more). ~0
+  // on dry boards (folders near-dead) and when hero isn't ahead. This is the
+  // counterweight that makes charging draws beat a token 33% bet on a drawy board.
+  let denial = 0;
+  if (cardsToCome > 0 && eOne > 0.5) {
+    const expFolders = oppCount * (1 - q); // hands bet out
+    denial = expFolders * (wet01 * 0.28) * P * 0.5;
+    ev += denial;
+  }
+
+  // ---- LOW-SPR COMMITMENT ----
+  // SPR < 1 with a hand that won't fold means the effective stack goes in over the
+  // streets NO MATTER what you bet now — so the money is ~identical for every committing
+  // size, and only the equity you deny THIS street differs (a bigger bet folds more draws
+  // now). Recompute the money term at the effective all-in size so every committing size
+  // shares it, leaving denial as the sole differentiator. Without this, single-street EV
+  // punishes a small flop bet as a blunder when in reality the stacks go in regardless.
+  let committed = false;
+  const sprLocal = P > 0 ? effStack / P : 0;
+  if (!isAllIn && cardsToCome > 0 && sprLocal > 0 && sprLocal < 1 && eOne > 0.5) {
+    committed = true;
+    const sA = effStack / P; // the size the stacks actually go in at
+    const qA = Math.max(0.02, Math.min(0.98, 1 / (1 + sA) + (1 - feMult) * 0.15 + wetness));
+    const contA = 1 - Math.max(0.02, Math.pow(1 - qA, oppCount));
+    const kbarA = (oppCount * qA) / Math.max(1e-6, 1 - Math.pow(1 - qA, oppCount));
+    const eOneA = Math.max(0, Math.min(1, e * realize) - 0.32 * (1 - 1 / (1 + sA)) - flushTax);
+    let e2A = eOneA;
+    if (oppCount > 1) {
+      const rho = Math.max(0.2, Math.min(1, Math.pow(Math.max(0.01, eField) / Math.max(0.01, e), 1 / (oppCount - 1))));
+      let acc = 0;
+      for (let k = 1; k <= oppCount; k++) acc += binomPmf(oppCount, k, qA) * Math.pow(rho, k - 1);
+      e2A = Math.max(0, eOneA * (acc / Math.max(1e-6, contA)));
+    }
+    fe = 1 - contA;
+    contFrac = contA;
+    e2 = e2A;
+    calledPot = P + effStack + kbarA * effStack;
+    streetValue = 0;
+    ev = fe * P + contFrac * (e2 * calledPot - effStack) + denial;
+  }
+  const invest = committed ? effStack : A;
+
+  const showDenial = denial > 0.05;
+  const evLabel = `fold% × pot + called% × (eq-when-called × final pot − you invest)${showDenial ? ' + equity denial' : ''}`;
+  const evExpr = `${pct1(fe)} × ${P} + ${pct1(contFrac)} × (${pct1(e2)} × ${Math.round(calledPot)} − ${Math.round(invest)})${showDenial ? ` + ${denial.toFixed(1)}` : ''}`;
+  return { ev, fe, e2, calledPot, A, streetValue, denial, contFrac, committed, evLabel, evExpr, isThinValue: false };
 }
 
 /**

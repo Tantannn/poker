@@ -76,7 +76,12 @@
       "Bash(sed -n \"/sixMaxRfiEquivalent/,+30p\" D:/code/poker/src/engine/table.ts)",
       "Bash(sed -n \"/export function positionLabel/,+25p\" D:/code/poker/src/engine/table.ts)",
       "Bash(sed -n \"/const RFI_LADDER/,+3p\" D:/code/poker/src/engine/table.ts)",
-      "Bash(sed -n \"/export function tablePositions/,+12p\" D:/code/poker/src/engine/table.ts)"
+      "Bash(sed -n \"/export function tablePositions/,+12p\" D:/code/poker/src/engine/table.ts)",
+      "Bash(echo \"TSC:$?\")",
+      "Bash(npx vitest *)",
+      "Bash(grep -iv \"wet\\\\b.*//\")",
+      "Bash(echo \"LINT:$?\")",
+      "Bash(echo \"BUILD:$?\")"
     ]
   }
 }

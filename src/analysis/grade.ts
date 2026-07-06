@@ -6,7 +6,7 @@ import { legalActions, positionLabel, potTotal } from '../engine/table';
 import type { ActionId, NodeStrategy } from '../strategy/types';
 import { evLoss as computeEvLoss, rngPrescription } from '../strategy/types';
 import { matchActionId, primaryVillainIdx } from '../strategy';
-import { describeTexture } from '../engine/board';
+import { describeTexture, boardWetness } from '../engine/board';
 import { classifyHandClass } from '../strategy/handClass';
 import { getProfile } from '../ai/profiles';
 import type { ActionClass } from './feedback';
@@ -32,6 +32,8 @@ export interface FeedbackContext {
   villainName: string;
   villainTag: string;
   boardLabel: string;
+  /** dry / semi-wet / wet — the sizing-relevant type ('' preflop). */
+  boardType: string;
   boardSentence: string;
   boardFavours: string;
   handLabel: string;
@@ -66,6 +68,8 @@ export function buildFeedbackContext(state: GameState, heroIdx: number): Feedbac
   const la = legalActions(state);
   const pos = positionLabel(heroIdx, state.buttonIndex, state.players.length);
   const tex = describeTexture(state.board);
+  const boardType =
+    state.board.length < 3 ? '' : { dry: 'Dry', semi: 'Semi-wet', wet: 'Wet' }[boardWetness(state.board)];
   const hand = classifyHandClass(state.players[heroIdx].holeCards, state.board);
 
   const vIdx = primaryVillainIdx(state, heroIdx);
@@ -90,6 +94,7 @@ export function buildFeedbackContext(state: GameState, heroIdx: number): Feedbac
     villainName,
     villainTag,
     boardLabel: tex.label,
+    boardType,
     boardSentence: tex.sentence,
     boardFavours: tex.favours,
     handLabel: hand.label,

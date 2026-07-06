@@ -287,7 +287,15 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         ) : (
           <>
             <Hud hud={hud} loading={hudLoading} street={game.street} enabled={hudEnabled} onToggle={onToggleHud} strategy={strategy} hideAnswer={hideAnswer} onPeek={() => setPeeked(true)} />
-            <SituationPanel board={game.board} heroCards={hero.holeCards} street={game.street} active={isHeroTurn} villain={villain} />
+            <SituationPanel
+              board={game.board}
+              heroCards={hero.holeCards}
+              street={game.street}
+              active={isHeroTurn}
+              villain={villain}
+              opponents={game.players.filter((p) => !p.folded && !p.isHero).length}
+              spr={pot > 0 ? Math.min(hero.stack, ...game.players.filter((p) => !p.folded && !p.isHero).map((p) => p.stack), Infinity) / pot : 0}
+            />
             <StrategyPanel
               strategy={strategy}
               rng={rng}

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { SizingCheatSheet } from './SizingCheatSheet';
 
 // Section table-of-contents — drives the sticky jump nav and the collapse-all
 // control. Order here = render order below; each id matches a <Section id>.
@@ -12,6 +13,7 @@ const SECTIONS: { id: string; title: string }[] = [
   { id: 'threebet', title: '3-betting & facing a 3-bet' },
   { id: 'blinds', title: 'Blind defense, multiway & short stacks' },
   { id: 'postflop', title: 'Postflop fundamentals & glossary' },
+  { id: 'cheatsheet', title: '📐 Postflop decision cheat sheet' },
   { id: 'texture', title: 'Board texture playbook' },
   { id: 'turn', title: 'The turn: pivot street' },
   { id: 'river', title: 'River: value, bluff, or fold' },
@@ -537,6 +539,13 @@ export function Reference() {
             <p><span className="pill">3-bet</span> A re-raise of the open.</p>
           </div>
         </div>
+      </Section>
+
+      <Section id="cheatsheet" title="📐 Postflop decision cheat sheet" open={isOpen('cheatsheet')} onToggle={() => toggle('cheatsheet')}>
+        <p className="sub">
+          The fast decision order the trainer grades by. Read top-to-bottom; the first line that fits sets your play.
+        </p>
+        <SizingCheatSheet />
       </Section>
 
       <Section id="texture" title="Board texture playbook" open={isOpen('texture')} onToggle={() => toggle('texture')}>

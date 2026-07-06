@@ -34,14 +34,39 @@ body {
 .suit.red { color: var(--red); }
 .suit.black { color: var(--gold); }
 
-.app-nav { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 18px 0; }
-.app-nav button {
-  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
-  padding: 9px 16px; border-radius: 999px; cursor: pointer; font-size: 14px; font-weight: 600;
+.app-nav { position: relative; display: flex; justify-content: center; margin: 18px 0; }
+
+/* hamburger toggle: shows the current section, opens the full menu on click */
+.nav-toggle {
+  display: inline-flex; align-items: center; gap: 11px;
+  background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+  padding: 10px 18px; border-radius: 999px; cursor: pointer; font-size: 14px; font-weight: 600;
   transition: 0.15s;
 }
-.app-nav button:hover { color: var(--txt); border-color: var(--raise2); }
-.app-nav button.active { background: var(--raise2); color: #fff; border-color: var(--raise); }
+.nav-toggle:hover { border-color: var(--raise2); }
+.nav-toggle[aria-expanded="true"] { border-color: var(--raise); }
+.nav-toggle-bars { display: inline-flex; flex-direction: column; gap: 3px; width: 16px; }
+.nav-toggle-bars span { height: 2px; border-radius: 2px; background: currentColor; }
+.nav-toggle-label { line-height: 1; }
+
+/* click-anywhere-else scrim so the menu closes like a real dropdown */
+.nav-backdrop { position: fixed; inset: 0; z-index: 40; }
+
+/* dropdown grid: every section wraps into tidy columns instead of a long strip */
+.nav-menu {
+  position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 50;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px;
+  width: min(720px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px; box-shadow: var(--shadow);
+}
+.nav-menu button {
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+  padding: 9px 14px; border-radius: 10px; cursor: pointer; font-size: 13.5px; font-weight: 600;
+  text-align: left; transition: 0.15s;
+}
+.nav-menu button:hover { color: var(--txt); border-color: var(--raise2); }
+.nav-menu button.active { background: var(--raise2); color: #fff; border-color: var(--raise); }
 
 .app-footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 
@@ -813,6 +838,35 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .fb-gameplan { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }
 .gp-block { }
 .gp-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gold); margin-bottom: 4px; }
+/* dry/semi/wet board-type chip — colour cues the sizing rule (dry→small, wet→big) */
+.board-type { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; border: 1px solid var(--line); vertical-align: middle; }
+.board-type.dry { color: var(--raise); border-color: var(--raise2); }
+.board-type.semiwet { color: var(--gold); border-color: var(--gold); }
+.board-type.wet { color: var(--red); border-color: var(--red); }
+
+/* postflop decision cheat sheet — Feedback toggle + Reference section share it */
+.fb-cheat, .sit-cheat { margin: 10px 0 4px; }
+.sit-head-btns { display: flex; gap: 6px; }
+.sit-play { background: rgba(46,194,126,0.08); border: 1px solid var(--raise2); border-radius: 9px; padding: 8px 10px; margin-top: 10px; }
+.sit-play-action { margin: 0 0 3px !important; font-weight: 800; color: var(--txt); font-size: 13px !important; }
+.cheat { display: flex; flex-direction: column; gap: 10px; }
+.cheat-hook { margin: 0; font-weight: 700; color: var(--gold); font-size: 13px; line-height: 1.5; }
+.cheat-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.cheat-order { color: var(--muted); font-size: 12.5px; }
+.cheat-all { background: none; border: none; color: var(--call); font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline; white-space: nowrap; }
+.cheat-block { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: var(--panel); }
+.cheat-h { display: flex; align-items: center; gap: 5px; width: 100%; text-align: left; background: none; border: none; padding: 0; cursor: pointer; font-size: 12.5px; font-weight: 800; color: var(--txt); }
+.cheat-block.open .cheat-h { margin-bottom: 6px; }
+.cheat-caret { color: var(--muted); font-size: 10px; width: 10px; flex: 0 0 auto; }
+.cheat-n { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--raise2); color: #fff; font-size: 11px; margin-right: 3px; }
+.cheat-rows { margin: 0; }
+.cheat-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 4px 0; border-top: 1px solid var(--line); }
+.cheat-row:first-child { border-top: none; }
+.cheat-row dt { font-weight: 700; color: var(--gold); font-size: 12.5px; }
+.cheat-row dd { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+@media (max-width: 600px) {
+  .cheat-row { grid-template-columns: 1fr; gap: 1px; padding: 5px 0; }
+}
 .gp-block p { margin: 0 0 4px; font-size: 13px; line-height: 1.5; }
 .gp-muted { color: var(--muted); font-size: 12.5px !important; }
 .gp-rows { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
@@ -1189,7 +1243,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .sit-v { font-weight: 700; }
 .sit-v.good { color: var(--raise); }
 .sit-v.bad { color: var(--red); }
-.sit-block { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.sit-block { margin-top: 10px; padding-top: 8px; }
 .sit-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--gold); margin-bottom: 4px; }
 .sit-block p { margin: 0 0 4px; font-size: 12.5px; line-height: 1.5; }
 .sit-muted { color: var(--muted); }
@@ -1221,13 +1275,10 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
   .app-header p { font-size: 12px; margin-top: 4px; }
   .app-footer { font-size: 11px; }
 
-  /* nav: one swipeable row instead of a tall wrap pile */
-  .app-nav {
-    flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
-    gap: 5px; margin: 12px 0; padding-bottom: 5px;
-    -webkit-overflow-scrolling: touch; scrollbar-width: thin;
-  }
-  .app-nav button { flex: 0 0 auto; padding: 7px 12px; font-size: 13px; }
+  /* nav: compact toggle; menu grid drops to two columns on a narrow screen */
+  .app-nav { margin: 12px 0; }
+  .nav-toggle { padding: 8px 14px; font-size: 13px; }
+  .nav-menu { grid-template-columns: 1fr 1fr; }
 
   .play-layout { gap: 12px; }
 

@@ -79,3 +79,43 @@ describe('solvePostflop — multiway', () => {
     expect(field).toBeLessThan(hu);
   });
 });
+
+const evOf = (r: ReturnType<typeof solvePostflop>, id: string) => r.options.find((o) => o.id === id)?.ev ?? NaN;
+
+describe('solvePostflop — low-SPR sizing convergence', () => {
+  // AA, 6-way, ~0.6 SPR: a pot-sized bet vs a short stack IS effectively all-in.
+  const aa: PostflopInput = {
+    hero: cards('Ad Ac'), board: cards('7s 9d 3c'),
+    oppRange: range, oppRanges: [range, range, range, range, range],
+    pot: 84, toCall: 0, heroCommitted: 0, currentBet: 0,
+    minRaiseTo: 2, maxRaiseTo: 400, canCheck: false, canRaise: true,
+    bigBlind: 2, iterations: 2500, position: 'oop', effStack: 50,
+  };
+
+  it('all committing sizes converge at low SPR (stacks go in anyway)', () => {
+    const r = solvePostflop(aa);
+    // 75%/pot are the same effective size, and a sub-pot jam is barely different…
+    expect(Math.abs(evOf(r, 'bet75') - evOf(r, 'betpot'))).toBeLessThan(1.5);
+    expect(Math.abs(evOf(r, 'betpot') - evOf(r, 'allin'))).toBeLessThan(2);
+    // …and a small bet is at most a minor error (NOT the old ~9bb blunder), because
+    // the effective stack goes in over the streets regardless of this street's size.
+    const gap33 = Math.max(...r.options.map((o) => o.ev)) - evOf(r, 'bet33');
+    expect(gap33).toBeLessThan(4);
+  });
+});
+
+describe('solvePostflop — sizing matters when DEEP', () => {
+  const aa: PostflopInput = {
+    hero: cards('Ad Ac'), board: cards('7s 9d 3c'),
+    oppRange: range, oppRanges: [range, range, range, range, range],
+    pot: 84, toCall: 0, heroCommitted: 0, currentBet: 0,
+    minRaiseTo: 2, maxRaiseTo: 700, canCheck: false, canRaise: true,
+    bigBlind: 2, iterations: 2500, position: 'oop', effStack: 336,
+  };
+
+  it('under-betting the nut overpair is a real error deep (no commitment cover)', () => {
+    const r = solvePostflop(aa);
+    const gap33 = Math.max(...r.options.map((o) => o.ev)) - evOf(r, 'bet33');
+    expect(gap33).toBeGreaterThan(5);
+  });
+});

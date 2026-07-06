@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useGame } from './hooks/useGame';
 // Eager: the landing tab (Play/Tournament) and the always-mounted equity widget.
 import { PokerTable } from './components/PokerTable';
@@ -32,6 +32,10 @@ const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
 type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
+// Remember the last-opened section across reloads. `poker-` prefix keeps it in
+// the backup filter (backup.ts) so it travels with an export/import.
+const TAB_KEY = 'poker-ui-tab';
+
 const TABS: { id: Tab; label: string }[] = [
   { id: 'learn', label: '🎓 Learning Path' },
   { id: 'play', label: '♠ Play vs Bots' },
@@ -57,12 +61,25 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'settings', label: '⚙ Settings' },
 ];
 
+const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
+
+function loadTab(fallback: Tab): Tab {
+  try {
+    const saved = localStorage.getItem(TAB_KEY);
+    if (saved && TAB_IDS.has(saved)) return saved as Tab;
+  } catch {
+    /* storage blocked — fall through to default */
+  }
+  return fallback;
+}
+
 export default function App() {
   const g = useGame(DEFAULT_PROFILES);
-  // open on whichever session was last live (cash vs tournament) so a refresh
-  // lands on the matching tab.
-  const [tab, setTab] = useState<Tab>(g.mode === 'tourney' ? 'tournament' : 'play');
+  // Restore the last-opened tab; if none saved, land on whichever session was
+  // last live (cash vs tournament).
+  const [tab, setTab] = useState<Tab>(() => loadTab(g.mode === 'tourney' ? 'tournament' : 'play'));
   const [hudEnabled, setHudEnabled] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // The Play and Tournament tabs are the two persisted game sessions; entering
   // one swaps the live table to its slot (other tabs leave the session as-is).
@@ -70,7 +87,33 @@ export default function App() {
     if (t === 'play') g.setActiveMode('cash');
     else if (t === 'tournament') g.setActiveMode('tourney');
     setTab(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* storage blocked — session is still consistent, just not persisted */
+    }
+    setMenuOpen(false);
   };
+
+  // A restored Play/Tournament tab must also swap the live table to that mode
+  // (setActiveMode no-ops when already matching). Runs once on mount.
+  useEffect(() => {
+    if (tab === 'play') g.setActiveMode('cash');
+    else if (tab === 'tournament') g.setActiveMode('tourney');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Close the section menu on Escape, like a native dropdown.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
+  const currentLabel = TABS.find((t) => t.id === tab)?.label ?? 'Menu';
 
   return (
     <div className="app">
@@ -85,12 +128,33 @@ export default function App() {
         </p>
       </header>
 
-      <nav className="app-nav" role="tablist" aria-label="Trainer sections">
-        {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
+      <nav className="app-nav">
+        <button
+          className="nav-toggle"
+          aria-expanded={menuOpen}
+          aria-haspopup="true"
+          aria-label="Open section menu"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span className="nav-toggle-bars" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="nav-toggle-label">{currentLabel}</span>
+        </button>
+        {menuOpen && (
+          <>
+            <div className="nav-backdrop" onClick={() => setMenuOpen(false)} />
+            <div className="nav-menu" role="tablist" aria-label="Trainer sections">
+              {TABS.map((t) => (
+                <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </nav>
 
       <main className="app-main">
