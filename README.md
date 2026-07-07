@@ -52,7 +52,9 @@ Powers: per-action **frequency % + EV** (the "Info button"), **EV-loss** scoring
 prescriptions for mixed spots, and equity-vs-range everywhere.
 
 ### 5. UI (`src/components/`, `src/hooks/useGame.ts`)
-Tabs: **Play vs Bots** (table + equity-vs-range HUD + solver-strategy panel + EV-loss feedback),
+Tabs: **Play vs Bots** (table + equity-vs-range HUD + solver-strategy panel + EV-loss feedback
++ optional **Think-first checklist**: postflop bets/raises are gated behind a graded 5-question
+quiz — hand class, board texture, equity, purpose, plan-if-raised — before the chips commit),
 **Tournament** (single-table freezeout: rising blinds, antes, payouts, bubble/ICM advisory),
 **Preflop Charts** (color-coded multi-scenario matrix), **Range Trainer**, **Postflop Lab**
 (board-texture drills with full frequencies/EV/RNG, heads-up or 3-way), **Gameplan**,

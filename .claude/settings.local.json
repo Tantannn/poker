@@ -81,7 +81,8 @@
       "Bash(npx vitest *)",
       "Bash(grep -iv \"wet\\\\b.*//\")",
       "Bash(echo \"LINT:$?\")",
-      "Bash(echo \"BUILD:$?\")"
+      "Bash(echo \"BUILD:$?\")",
+      "PowerShell(npm test *)"
     ]
   }
 }

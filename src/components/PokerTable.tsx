@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { positionLabel, tournamentLevel, handsToNextLevel } from '../engine/table';
+import type { Action } from '../engine/table';
 import { icmRead, payoutTable } from '../engine/icm';
 import { getProfile } from '../ai/profiles';
 import { Seat } from './Seat';
@@ -14,6 +15,7 @@ import { RangeChartModal } from './RangeChartModal';
 import { SituationPanel } from './SituationPanel';
 import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
+import { DecisionChecklist } from './DecisionChecklist';
 import { ScenarioBar } from './ScenarioBar';
 import type { AggroWarning } from '../analysis/aggression';
 import type { TiltState } from '../analysis/tilt';
@@ -51,13 +53,24 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     try { return localStorage.getItem('poker.studyMode') !== '0'; } catch { return true; }
   });
   const [peeked, setPeeked] = useState(false);
+  // Think-first checklist: optional gate — a postflop bet/raise is parked as
+  // "pending" and a short graded quiz (hand class, texture, equity, purpose,
+  // plan-vs-raise) must be completed before it commits. Persisted like study
+  // mode; ON by default. Pure-play mode and preflop bypass it.
+  const [checklistOn, setChecklistOn] = useState(() => {
+    try { return localStorage.getItem('poker.thinkFirst') !== '0'; } catch { return true; }
+  });
+  const [pendingBet, setPendingBet] = useState<Action | null>(null);
   // a new node = a fresh hero turn; drop any peek from the previous decision.
   // Reset during render (not in an effect) on the turn-ends transition — avoids
   // the cascading-render warning from setState-in-effect.
   const [prevTurn, setPrevTurn] = useState(isHeroTurn);
   if (isHeroTurn !== prevTurn) {
     setPrevTurn(isHeroTurn);
-    if (!isHeroTurn) setPeeked(false);
+    if (!isHeroTurn) {
+      setPeeked(false);
+      setPendingBet(null);
+    }
   }
   // entering tournament → hide guides (pure play); leaving → show them again.
   // Synced during render (local state only) so there's no setState-in-effect.
@@ -70,9 +83,21 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   // Stamp whether the hero peeked at the solver onto each decision, so the
   // feedback box can flag a peeked rep as not unaided.
   const [lastDecisionPeeked, setLastDecisionPeeked] = useState(false);
-  const heroAct = (a: Parameters<typeof g.heroAct>[0]) => {
+  const postflop = game.street === 'flop' || game.street === 'turn' || game.street === 'river';
+  const heroAct = (a: Action) => {
+    if (checklistOn && !supportsHidden && postflop && (a.type === 'bet' || a.type === 'raise')) {
+      setPendingBet(a);
+      return;
+    }
     setLastDecisionPeeked(peeked);
     g.heroAct(a);
+  };
+  // checklist passed (or at least completed) — fire the parked bet/raise
+  const commitPending = () => {
+    if (!pendingBet) return;
+    setLastDecisionPeeked(peeked);
+    g.heroAct(pendingBet);
+    setPendingBet(null);
   };
 
   // Tilt cool-off gate: after a big swing, intercept the NEXT deal once and force
@@ -102,8 +127,9 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         return;
       }
       if (!isHeroTurn) return;
-      // mirror heroAct(): stamp the peek state, then act
-      const act = (a: Parameters<typeof g.heroAct>[0]) => { setLastDecisionPeeked(peeked); g.heroAct(a); };
+      if (pendingBet) return; // think-first modal open — it owns the keyboard
+      // heroAct stamps the peek state and applies the think-first gate
+      const act = heroAct;
       if (e.key === 'f' || e.key === 'F') act({ type: 'fold' });
       else if (e.key === 'c' || e.key === 'C') {
         if (legal.canCheck) act({ type: 'check' });
@@ -114,7 +140,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [g, legal, isHeroTurn, handOver, started, peeked, gateActive]);
+  });
 
   return (
     <div className="play-layout">
@@ -278,6 +304,22 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           </button>
         )}
 
+        {!supportsHidden && (
+          <button
+            className={`study-toggle ${checklistOn ? 'on' : ''}`}
+            onClick={() => {
+              const next = !checklistOn;
+              setChecklistOn(next);
+              try { localStorage.setItem('poker.thinkFirst', next ? '1' : '0'); } catch { /* ignore */ }
+            }}
+            title="Gate every postflop bet/raise behind a quick graded checklist — what you hold, board texture, your equity, why you're betting, and your plan if raised — before the chips go in"
+          >
+            {checklistOn
+              ? '🧠 Think-first: ON — checklist before postflop bets/raises'
+              : '🧠 Think-first: OFF — bet/raise directly'}
+          </button>
+        )}
+
         {supportsHidden ? (
           <div className="guides-hidden-note">
             Pure-play mode — HUD, solver, situation &amp; opponent reads hidden. Decide blind like a real table.
@@ -328,6 +370,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
             <li><b>🎭 Opponent</b> = archetype tendencies, IP/OOP read, and how to exploit them.</li>
             <li><b>RNG roll</b> picks which branch of a mixed strategy to take; each action is scored by <b>EV loss</b> (bb).</li>
             <li><b>🎓 Study mode</b> (on by default) hides the <i>answer</i> — the solver mix &amp; the 🧭 decision verdict — until you act, so you commit your own read first. You keep equity, pot odds, situation &amp; opponent. The answer reveals in the feedback box the moment you move; hit <b>👁 Reveal</b> to peek (peeking is flagged so your score stays honest). Toggle it off to see everything live.</li>
+            <li><b>🧠 Think-first</b> (on by default) gates postflop <i>bets &amp; raises</i> behind a 5-question checklist — what you hold, board texture, your equity, <i>why</i> you're betting, and your plan if raised. Answers are graded against the app's reads before the chips commit, and you can still back out. Fold/check/call stay instant; preflop and pure-play skip it.</li>
           </ul>
           <h4>Bet types (in the Explain text)</h4>
           <ul>
@@ -343,6 +386,17 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
 
       {showChart && strategy && (
         <RangeChartModal strategy={strategy} onClose={() => setShowChart(false)} />
+      )}
+
+      {pendingBet && isHeroTurn && (
+        <DecisionChecklist
+          hero={hero.holeCards}
+          board={game.board}
+          equity={!hudLoading && hud ? hud.equity : null}
+          actionLabel={pendingBet.type === 'bet' ? `Bet ${pendingBet.amount ?? 0}` : `Raise to ${pendingBet.amount ?? 0}`}
+          onConfirm={commitPending}
+          onCancel={() => setPendingBet(null)}
+        />
       )}
     </div>
   );
