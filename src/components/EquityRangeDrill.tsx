@@ -1,13 +1,15 @@
 // Equity-vs-range calibration drill — the skill that actually wins money. You
-// can't memorize range equity (it shifts with hand × board × range), so instead
-// this trains your GUT: random hero + board vs a real villain range, you call
-// the bucket (behind / underdog / coinflip / ahead / crushing), and it reveals
-// the true equityVsRange. Reps tune the read you use at the table.
+// can't memorize range equity (it shifts with hand × board × range × how many
+// opponents), so instead this trains your GUT: random hero + board vs a real
+// villain range, you call the bucket (behind / underdog / coinflip / ahead /
+// crushing), and it reveals the true equity. Heads-up by default; bump the
+// opponent count to see a made hand's equity collapse multiway (equityVsField).
+// Reps tune the read you use at the table.
 
 import { useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
 import { randomFlop, randomCard } from '../engine/board';
-import { equityVsRange, countOuts } from '../engine/equity';
+import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
 import { rangeFromSet } from '../engine/range';
 import type { WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
@@ -35,6 +37,14 @@ const RANGES: RangeOpt[] = [
   { id: 'utg', label: 'UTG open', note: 'Early-position open — tight & strong', width: 'tight', range: rangeFromSet(RFI_RANGES.UTG) },
   { id: '3bet', label: '3-bet value', note: 'Re-raise range — QQ+/AK heavy', width: 'tight', range: rangeFromSet(THREEBET_RANGE) },
   { id: 'bbdef', label: 'BB defend', note: 'BB calling a button open — very wide', width: 'wide', range: rangeFromSet(BB_DEFEND_RANGE) },
+];
+
+// How many opponents hold that range. Heads-up is the core skill; multiway shows
+// a made hand's equity collapse (you must beat ALL of them at once).
+const OPP_OPTS = [
+  { n: 1, label: 'Heads-up' },
+  { n: 2, label: '3-way' },
+  { n: 4, label: '5-way' },
 ];
 
 // Reason for the equity read — now WITH the math, so the number isn't a mystery.
@@ -122,6 +132,18 @@ function whyRange(
   return `${hand}; ${range}. ${math} ${hook}`;
 }
 
+// Multiway explanation — the heads-up "vs their range" math doesn't apply when
+// you must beat several ranges at once, so it gets its own read.
+function whyMultiway(hc: HandClass, equity: number, opps: number): string {
+  const eq = Math.round(equity);
+  const players = opps + 1;
+  const strong = hc.strength >= 3;
+  const lesson = strong
+    ? `A hand that crushes one opponent gets ground down — every extra player is another chance someone already has you beat.`
+    : `Weak and multiway is the worst mix — you're behind more ranges at once and rarely win at showdown.`;
+  return `${players}-way pot: you must beat ALL ${opps} opponents at once, so equity ≈ your heads-up share to the power of ${opps}. ${hc.label} lands ~${eq}% here. ${lesson} 💡 A dry board stops draws, not the made hands already sitting in ${opps} ranges — that's why one pair sinks multiway.`;
+}
+
 // Buckets = how you actually think at the table. Boundaries are [lo, hi).
 const BANDS = [
   { lbl: 'Drawing / behind', sub: '< 30%', cls: 'bad' },
@@ -160,6 +182,7 @@ const FIRST_SPOT = genSpot();
 
 export function RangeDrill() {
   const [rangeId, setRangeId] = useState('btn');
+  const [opps, setOpps] = useState(1);
   const [spot, setSpot] = useState<Spot>(FIRST_SPOT);
   const [chosen, setChosen] = useState<number | null>(null);
   // lifetime calibration score, persisted across sessions (store/drillScore).
@@ -168,11 +191,16 @@ export function RangeDrill() {
 
   const ropt = RANGES.find((r) => r.id === rangeId)!;
 
-  // truth — recomputed when the hand or the villain range changes. 2500 iters
-  // is plenty stable for bucketing and runs in a few ms.
+  // truth — recomputed when the hand, villain range, or opponent count changes.
+  // 2500 iters is plenty stable for bucketing and runs in a few ms. Multiway uses
+  // equityVsField vs `opps` copies of the range — you must beat all of them.
   const equity = useMemo(
-    () => equityVsRange(spot.hero, spot.board, ropt.range, 2500).equity * 100,
-    [spot, ropt],
+    () =>
+      (opps <= 1
+        ? equityVsRange(spot.hero, spot.board, ropt.range, 2500)
+        : equityVsField(spot.hero, spot.board, Array.from({ length: opps }, () => ropt.range), 2500)
+      ).equity * 100,
+    [spot, ropt, opps],
   );
   const trueBand = bandOf(equity);
   const outs = useMemo(() => countOuts(spot.hero, spot.board).outs, [spot]);
@@ -189,11 +217,13 @@ export function RangeDrill() {
   }
   function next() { setSpot(genSpot()); setChosen(null); }
   function switchRange(id: string) { setRangeId(id); setChosen(null); } // same hand, new villain — see the swing
+  function switchOpps(n: number) { setOpps(n); setChosen(null); } // same hand, more opponents — watch it collapse
 
   // keyboard: 1..5 picks the equity band, Space/Enter deals the next spot.
   useDrillKeys({ choices: BANDS.length, onPick: pick, onNext: next, revealed, enabled: !showCheat });
 
   const street = spot.board.length === 3 ? 'Flop' : 'Turn';
+  const oppLabel = OPP_OPTS.find((o) => o.n === opps)!.label;
 
   return (
     <>
@@ -208,8 +238,19 @@ export function RangeDrill() {
           📊 cheat sheet
         </button>
       </div>
+      <div className="rd-ranges">
+        <span className="rd-vs">opponents:</span>
+        {OPP_OPTS.map((o) => (
+          <button key={o.n} className={`rd-range ${opps === o.n ? 'active' : ''}`} onClick={() => switchOpps(o.n)} title={`${o.n} player(s) holding this range — you must beat all of them`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
       {showCheat && <PositionCheatSheet onClose={() => setShowCheat(false)} />}
-      <div className="rd-rangenote">{ropt.note}</div>
+      <div className="rd-rangenote">
+        {ropt.note}
+        {opps > 1 && ` · ${opps} of them — you must beat all at once (equity collapses multiway)`}
+      </div>
 
       <div className="quiz-score rd-score">
         Score: <b>{score.correct}/{score.total}</b> ({pctScore}%)
@@ -230,7 +271,7 @@ export function RangeDrill() {
         </div>
       </div>
 
-      {!revealed && <div className="lab-prompt">How does your equity stack up vs <b>{ropt.label}</b>?</div>}
+      {!revealed && <div className="lab-prompt">How does your equity stack up vs <b>{ropt.label}</b>{opps > 1 && <> ({oppLabel})</>}?</div>}
 
       <div className="rd-bands">
         {BANDS.map((band, i) => (
@@ -249,7 +290,7 @@ export function RangeDrill() {
         <>
           <div className="rd-truth">
             <div className="big-stat gold">{equity.toFixed(1)}%</div>
-            <div className="stat-lbl">true equity vs {ropt.label} → <b>{BANDS[trueBand].lbl}</b></div>
+            <div className="stat-lbl">true equity vs {ropt.label}{opps > 1 && `, ${oppLabel}`} → <b>{BANDS[trueBand].lbl}</b></div>
           </div>
           <div className={`lab-feedback ${correct ? 'good' : 'bad'}`}>
             {correct
@@ -259,11 +300,11 @@ export function RangeDrill() {
           </div>
           <div className="drill-hook">
             <span className="drill-hook-tag">💡 Why</span>
-            <p>{whyRange(spot.hc, ropt.width, equity, outs, street)}</p>
+            <p>{opps > 1 ? whyMultiway(spot.hc, equity, opps) : whyRange(spot.hc, ropt.width, equity, outs, street)}</p>
           </div>
           <div className="rd-tip">
-            Tip: switch the villain range above (same hand) to feel how much the <i>range</i> moves your
-            equity — that's the read you can't get from a fixed chart.
+            Tip: switch the villain range <i>or</i> the opponent count above (same hand) — feel how much the
+            <i> range</i> and <i>going multiway</i> each move your equity. That's the read you can't get from a fixed chart.
           </div>
         </>
       )}

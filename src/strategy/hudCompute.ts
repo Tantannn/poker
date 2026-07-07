@@ -80,9 +80,16 @@ export function computeHudNode(game: GameState): HudNodeResult {
       Math.imul(Math.round(potTotal(game)) + 1, 0x85ebca6b)) >>>
     0;
   const eqRng = makeRng(eqSeed);
+  // Multiway: only the ACTUAL bettor holds the value-heavy "bet this board"
+  // (comboWeight-narrowed) range. The other live players merely called/checked,
+  // so they keep the wider, unconditioned range. Conditioning EVERY opponent (the
+  // old behaviour) crushed one-pair hands ~12–17 pts below their true multiway
+  // equity — e.g. top pair read ~26% five-way instead of ~38%. Slot 0 = bettor.
+  const oppRanges = Array.from({ length: liveOpps }, () => range);
+  const oppCW = comboWeight ? oppRanges.map((_, i) => (i === 0 ? comboWeight : undefined)) : undefined;
   const sim =
     liveOpps > 1
-      ? equityVsField(hero.holeCards, game.board, Array.from({ length: liveOpps }, () => range), 1400, eqRng, comboWeight)
+      ? equityVsField(hero.holeCards, game.board, oppRanges, 1400, eqRng, comboWeight, oppCW)
       : equityVsRange(hero.holeCards, game.board, range, 1400, eqRng, comboWeight);
   const trials = sim.trials;
   const win = trials > 0 ? sim.wins / trials : 0;

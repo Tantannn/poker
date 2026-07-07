@@ -190,14 +190,29 @@ function buildNote(a: {
   const s: string[] = [];
   const ePct = Math.round(a.e * 100);
 
-  // 1) where the hand stands — tiered, with the multiway penalty spelled out
+  // 1) where the hand stands — tiered. Heads-up the bar is 50%; MULTIWAY the bar
+  // is your FAIR SHARE (1/players), so a "low" field equity can still be the best
+  // hand at the table. Tier off the right bar or a favourite reads as "behind"
+  // and then contradicts the "you're committed, bet big" advice below.
   const field =
     a.nOpp > 1 ? ` in this ${a.nOpp + 1}-way pot (you must beat everyone at once — each extra player cuts your share)` : '';
-  if (a.e >= 0.65) s.push(`You'd win about ${ePct}% of showdowns${field} — a clear favourite.`);
-  else if (a.e >= 0.5) s.push(`You'd win about ${ePct}%${field} — slightly ahead, but not by enough to pile money in.`);
-  else if (a.e >= 0.35) s.push(`You'd win about ${ePct}%${field} — behind, but live.`);
-  else if (a.e >= 0.2) s.push(`You'd win only about ${ePct}%${field} — well behind the ranges you're up against.`);
-  else s.push(`You'd win only about ${ePct}%${field} — you're beaten almost everywhere.`);
+  if (a.nOpp > 1) {
+    const fair = 1 / (a.nOpp + 1);
+    const fairPct = Math.round(fair * 100);
+    const r = fair > 0 ? a.e / fair : 1; // multiples of an even share
+    if (r >= 1.6)
+      s.push(`You'd win about ${ePct}%${field} — well above an even ${fairPct}% share, so you're the favourite of the field (even if the pack as a whole still beats you most hands).`);
+    else if (r >= 1.15)
+      s.push(`You'd win about ${ePct}%${field} — above your ${fairPct}% fair share: ahead of the pack, not behind it.`);
+    else if (r >= 0.85)
+      s.push(`You'd win about ${ePct}%${field} — right around an even ${fairPct}% share: middle of the pack.`);
+    else
+      s.push(`You'd win only about ${ePct}%${field} — below an even ${fairPct}% share, genuinely behind this field.`);
+  } else if (a.e >= 0.65) s.push(`You'd win about ${ePct}% of showdowns — a clear favourite.`);
+  else if (a.e >= 0.5) s.push(`You'd win about ${ePct}% — slightly ahead, but not by enough to pile money in.`);
+  else if (a.e >= 0.35) s.push(`You'd win about ${ePct}% — behind, but live.`);
+  else if (a.e >= 0.2) s.push(`You'd win only about ${ePct}% — well behind the ranges you're up against.`);
+  else s.push(`You'd win only about ${ePct}% — you're beaten almost everywhere.`);
 
   // 2) the price, when facing a bet — say HOW FAR off it is, not just the numbers
   if (a.C > 0) {

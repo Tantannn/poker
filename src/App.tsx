@@ -78,7 +78,15 @@ export default function App() {
   // Restore the last-opened tab; if none saved, land on whichever session was
   // last live (cash vs tournament).
   const [tab, setTab] = useState<Tab>(() => loadTab(g.mode === 'tourney' ? 'tournament' : 'play'));
-  const [hudEnabled, setHudEnabled] = useState(true);
+  // Panel visibility persists across reloads (same as study/think-first).
+  const [hudEnabled, setHudEnabled] = useState(() => {
+    try { return localStorage.getItem('poker.hud') !== '0'; } catch { return true; }
+  });
+  const toggleHud = () => {
+    const next = !hudEnabled;
+    setHudEnabled(next);
+    try { localStorage.setItem('poker.hud', next ? '1' : '0'); } catch { /* ignore */ }
+  };
   const [menuOpen, setMenuOpen] = useState(false);
 
   // The Play and Tournament tabs are the two persisted game sessions; entering
@@ -165,7 +173,7 @@ export default function App() {
           </div>
         )}
         {(tab === 'play' || tab === 'tournament') && (
-          <PokerTable g={g} hudEnabled={hudEnabled} onToggleHud={() => setHudEnabled((v) => !v)} />
+          <PokerTable g={g} hudEnabled={hudEnabled} onToggleHud={toggleHud} />
         )}
         {tab === 'charts' && (
           <div className="content-col">

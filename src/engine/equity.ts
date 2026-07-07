@@ -159,12 +159,18 @@ export function equityVsField(
   iterations = 1500,
   rng: () => number = Math.random,
   comboWeight?: ComboWeight,
+  // Optional PER-opponent conditioning, aligned to oppRanges by index. When
+  // given, entry i is used for opponent i (undefined = that opponent's range is
+  // NOT bet-conditioned). Lets a multiway pot model only the actual bettor with
+  // a value-heavy range while the players who merely called keep a wider one —
+  // applying the bettor's strong range to everyone crushes made hands' equity.
+  comboWeights?: (ComboWeight | undefined)[],
 ): EquityResult {
   if (hero.length < 2 || oppRanges.length === 0) return { win: 0, tie: 0, equity: 0, iterations: 0, trials: 0, wins: 0, ties: 0, losses: 0 };
-  if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations, rng, comboWeight);
+  if (oppRanges.length === 1) return equityVsRange(hero, board, oppRanges[0], iterations, rng, comboWeights ? comboWeights[0] : comboWeight);
 
   const dead0 = [...hero, ...board];
-  const tables = oppRanges.map((r) => buildSampleTable(r, dead0, comboWeight));
+  const tables = oppRanges.map((r, i) => buildSampleTable(r, dead0, comboWeights ? comboWeights[i] : comboWeight));
   const needBoard = 5 - board.length;
   let win = 0;
   let tie = 0;

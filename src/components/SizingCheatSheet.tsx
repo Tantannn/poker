@@ -87,6 +87,24 @@ const BLOCKS: { n: string; title: string; rows: [string, string][] }[] = [
       ['Out of position', 'Bet proactively (you realize less equity); fewer thin bets/calls.'],
     ],
   },
+  {
+    n: '9',
+    title: '🧠 Think-first — what each question tests',
+    rows: [
+      ['(Betting / raising)', 'The gate quizzes these before a bet or raise commits.'],
+      ['What do I have?', 'Hand strength — block 4.'],
+      ['Board texture?', 'Wet / dry — block 2.'],
+      ['Did the turn change it?', 'Re-read texture: barrel value + picked-up draws, slow down bluffs that just got outdrawn.'],
+      ['Why chips in?', 'Value / semi-bluff / bluff / protection — block 4. On the river: value or bluff only.'],
+      ['How big?', 'Size by board — block 3 (dry ⅓, semi ½, wet ⅔–¾, SPR ≤ 1 jam).'],
+      ['If I get raised?', 'Decide the plan NOW — fold / call / get-it-in — not under pressure after it lands.'],
+      ['(Calling)', 'A call is defensive — the gate quizzes the price, not your size.'],
+      ['Price — equity to call?', 'Pot odds — block 6 (⅓→20%, ½→25%, ⅔→29%, pot→33%).'],
+      ['My equity?', 'HUD equity vs his range — do you clear the price?'],
+      ['Call / fold / raise?', 'Equity vs price + block 7. A made hand near the price still calls (implied odds + can improve); air short of it folds.'],
+      ['River: how often bluffing?', 'Bluff-catch — you need him bluffing ≥ the price (block 6). Rarely bluffs → fold; often → call.'],
+    ],
+  },
 ];
 
 export function SizingCheatSheet() {

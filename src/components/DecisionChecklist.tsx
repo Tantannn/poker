@@ -1,28 +1,69 @@
-// Think-first gate: when enabled, a postflop bet/raise doesn't fire until the
-// hero answers a short checklist (hand class, texture, equity, purpose, plan).
-// Answers are graded against the app's own reads (strategy/checklist.ts) and
-// the truth is revealed BEFORE the chips commit — the hero can still back out.
+// Think-first gate: when enabled, a postflop bet/raise/call doesn't fire until
+// the hero answers a short checklist. Two flavours:
+//  • aggressive (bet/raise) — hand class, texture, turn impact, equity, purpose,
+//    commitment (SPR, only when it binds), size, plan (the set varies by street).
+//  • call — the price (pot odds), equity, the call/fold/raise verdict, and a
+//    river bluff-catch read.
+// Answers are graded against the app's own reads (strategy/checklist.ts) and the
+// truth is revealed BEFORE the chips commit — the hero can still back out.
 
 import { useEffect, useRef, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { buildChecklist, gradeChecklist, type ChecklistGrade } from '../strategy/checklist';
+import {
+  buildChecklist,
+  buildCallChecklist,
+  gradeChecklist,
+  gradeCallChecklist,
+  type ChecklistGrade,
+} from '../strategy/checklist';
 
 interface Props {
+  /** 'aggressive' gates a bet/raise; 'call' gates a defensive call. */
+  mode?: 'aggressive' | 'call';
   hero: Card[];
   board: Card[];
   /** equity vs villain range from the HUD, or null while it's still computing. */
   equity: number | null;
-  /** e.g. "Bet 12" / "Raise to 30" — labels the confirm button. */
+  /** aggressive: chips going in — grades the size question. */
+  amount?: number;
+  /** pot before hero's chips — grades size (aggressive) and price (call). */
+  pot: number;
+  /** aggressive: effective stack-to-pot ratio — ≤ 1 means committed → jam. */
+  spr?: number;
+  /** call: chips needed to call — grades the price question. */
+  toCall?: number;
+  /** call: hero's outs (0 if unknown / river) — used by the verdict. */
+  outs?: number;
+  /** call: live opponents (1 = heads-up) — multiway lowers the fair-share read. */
+  opps?: number;
+  /** e.g. "Bet 12" / "Raise to 30" / "Call 12" — labels the confirm button. */
   actionLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function DecisionChecklist({ hero, board, equity, actionLabel, onConfirm, onCancel }: Props) {
+export function DecisionChecklist({
+  mode = 'aggressive',
+  hero,
+  board,
+  equity,
+  amount = 0,
+  pot,
+  spr = 0,
+  toCall = 0,
+  outs = 0,
+  opps = 1,
+  actionLabel,
+  onConfirm,
+  onCancel,
+}: Props) {
+  const call = mode === 'call';
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [locked, setLocked] = useState(false);
   // stable per mount — equity arriving mid-quiz must not add/remove a question
-  const [questions] = useState(() => buildChecklist(equity));
+  const [questions] = useState(() =>
+    call ? buildCallChecklist(equity, board) : buildChecklist(equity, board, spr),
+  );
 
   // a11y mirrors RangeChartModal: Escape cancels, focus restored on close.
   const boxRef = useRef<HTMLDivElement>(null);
@@ -41,7 +82,11 @@ export function DecisionChecklist({ hero, board, equity, actionLabel, onConfirm,
   }, [onCancel]);
 
   const allAnswered = questions.every((q) => answers[q.id] != null);
-  const result = locked ? gradeChecklist(hero, board, equity, answers) : null;
+  const result = !locked
+    ? null
+    : call
+      ? gradeCallChecklist(hero, board, equity, { toCall, pot, outs, opps }, answers)
+      : gradeChecklist(hero, board, equity, answers, { amount, pot, spr });
   const gradeFor = (id: string): ChecklistGrade | undefined =>
     result?.grades.find((g) => g.questionId === id);
 
