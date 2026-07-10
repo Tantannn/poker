@@ -39,6 +39,10 @@ export interface RiverResult {
   actions: string[];
   /** chips (in pot units) each root action wins on average over hero's range. */
   actionEv: Record<string, number>;
+  /** per-hero-combo EV of each root action (chips), vs the solved villain strategy.
+   *  Parallel to heroRange (outer) and `actions` (inner). This is the EV of a
+   *  SPECIFIC hero hand — what the NodeStrategy for that hand should report. */
+  heroActionEv: number[][];
   /** villain call frequency vs each bet size, range-averaged (diagnostic). */
   villainCallFreq: number[];
 }
@@ -193,29 +197,187 @@ export function solveRiver(inp: RiverInput): RiverResult {
       return tot > 0 ? [cell[0] / tot, cell[1] / tot] : [0.5, 0.5];
     }),
   );
+  // Per-combo action EV vs the solved villain strategy (the EV of a SPECIFIC hero
+  // hand), normalised by that combo's valid villain weight — this is what the
+  // NodeStrategy should report, not the range average.
+  const heroActionEv: number[][] = [];
+  for (let i = 0; i < nH; i++) {
+    const av = new Array(nHeroActions).fill(0);
+    let vw = 0;
+    for (let j = 0; j < nV; j++) if (valid[i][j]) vw += V[j].w;
+    const inv = vw > 0 ? 1 / vw : 0;
+    let vCheck = 0;
+    for (let j = 0; j < nV; j++) if (valid[i][j]) vCheck += V[j].w * heroSD(cmp[i][j], 0);
+    av[0] = vCheck * inv;
+    for (let s = 0; s < nSizes; s++) {
+      const b = bets[s];
+      let vBet = 0;
+      for (let j = 0; j < nV; j++) {
+        if (!valid[i][j]) continue;
+        const vs = vStratFinal[s][j];
+        vBet += V[j].w * (vs[0] * P + vs[1] * heroSD(cmp[i][j], b));
+      }
+      av[1 + s] = vBet * inv;
+    }
+    heroActionEv.push(av);
+  }
+
   const actionEv: Record<string, number> = {};
   let hw = 0;
   for (let i = 0; i < nH; i++) hw += H[i].w;
   for (let a = 0; a < nHeroActions; a++) {
     let ev = 0;
-    for (let i = 0; i < nH; i++) {
-      let v = 0;
-      let vwSum = 0;
-      for (let j = 0; j < nV; j++) {
-        if (!valid[i][j]) continue;
-        vwSum += V[j].w;
-        if (a === 0) v += V[j].w * heroSD(cmp[i][j], 0);
-        else {
-          const s = a - 1;
-          const b = bets[s];
-          const vs = vStratFinal[s][j];
-          v += V[j].w * (vs[0] * P + vs[1] * heroSD(cmp[i][j], b));
-        }
-      }
-      ev += H[i].w * (vwSum > 0 ? v / vwSum : 0);
-    }
+    for (let i = 0; i < nH; i++) ev += H[i].w * heroActionEv[i][a];
     actionEv[actions[a]] = hw > 0 ? ev / hw : 0;
   }
 
-  return { heroStrategy: hStratAvg, actions, actionEv, villainCallFreq: vCallFreq };
+  return { heroStrategy: hStratAvg, actions, actionEv, heroActionEv, villainCallFreq: vCallFreq };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACING A BET — hero is confronted with villain's bet `b` into a pre-bet pot `Q`.
+// Tree (v1, single raise size): hero fold | call | raise-to r; villain then folds
+// or calls the raise. This is where the per-hand model is weakest — it can't build
+// a polar check-raise/raise range because it scores one hand, not a range.
+//
+//   hero: fold ───────────────────────────► villain wins (hero util 0)
+//         call(invest b) ─────────────────► showdown (hero in b, villain in b)
+//         raise→r(invest r) ─► villain: fold ─► hero wins pot (util Q+b)
+//                                        call ─► showdown (both in r)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RiverVsBetInput {
+  heroRange: Combo[];
+  villainRange: Combo[]; // villain's BETTING range (already conditioned)
+  board: Card[];
+  potBeforeBet: number; // Q — dead money before villain's bet
+  bet: number; // b — villain's bet
+  raiseTo: number; // r — total hero commits if raising (chips)
+  iterations?: number;
+}
+
+export interface RiverVsBetResult {
+  /** hero strategy per combo: {fold, call, raise} frequencies (parallel to heroRange). */
+  heroStrategy: { fold: number; call: number; raise: number }[];
+  /** per-combo EV (chips) of fold / call / raise vs the solved villain response. */
+  heroEv: { fold: number; call: number; raise: number }[];
+  /** villain's call-the-raise frequency, range-averaged (diagnostic). */
+  villainCallRaiseFreq: number;
+}
+
+export function solveRiverVsBet(inp: RiverVsBetInput): RiverVsBetResult {
+  const H = inp.heroRange;
+  const V = inp.villainRange;
+  const Q = inp.potBeforeBet;
+  const b = inp.bet;
+  const r = Math.max(inp.raiseTo, b + 1);
+  const iters = inp.iterations ?? 1200;
+  const nH = H.length;
+  const nV = V.length;
+
+  const valid: Uint8Array[] = [];
+  const cmp: Int8Array[] = [];
+  const vScore = V.map((v) => evaluate7([...v.cards, ...inp.board]).score);
+  for (let i = 0; i < nH; i++) {
+    const hi = evaluate7([...H[i].cards, ...inp.board]).score;
+    const vr = new Uint8Array(nV);
+    const cr = new Int8Array(nV);
+    for (let j = 0; j < nV; j++) {
+      vr[j] = conflict(H[i], V[j]) ? 0 : 1;
+      cr[j] = hi > vScore[j] ? 1 : hi < vScore[j] ? -1 : 0;
+    }
+    valid.push(vr);
+    cmp.push(cr);
+  }
+
+  // hero payoffs (net chips), dead pot Q, sign +1 = hero wins.
+  const heroCall = (s: number) => (s > 0 ? Q + b : s < 0 ? -b : Q / 2);
+  const heroRaiseCalled = (s: number) => (s > 0 ? Q + r : s < 0 ? -r : Q / 2);
+  const HERO_RAISE_FOLD = Q + b; // villain folds to the raise
+  // villain payoffs when facing the raise (villain wins when hero sign < 0).
+  const villFold = -b; // forfeits the bet
+  const villCall = (s: number) => (s < 0 ? Q + r : s > 0 ? -r : Q / 2);
+
+  // hero actions: 0 fold, 1 call, 2 raise
+  const regretH = Array.from({ length: nH }, () => [0, 0, 0]);
+  const stratSumH = Array.from({ length: nH }, () => [0, 0, 0]);
+  const regretV = Array.from({ length: nV }, () => [0, 0]); // fold, call
+  const stratSumV = Array.from({ length: nV }, () => [0, 0]);
+
+  for (let t = 0; t < iters; t++) {
+    const hS = regretH.map(strategyFromRegret);
+    const vS = regretV.map(strategyFromRegret);
+
+    // villain regret (only hero's RAISE reaches here)
+    for (let j = 0; j < nV; j++) {
+      let vF = 0;
+      let vC = 0;
+      for (let i = 0; i < nH; i++) {
+        if (!valid[i][j]) continue;
+        const reach = H[i].w * hS[i][2];
+        if (reach === 0) continue;
+        vF += reach * villFold;
+        vC += reach * villCall(cmp[i][j]);
+      }
+      const st = vS[j];
+      const node = st[0] * vF + st[1] * vC;
+      const cf = V[j].w;
+      regretV[j][0] += cf * (vF - node);
+      regretV[j][1] += cf * (vC - node);
+      stratSumV[j][0] += cf * st[0];
+      stratSumV[j][1] += cf * st[1];
+    }
+
+    // hero regret
+    for (let i = 0; i < nH; i++) {
+      let aFold = 0;
+      let aCall = 0;
+      let aRaise = 0;
+      for (let j = 0; j < nV; j++) {
+        if (!valid[i][j]) continue;
+        const w = V[j].w;
+        aCall += w * heroCall(cmp[i][j]);
+        aRaise += w * (vS[j][0] * HERO_RAISE_FOLD + vS[j][1] * heroRaiseCalled(cmp[i][j]));
+      }
+      // aFold stays 0
+      const st = hS[i];
+      const node = st[0] * aFold + st[1] * aCall + st[2] * aRaise;
+      const cf = H[i].w;
+      regretH[i][0] += cf * (aFold - node);
+      regretH[i][1] += cf * (aCall - node);
+      regretH[i][2] += cf * (aRaise - node);
+      stratSumH[i][0] += cf * st[0];
+      stratSumH[i][1] += cf * st[1];
+      stratSumH[i][2] += cf * st[2];
+    }
+  }
+
+  const heroStrategy = stratSumH.map((row) => {
+    const s = row[0] + row[1] + row[2] || 1;
+    return { fold: row[0] / s, call: row[1] / s, raise: row[2] / s };
+  });
+  const vFinal = stratSumV.map((row) => {
+    const s = row[0] + row[1] || 1;
+    return [row[0] / s, row[1] / s];
+  });
+  const heroEv = H.map((_, i) => {
+    let vw = 0;
+    let call = 0;
+    let raise = 0;
+    for (let j = 0; j < nV; j++) {
+      if (!valid[i][j]) continue;
+      vw += V[j].w;
+      call += V[j].w * heroCall(cmp[i][j]);
+      raise += V[j].w * (vFinal[j][0] * HERO_RAISE_FOLD + vFinal[j][1] * heroRaiseCalled(cmp[i][j]));
+    }
+    const inv = vw > 0 ? 1 / vw : 0;
+    return { fold: 0, call: call * inv, raise: raise * inv };
+  });
+  let cwSum = 0;
+  let ccSum = 0;
+  for (let j = 0; j < nV; j++) {
+    cwSum += V[j].w;
+    ccSum += vFinal[j][1] * V[j].w;
+  }
+  return { heroStrategy, heroEv, villainCallRaiseFreq: cwSum > 0 ? ccSum / cwSum : 0 };
 }
