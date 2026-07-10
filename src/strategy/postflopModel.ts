@@ -14,9 +14,9 @@ import type { TextureInfo } from '../engine/board';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { mixFromEv } from './types';
 
-// Four-way classification of an aggressive line by hero equity (+ draw), so the
-// explanation distinguishes a real bluff from thin value / a semi-bluff.
-type BetClass = 'value' | 'thin' | 'semibluff' | 'bluff';
+// Classification of an aggressive line by hero equity (+ draw), so the explanation
+// distinguishes a real bluff from thin value / a semi-bluff / a made bluff-catcher.
+type BetClass = 'value' | 'thin' | 'semibluff' | 'marginal' | 'bluff';
 function classifyBet(eHU: number, eField: number, outs: number, hasMade: boolean): BetClass {
   // value / thin value require an actual MADE hand (pair or better). A big draw can
   // sit at >60% equity vs a wide range, but it's a SEMI-BLUFF, not a value bet — so
@@ -33,11 +33,24 @@ function classifyBet(eHU: number, eField: number, outs: number, hasMade: boolean
   // consistent: a hand that's behind the field can no longer read as value.
   if (hasMade && eHU >= 0.62 && eField >= 0.5) return 'value';
   if (hasMade && eHU >= 0.5 && eField >= 0.45) return 'thin';
-  if (eHU >= 0.3 || outs >= 4) return 'semibluff';
+  // A SEMI-BLUFF requires a genuine DRAW (gutshot up, ~4+ outs). This MUST key on
+  // outs, not on eHU: a made bluff-catcher can sit at eHU ≥ 0.3 with NO draw at all,
+  // and betting it isn't a semi-bluff (the old `eHU >= 0.3` trigger mislabelled 88 on
+  // 9-7-7 as "semi-bluff — keep barreling cards that complete your draw", a draw that
+  // doesn't exist).
+  if (outs >= 4) return 'semibluff';
+  // Made hand that failed the value/thin bars and holds no draw: a bluff-catcher /
+  // pure showdown hand. A bet folds out the worse hands it beats and is called only by
+  // better, so it can neither get value nor semi-bluff — it wants to CHECK. Give it its
+  // own class (coloured passive, so the bet reads as neither value nor bluff) and let
+  // the EV mix pick the check.
+  if (hasMade) return 'marginal';
   return 'bluff';
 }
-// kind drives grid/bar color; we keep the existing 2-tone (value vs bluff).
-const classKind = (c: BetClass): ActionOption['kind'] => (c === 'value' || c === 'thin' ? 'value' : 'bluff');
+// kind drives grid/bar color: value (green), bluff (orange), and a marginal made
+// bluff-catcher as passive (blue) — a bet with it is a mistake, not a value/bluff line.
+const classKind = (c: BetClass): ActionOption['kind'] =>
+  c === 'value' || c === 'thin' ? 'value' : c === 'marginal' ? 'passive' : 'bluff';
 
 /** Flush-domination LEVEL: the count (0, 3, 4 or 5) of a single suit on the board
  *  that hero holds NONE of. It matters how many, because the threat is very
@@ -122,6 +135,9 @@ function whyBet(
       break;
     case 'semibluff':
       base = `Semi-bluff: ~${eq} equity now${outs > 0 ? ` with ~${outs} outs` : ''}. Two ways to win — villain folds ~${fe}, and when called you still hit ~${e2} of the time. Keep barreling cards that complete your draw.`;
+      break;
+    case 'marginal':
+      base = `Marginal made hand — a bluff-catcher (~${eq} equity) with no draw. Betting folds out the worse hands you beat and gets called only by better, so it can't make value; and with no draw there's nothing to semi-bluff. Check for pot control and showdown value instead — especially multiway, where a made hand this thin is rarely ahead of the range that continues.`;
       break;
     default:
       base = `Pure bluff: ~${eq} equity — essentially drawing thin. Only profitable via fold equity (~${fe}); pick good blocker cards and a believable story, otherwise just give up.`;
@@ -747,7 +763,19 @@ function computeAggro(
   // This kills the old bug where equity-when-called sat ABOVE the field equity, and it
   // replaces the flat multiTax with a size-aware isolation reward — so charging or
   // isolating multiway is no longer graded worse than a token bet.
-  const rangeLift = 0.32 * (1 - contHU); // continuing range is tighter for bigger bets
+  // ORDER-STATISTIC range tightening (replaces a flat rangeLift). Villain continues
+  // with his top `contHU` fraction and folds his weakest `foldFrac = 1 − contHU`. Model
+  // hero as beating the WEAKEST `eR` share of villain's range — true for a made hand: it
+  // beats the air/overcards/underpairs at the bottom and loses to the top. Hero's equity
+  // vs the part that CONTINUES is then (eR − foldFrac)/contHU — the beaten combos that
+  // did NOT fold, over the combos that call. This self-calibrates off eHU: the nuts
+  // (eR ≈ 1) barely tighten, while a bluff-catcher whose equity lives entirely in
+  // villain's foldable air collapses toward 0 once that air folds. The old flat lift
+  // (0.32·foldFrac) never captured that, so bluff-catchers read as thin-value-when-called
+  // and got over-bet multiway (88/977, 99·TT on AA5). See classifyBet for the label side.
+  const eR = Math.min(1, e * realize);
+  const foldFrac = 1 - contHU;
+  const eTight = contHU > 0 ? Math.max(0, (eR - foldFrac) / contHU) : eR;
   // a shove reads scarier than the same chips as a bet, so the stack-off range is a
   // touch tighter — but ONLY once the jam is a real OVERBET (s > 1 pot). A sub-pot jam
   // at low SPR is just a normal committing bet and shouldn't be taxed at all, or a
@@ -756,13 +784,20 @@ function computeAggro(
   // flush-dominated: callers skew to the suit. 4+ flush board → made flushes that crush
   // hero (heavy tax toward ~0); 3-flush → mostly draws hero still beats (small tax).
   const flushTax = flushLevel >= 4 ? 0.25 : flushLevel === 3 ? 0.08 : 0;
-  const eOne = Math.max(0, Math.min(1, e * realize) - rangeLift - allinTax - flushTax); // vs one caller
+  const eOne = Math.max(0, eTight - allinTax - flushTax); // vs one caller
   let e2 = eOne;
   if (oppCount > 1) {
     const rho = Math.max(0.2, Math.min(1, Math.pow(Math.max(0.01, eField) / Math.max(0.01, e), 1 / (oppCount - 1))));
     let acc = 0;
     for (let k = 1; k <= oppCount; k++) acc += binomPmf(oppCount, k, q) * Math.pow(rho, k - 1);
     e2 = Math.max(0, eOne * (acc / Math.max(1e-6, contFrac)));
+    // SANITY BOUND: the hands that CALL are the top of ranges, so hero's equity vs the
+    // callers cannot exceed his equity vs the whole field (eField). This bites the SMALL
+    // bet — where almost everyone calls, so the order-stat barely tightens yet the
+    // callers are still stronger than average — and stops a marginal made hand reading
+    // as if a cheap bet keeps more than its showdown share. Heads-up (oppCount === 1,
+    // eField === eHU) it never binds; the order-stat handles the big-bet isolation.
+    e2 = Math.min(e2, eField);
   }
 
   // pot at showdown = dead pot + hero's (callable) chips + each caller's match (R, already
@@ -811,13 +846,15 @@ function computeAggro(
     const qA = Math.max(0.02, Math.min(0.98, 1 / (1 + sA) + (1 - feMult) * 0.15 + wetness));
     const contA = 1 - Math.max(0.02, Math.pow(1 - qA, oppCount));
     const kbarA = (oppCount * qA) / Math.max(1e-6, 1 - Math.pow(1 - qA, oppCount));
-    const eOneA = Math.max(0, Math.min(1, e * realize) - 0.32 * (1 - 1 / (1 + sA)) - flushTax);
+    const contHUA = 1 / (1 + sA); // per-opponent continue vs the all-in size
+    const eOneA = Math.max(0, (Math.min(1, e * realize) - (1 - contHUA)) / Math.max(1e-6, contHUA) - flushTax);
     let e2A = eOneA;
     if (oppCount > 1) {
       const rho = Math.max(0.2, Math.min(1, Math.pow(Math.max(0.01, eField) / Math.max(0.01, e), 1 / (oppCount - 1))));
       let acc = 0;
       for (let k = 1; k <= oppCount; k++) acc += binomPmf(oppCount, k, qA) * Math.pow(rho, k - 1);
       e2A = Math.max(0, eOneA * (acc / Math.max(1e-6, contA)));
+      e2A = Math.min(e2A, eField);
     }
     fe = 1 - contA;
     contFrac = contA;

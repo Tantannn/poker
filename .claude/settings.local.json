@@ -89,7 +89,9 @@
       "Bash(echo \"launched pid $!\")",
       "Bash(pkill -f vitest)",
       "Bash(pkill -f \"node.*_winrate\")",
-      "Bash(echo \"launched $!\")"
+      "Bash(echo \"launched $!\")",
+      "Bash(sed -i 's/console\\\\.log/log/g' src/strategy/_tmp_pair8.test.ts)",
+      "Bash(echo \"  writeFileSync\\(process.env.TEMP + '/pair8res.txt', out.join\\('\\\\\\\\n'\\)\\);\")"
     ]
   }
 }
