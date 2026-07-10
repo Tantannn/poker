@@ -58,8 +58,49 @@ export interface NodeFeedback {
   equity?: number;
   headline: string;
   detail: string;
+  /** A punchy one-liner shown when a bet/raise was oversized vs the best line —
+   *  names the value-own (equity-when-called drop) + the multiway caution. */
+  coach?: string;
   strategy: NodeStrategy;
   context?: FeedbackContext;
+}
+
+const pctOf = (f: number) => `${Math.round(f * 100)}%`;
+const isAggro = (id: ActionId) => id.startsWith('bet') || id.startsWith('raise') || id === 'allin';
+
+/** Oversizing coach: fires only when hero bet/raised BIGGER than the best line
+ *  and it cost EV. Surfaces the reason a big bet backfires — worse hands fold,
+ *  so only stronger hands call and hero's equity-when-called drops (value-own) —
+ *  plus a multiway caution. Returns undefined when it doesn't apply. */
+function buildSizingCoach(
+  strategy: NodeStrategy,
+  chosen: ActionId,
+  loss: number,
+  nOpp: number,
+): string | undefined {
+  if (loss <= 0.05 || !isAggro(chosen)) return undefined;
+  const chosenOpt = strategy.options.find((o) => o.id === chosen);
+  const bestOpt = strategy.options.find((o) => o.id === strategy.bestId);
+  if (!chosenOpt || !bestOpt) return undefined;
+  const chosenSize = chosenOpt.sizePct ?? 0;
+  const bestSize = bestOpt.sizePct ?? 0; // check/call have none → treat as 0
+  if (chosenSize <= bestSize) return undefined; // only coach OVER-sizing
+
+  let msg = `⚠ Too big — ${bestOpt.label} beat ${chosenOpt.label} by ${loss.toFixed(2)} bb.`;
+  if (
+    chosenOpt.calledEq != null &&
+    bestOpt.calledEq != null &&
+    chosenOpt.calledEq < bestOpt.calledEq - 0.005
+  ) {
+    msg += ` Worse hands fold to the bigger size, so only stronger hands call — your equity-when-called drops ${pctOf(bestOpt.calledEq)} → ${pctOf(chosenOpt.calledEq)}. You bet more into a range that beats you more.`;
+  } else {
+    msg += ` A bigger bet folds out the worse hands you wanted to call and gets called mostly by what beats you.`;
+  }
+  msg += ` Size to the worst hand that still calls — oversizing folds out your customers.`;
+  if (nOpp > 1) {
+    msg += ` Multiway (${nOpp} opponents) someone is likelier to actually have it: size down or check with anything short of premium value.`;
+  }
+  return msg;
 }
 
 /** Build the rich gameplan context from the live state at the hero's decision. */
@@ -155,10 +196,18 @@ export function gradeNode(
       ? `${strategy.rangeNote}: ${bestLabel} is the standard line.`
       : `Highest-EV action was ${bestLabel}.`);
   } else {
-    detail = `Best was ${bestLabel} (${fmtEv(evOf(strategy, strategy.bestId))} bb) vs your ${chosenLabel} (${fmtEv(
+    const head = `Best was ${bestLabel} (${fmtEv(evOf(strategy, strategy.bestId))} bb) vs your ${chosenLabel} (${fmtEv(
       evOf(strategy, chosen),
-    )} bb). ${strategy.note}`;
+    )} bb).`;
+    // Postflop carries a bulleted `notes` list (rendered in the Explain panel),
+    // so don't also glue the paragraph here — it used to show up twice. Preflop
+    // has no bullets, so keep the one-line note inline.
+    detail = strategy.notes?.length ? head : `${head} ${strategy.note}`;
   }
+
+  const nOpp = ctx
+    ? ctx.state.players.filter((p, i) => i !== ctx.heroIdx && !p.folded).length
+    : 1;
 
   return {
     verdict,
@@ -175,6 +224,7 @@ export function gradeNode(
     equity: strategy.equity,
     headline,
     detail,
+    coach: buildSizingCoach(strategy, chosen, loss, nOpp),
     strategy,
     context: ctx ? buildFeedbackContext(ctx.state, ctx.heroIdx) : undefined,
   };

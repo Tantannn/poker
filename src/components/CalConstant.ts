@@ -117,3 +117,60 @@ export const CALC: Record<CalcId, CalcCard> = {
     remember: 'Checking just wins your equity slice of today’s pot. A bet is better only when the two chances above add up to more than that. Pick the bigger number.',
   },
 };
+
+/** Plain-language glossary: poker jargon that shows up in the generated
+ *  feedback text. `GlossaryText` scans a note/detail string and underlines any
+ *  of these terms with a hover card — so a beginner never hits a word with no
+ *  explanation. `terms` lists every spelling/variant that maps to one card. */
+export const GLOSSARY: { terms: string[]; card: CalcCard }[] = [
+  {
+    terms: ['fair share'],
+    card: {
+      title: 'Fair share',
+      what: "In a multiway pot, an even slice of the equity: 1 ÷ number of players. Clearing this bar means you win more than an even split — you're ahead of the pack (even if the whole field combined still beats you most of the time).",
+      formula: 'fair share = 1 ÷ players   (4-way → 25%, 3-way → 33%)',
+      remember: 'Above it = best slice at the table. Below it = genuinely behind. Heads-up the bar is 50%.',
+    },
+  },
+  {
+    terms: ['worst hand that still calls', 'worst hand that calls'],
+    card: {
+      title: 'Size to the worst hand that calls',
+      what: 'Value-bet sizing rule: pick the biggest size a WORSE hand will still pay off with. You bet FOR the hands you beat — not the ones that beat you.',
+      formula: 'too big → only better hands call (you get value-owned)\ntoo small → you leave money behind',
+      remember: 'If the only hands that call are ones that beat you, your bet is too big.',
+    },
+  },
+  {
+    terms: ['customers'],
+    card: {
+      title: 'Customers',
+      what: 'The worse hands that pay off your value bet. "Oversizing folds out your customers" means betting so big the weak hands you wanted to call just fold instead.',
+      remember: 'No customers, no value. Size so the hands you beat can still call.',
+    },
+  },
+  {
+    terms: ['bluff-catcher', 'bluff catcher'],
+    card: {
+      title: 'Bluff-catcher',
+      what: "A medium hand that beats only bluffs and loses to value. It can't bet for value (worse hands fold, better hands call) — its job is to CHECK and CALL, catching the bluffs.",
+      remember: "Don't bet a bluff-catcher. Keep the pot small and pay off the right amount.",
+    },
+  },
+  {
+    terms: ['out of position'],
+    card: {
+      title: 'Out of position (OOP)',
+      what: 'You act first on every street, so you give away info and realize less of your equity — villain can bet you off hands. Lean toward checking and smaller bets.',
+      remember: "Act first on a street = OOP = you realize less. 'First to act' means you're OOP.",
+    },
+  },
+  {
+    terms: ['in position'],
+    card: {
+      title: 'In position (IP)',
+      what: 'You act last on every street, so you see what villain does first and realize MORE of your equity — you can take free cards and control the pot.',
+      remember: 'Act last = IP = you realize more. Position is worth money.',
+    },
+  },
+];

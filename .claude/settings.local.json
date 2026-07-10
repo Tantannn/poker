@@ -91,7 +91,9 @@
       "Bash(pkill -f \"node.*_winrate\")",
       "Bash(echo \"launched $!\")",
       "Bash(sed -i 's/console\\\\.log/log/g' src/strategy/_tmp_pair8.test.ts)",
-      "Bash(echo \"  writeFileSync\\(process.env.TEMP + '/pair8res.txt', out.join\\('\\\\\\\\n'\\)\\);\")"
+      "Bash(echo \"  writeFileSync\\(process.env.TEMP + '/pair8res.txt', out.join\\('\\\\\\\\n'\\)\\);\")",
+      "PowerShell(npx vitest run src/strategy/postflopModel.test.ts src/strategy/checklist.test.ts src/components/DecisionChecklist.test.tsx src/components/Review.test.tsx 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 15)"
     ]
   }
 }

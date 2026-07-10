@@ -187,6 +187,7 @@ interface Candidate {
   ev: number; // bb
   amount?: number;
   sizePct?: number;
+  calledEq?: number; // hero equity vs the range that continues (bets/raises only)
   kind: ActionOption['kind'];
   why?: string;
   math?: string;
@@ -229,7 +230,7 @@ function buildNote(a: {
   spr: number;
   sprKnown: boolean;
   canRaise: boolean;
-}): string {
+}): string[] {
   const s: string[] = [];
   const ePct = Math.round(a.e * 100);
 
@@ -343,7 +344,7 @@ function buildNote(a: {
   }
 
   s.push(`This is a quick estimate to guide you, not a perfect solver.`);
-  return s.join(' ');
+  return s;
 }
 
 export function solvePostflop(inp: PostflopInput): NodeStrategy {
@@ -519,6 +520,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ev: d.ev / bb,
       amount: target,
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
+      calledEq: d.e2,
       kind: classKind(cls),
       sizeNote: sizeBalanceNote(frac, isRiver),
       why: whyBet(cls, e, d, outs, false, isRiver, frac),
@@ -559,6 +561,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ev: adjEv,
       amount: inp.maxRaiseTo,
       sizePct: Math.round((100 * (inp.maxRaiseTo - inp.currentBet)) / Math.max(1, potForSize)),
+      calledEq: d.e2,
       kind: classKind(cls),
       sizeNote: sizeBalanceNote(allinFrac, isRiver),
       why:
@@ -596,6 +599,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ev: round2(c.ev),
       amount: c.amount,
       sizePct: c.sizePct,
+      calledEq: c.calledEq,
       kind: c.kind,
       why: c.why,
       math: c.math,
@@ -605,31 +609,34 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
 
   const best = options.reduce((a, b) => (b.ev > a.ev ? b : a), options[0]);
 
+  const noteLines = buildNote({
+    e,
+    eHU,
+    nOpp,
+    street: isRiver ? 'river' : cardsToCome === 1 ? 'turn' : 'flop',
+    P,
+    C,
+    bb,
+    outs,
+    cardsToCome,
+    hasMade,
+    implied,
+    cleanFrac,
+    flushLevel,
+    tex,
+    wet01,
+    spr,
+    sprKnown: inp.effStack != null,
+    canRaise: inp.canRaise && inp.maxRaiseTo > inp.currentBet,
+  });
+
   return {
     options,
     bestEv: round2(bestEv),
     bestId: best.id,
     source: 'postflop-model',
-    note: buildNote({
-      e,
-      eHU,
-      nOpp,
-      street: isRiver ? 'river' : cardsToCome === 1 ? 'turn' : 'flop',
-      P,
-      C,
-      bb,
-      outs,
-      cardsToCome,
-      hasMade,
-      implied,
-      cleanFrac,
-      flushLevel,
-      tex,
-      wet01,
-      spr,
-      sprKnown: inp.effStack != null,
-      canRaise: inp.canRaise && inp.maxRaiseTo > inp.currentBet,
-    }),
+    note: noteLines.join(' '),
+    notes: noteLines,
     equity: e,
     rangeNote: inp.rangeNote,
     heroCode: inp.heroCode,

@@ -6,7 +6,7 @@
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CALC } from './CalConstant';
+import { CALC, GLOSSARY } from './CalConstant';
 
 type Pos = 'top' | 'bottom';
 
@@ -90,6 +90,46 @@ export function TipBody({ tip }: { tip: CalcCard }) {
       )}
     </span>
   );
+}
+
+// Glossary term → card, plus one combined matcher. Built once at module load.
+// Longest phrases first so "worst hand that still calls" wins over "calls".
+const GLOSSARY_MAP = new Map<string, CalcCard>();
+for (const g of GLOSSARY) for (const t of g.terms) GLOSSARY_MAP.set(t.toLowerCase(), g.card);
+const GLOSSARY_RE = new RegExp(
+  '\\b(' +
+    [...GLOSSARY_MAP.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|') +
+    ')\\b',
+  'gi',
+);
+
+/** Renders plain feedback text, auto-underlining any known jargon with a hover
+ *  card — so beginners never hit a term with no explanation. Unmatched text is
+ *  passed straight through. */
+export function GlossaryText({ text, pos = 'top' }: { text: string; pos?: Pos }) {
+  const out: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  for (const m of text.matchAll(GLOSSARY_RE)) {
+    const idx = m.index ?? 0;
+    if (idx > last) out.push(text.slice(last, idx));
+    const card = GLOSSARY_MAP.get(m[0].toLowerCase());
+    out.push(
+      card ? (
+        <Tooltip key={key++} pos={pos} content={<TipBody tip={card} />} className="tip-label">
+          {m[0]}
+        </Tooltip>
+      ) : (
+        m[0]
+      ),
+    );
+    last = idx + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return <>{out}</>;
 }
 
 /** Underlined label that pops its formula card from the registry on hover. */

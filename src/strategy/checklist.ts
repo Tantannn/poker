@@ -508,10 +508,15 @@ export function gradeCallChecklist(
   const priceBucket = PRICE_BUCKETS.find((b) => need >= b.lo && need < b.hi) ?? PRICE_BUCKETS[0];
   const pi = PRICE_BUCKETS.findIndex((b) => b.id === answers.price);
   const ti = PRICE_BUCKETS.findIndex((b) => b.id === priceBucket.id);
+  // Read the price off the BET size, not the call-vs-current-pot ratio: `pot`
+  // already contains his bet, so `toCall / pot` under-reads it. The cheat-sheet
+  // buckets (½ pot→25%, pot→33%…) are keyed to bet ÷ pot-BEFORE-the-bet.
+  const potBeforeBet = Math.max(1, pot - toCall);
+  const betFrac = toCall / potBeforeBet;
   grades.push({
     questionId: 'price',
     ok: pi >= 0 && Math.abs(pi - ti) <= 1,
-    note: `You must call ${toCall} into ${pot} → need ${pct(need)} equity (call ÷ (pot + call)).`,
+    note: `You must call ${toCall} into ${pot} → need ${pct(need)} equity (call ÷ (pot + call)). The ${pot} already includes his ${toCall} bet — that ${toCall} is a ${pct(betFrac)}-pot bet (into ${potBeforeBet} before he bet), so read the price off the bet size, not ${toCall}÷${pot}.`,
   });
 
   if (equity != null && answers.equity != null) {

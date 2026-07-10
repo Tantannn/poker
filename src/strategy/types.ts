@@ -23,6 +23,10 @@ export interface ActionOption {
   amount?: number;
   /** size as fraction of pot, for display. */
   sizePct?: number;
+  /** hero's equity WHEN CALLED (0..1) for a bet/raise — i.e. vs the part of
+   *  villain's range that continues. Falls as the size grows (bigger bet → only
+   *  stronger hands call). Used to coach oversizing. Undefined for check/call/fold. */
+  calledEq?: number;
   /** sub-classification for chart coloring (e.g. value vs bluff). */
   kind?: 'fold' | 'call' | 'value' | 'bluff' | 'passive' | 'aggressive';
   /** plain-English reason this action has the EV/frequency it does. */
@@ -41,6 +45,9 @@ export interface NodeStrategy {
   bestId: ActionId;
   source: 'preflop-chart' | 'postflop-model';
   note: string;
+  /** `note` split into one line per idea, for bulleted rendering. Postflop only;
+   *  preflop leaves this undefined and the paragraph `note` is used. */
+  notes?: string[];
   /** hero equity vs the opponent range at this node (0..1), when computed. */
   equity?: number;
   rangeNote?: string;

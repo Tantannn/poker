@@ -3,7 +3,7 @@ import type { NodeFeedback } from '../analysis/grade';
 import { RangeChartModal } from './RangeChartModal';
 import { SizingCheatSheet } from './SizingCheatSheet';
 import { KIND_COLOR } from './chartColors';
-import { CalcLabel } from './CalcTip';
+import { CalcLabel, GlossaryText } from './CalcTip';
 
 export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boolean }) {
   const [explain, setExplain] = useState(false);
@@ -73,7 +73,10 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
         🎲 RNG {fb.roll} → prescribed <b>{fb.prescribedLabel}</b>
         {fb.rngMatch ? ' ✓ you followed it' : ` (you took ${fb.chosenLabel})`}
       </div>
-      <div className="fb-detail">{fb.detail}</div>
+      <div className="fb-detail"><GlossaryText text={fb.detail} /></div>
+      {fb.coach && (
+        <div className="fb-coach"><GlossaryText text={fb.coach} /></div>
+      )}
 
       {explain && (
         <div className="fb-gameplan">
@@ -104,7 +107,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
 
               <div className="gp-block">
                 <div className="gp-h">Your hand: {ctx.handLabel}</div>
-                <p>{ctx.handBlurb}</p>
+                <p><GlossaryText text={ctx.handBlurb} /></p>
                 {fb.equity != null && (
                   <p className="gp-muted">
                     <CalcLabel id="equity">Equity vs villain's range</CalcLabel>: <b>{(fb.equity * 100).toFixed(1)}%</b>.
@@ -168,7 +171,15 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
             </div>
           )}
 
-          <div className="strat-note">{strat.note}</div>
+          {strat.notes?.length ? (
+            <ul className="strat-note-list">
+              {strat.notes.map((line, i) => (
+                <li key={i}><GlossaryText text={line} /></li>
+              ))}
+            </ul>
+          ) : (
+            <div className="strat-note"><GlossaryText text={strat.note} /></div>
+          )}
         </div>
       )}
 

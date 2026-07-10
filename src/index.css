@@ -419,6 +419,12 @@ body {
 .feedback-box.bad .fb-head { color: var(--red); }
 .fb-line { font-size: 13px; color: var(--muted); margin: 4px 0; }
 .fb-detail { font-size: 13.5px; }
+.fb-coach {
+  font-size: 13px; line-height: 1.5; margin-top: 10px; padding: 9px 12px;
+  border-radius: 8px; border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  border-left: 3px solid var(--red);
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+}
 
 /* ---------- HUD ---------- */
 .hud-col { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 12px; }
@@ -681,6 +687,9 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .strat-ev.pos { color: var(--raise); }
 .strat-ev.neg { color: var(--red); }
 .strat-note { font-size: 11px; color: var(--muted); margin-top: 10px; font-style: italic; }
+.strat-note-list { font-size: 11px; color: var(--muted); margin: 10px 0 0; padding-left: 18px; list-style: disc; }
+.strat-note-list li { margin: 0 0 5px; line-height: 1.5; }
+.strat-note-list li:last-child { margin-bottom: 0; }
 
 /* ---------- chart additions ---------- */
 .chart-scenario { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
