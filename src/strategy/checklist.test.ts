@@ -177,6 +177,23 @@ describe('size grading', () => {
     expect(g.note).toMatch(/25–33%|sizing down/);
   });
 
+  it('buckets a pot-sized bet as "pot", not "big" (no ⅔–¾ mislabel)', () => {
+    const board = cards('9s 8s 7h'); // wet
+    // 20 into 20 = 100% pot → the 'pot' band; label must say pot-sized, not ⅔–¾
+    const { grades } = gradeChecklist(hero, board, null, {
+      category: 'value', texture: 'wet', purpose: 'value', size: 'pot', plan: 'call',
+    }, { amount: 20, pot: 20, spr: 5 });
+    const g = grades.find((q) => q.questionId === 'size')!;
+    expect(g.note).toContain('100% pot (about pot-sized)');
+    expect(g.note).not.toContain('⅔–¾');
+    expect(g.ok).toBe(true); // wet target 'big', 'pot' is one band over → within tolerance
+  });
+
+  it('offers a pot-sized option in the size question', () => {
+    const size = buildChecklist(0.7, cards('9s 8s 7h'), 3).find((q) => q.id === 'size')!;
+    expect(size.options.map((o) => o.id)).toContain('pot');
+  });
+
   it('wants a big bet on a wet board', () => {
     const board = cards('9s 8s 7h'); // wet
     const { grades } = gradeChecklist(hero, board, null, {

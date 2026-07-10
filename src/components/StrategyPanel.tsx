@@ -128,6 +128,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
                       {stackPct > 0 ? ` · ${Math.round(stackPct * 100)}% stack` : ''}
                     </div>
                   )}
+                  {o.sizeNote && <div className="strat-balance">{o.sizeNote}</div>}
                 </div>
               );
             })}

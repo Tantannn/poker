@@ -3,6 +3,7 @@
 
 import type { Card } from '../engine/cards';
 import type { Position } from '../engine/table';
+import { resolveRangeSet } from '../strategy/solverCharts';
 
 const RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 const rankVal = (r: string) => RANKS.indexOf(r); // 0 = Ace (strongest)
@@ -98,12 +99,15 @@ export const RFI_TOKENS: Record<Position, string[]> = {
   BB: [], // BB defends rather than opens; handled separately
 };
 
+// Prefer a solved chart per seat when data/solverPreflop.json provides one; else
+// the heuristic tokens. `resolveRangeSet` returns the fallback unchanged when no
+// chart exists, so the shipped empty file leaves these identical to before.
 export const RFI_RANGES: Record<Position, Set<string>> = {
-  UTG: buildRange(RFI_TOKENS.UTG),
-  MP: buildRange(RFI_TOKENS.MP),
-  CO: buildRange(RFI_TOKENS.CO),
-  BTN: buildRange(RFI_TOKENS.BTN),
-  SB: buildRange(RFI_TOKENS.SB),
+  UTG: resolveRangeSet('rfi-UTG', buildRange(RFI_TOKENS.UTG)),
+  MP: resolveRangeSet('rfi-MP', buildRange(RFI_TOKENS.MP)),
+  CO: resolveRangeSet('rfi-CO', buildRange(RFI_TOKENS.CO)),
+  BTN: resolveRangeSet('rfi-BTN', buildRange(RFI_TOKENS.BTN)),
+  SB: resolveRangeSet('rfi-SB', buildRange(RFI_TOKENS.SB)),
   BB: new Set<string>(),
 };
 
@@ -118,7 +122,7 @@ export const POSITION_NOTES: Record<Position, string> = {
 
 /** 3-bet (re-raise) value range vs a typical open. */
 export const THREEBET_TOKENS = ['QQ+', 'AKs', 'AKo', 'A5s', 'A4s', 'KQs'];
-export const THREEBET_RANGE = buildRange(THREEBET_TOKENS);
+export const THREEBET_RANGE = resolveRangeSet('threebet', buildRange(THREEBET_TOKENS));
 
 /** 3-bet BLUFF range vs an open: suited wheel aces + suited Broadway gappers.
  *  These block villain's AA/AK and keep backup equity (flushes/straights) — the
@@ -132,7 +136,7 @@ export const BB_DEFEND_TOKENS = [
   '22+', 'A2s+', 'K2s+', 'Q4s+', 'J6s+', 'T6s+', '95s+', '85s+', '74s+', '64s+', '53s+', '43s',
   'A2o+', 'K7o+', 'Q8o+', 'J8o+', 'T8o+', '98o', '87o',
 ];
-export const BB_DEFEND_RANGE = buildRange(BB_DEFEND_TOKENS);
+export const BB_DEFEND_RANGE = resolveRangeSet('bb-defend', buildRange(BB_DEFEND_TOKENS));
 
 /**
  * Heuristic 0..1 preflop strength for a 169-code, roughly proportional to

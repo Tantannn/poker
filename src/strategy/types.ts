@@ -7,6 +7,7 @@ export type ActionId =
   | 'check'
   | 'call'
   | 'bet33'
+  | 'bet50'
   | 'bet75'
   | 'betpot'
   | 'allin'
@@ -28,6 +29,10 @@ export interface ActionOption {
   why?: string;
   /** the EV calculation written out with the actual numbers plugged in. */
   math?: string;
+  /** compact range-balance note for a BET/RAISE size: on the river the value:bluff
+   *  balance ("~33% bluffs · 2:1"), on the flop/turn the opponent's minimum-defence
+   *  frequency ("villain defends ~57%"). Undefined for check/call/fold. */
+  sizeNote?: string;
 }
 
 export interface NodeStrategy {

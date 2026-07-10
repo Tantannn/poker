@@ -15,7 +15,7 @@ import {
   startHand,
   tablePositions,
 } from '../engine/table';
-import { decideAction } from '../ai/decide';
+import { decideAction, inPositionPostflop } from '../ai/decide';
 import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
 import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
 import type { NodeStrategy } from '../strategy';
@@ -395,11 +395,28 @@ export function useGame(initialProfiles: string[]) {
         rd.preflopActions++;
         if (action.type === 'call' || action.type === 'raise' || action.type === 'bet') rd.vpipActions++;
       }
+      const isFold = action.type === 'fold';
       if (action.type === 'bet' || action.type === 'raise') rd.aggrActions++;
       else if (action.type === 'call') rd.passiveActions++;
+      const postflop = prev.street !== 'preflop';
       if (la.callAmount > 0) {
         rd.betsFaced++;
-        if (action.type === 'fold') rd.foldToBet++;
+        if (isFold) rd.foldToBet++;
+        if (postflop) {
+          // bet size as a fraction of the pot BEFORE the bet (subtract the call, which
+          // is already in potTotal) → split the hero's fold tendency by big vs small.
+          const potBeforeBet = Math.max(1, potTotal(prev) - la.callAmount);
+          const betFrac = la.callAmount / potBeforeBet;
+          if (betFrac >= 0.66) { rd.bigBetsFaced++; if (isFold) rd.foldToBig++; }
+          else { rd.smallBetsFaced++; if (isFold) rd.foldToSmall++; }
+          if (prev.street === 'flop') { rd.flopBetsFaced++; if (isFold) rd.foldToFlopBet++; }
+          if (prev.street === 'river') { rd.riverBetsFaced++; if (action.type === 'call') rd.riverCalls++; }
+        }
+      }
+      // positional passivity: checked or folded while OUT of position postflop
+      if (postflop && !inPositionPostflop(prev, 0)) {
+        rd.oopActions++;
+        if (action.type === 'check' || isFold) rd.oopPassive++;
       }
 
       strategyRef.current = null;

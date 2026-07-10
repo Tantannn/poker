@@ -5,6 +5,7 @@
 import type { Position } from '../engine/table';
 import { buildRange } from '../ai/preflop';
 import type { ActionId, ActionOption } from './types';
+import { solverActions } from './solverCharts';
 
 export type Facing = 'rfi' | 'vsopen' | 'vs3bet' | 'vs4bet' | 'squeeze' | 'vslimp';
 export type TableSize = 6 | 5 | 4 | 3 | 2;
@@ -479,8 +480,42 @@ export function facingRaiseWord(f: Facing): string {
     : '3-bet';
 }
 
+/** Raise-action word for a facing ("Open" for RFI, "3-Bet", "4-Bet", …). */
+function raiseLabelFor(f: Facing): string {
+  return f === 'vs4bet' ? '5-Bet'
+    : f === 'vs3bet' ? '4-Bet'
+    : f === 'squeeze' ? 'Squeeze'
+    : f === 'vslimp' ? 'Iso-raise'
+    : f === 'rfi' ? 'Open'
+    : '3-Bet';
+}
+
+// Label a solved action so it reads like the heuristic path (e.g. "3-Bet (bluff)").
+function solverLabel(sc: PreflopScenario, id: ActionId, kind: ActionOption['kind']): string {
+  if (id === 'fold') return 'Fold';
+  if (id === 'call') return 'Call';
+  if (id === 'open') return 'Open';
+  if (id === 'allin') return 'All-in';
+  const base = raiseLabelFor(sc.facing);
+  return kind === 'bluff' ? `${base} (bluff)` : kind === 'value' ? `${base} (value)` : base;
+}
+
+// Default colour-kind for a solved action when the JSON omits `k`.
+function defaultKind(id: ActionId): ActionOption['kind'] {
+  return id === 'fold' ? 'fold' : id === 'call' ? 'call' : 'value';
+}
+
 /** Per-cell strategy for a 169-code in a scenario. Frequencies sum to ~1. */
 export function cellStrategy(sc: PreflopScenario, code: string): ActionOption[] {
+  // Solver override: if a real chart lists this hand, use its mixed strategy
+  // verbatim (labels built here so wording matches the heuristic path).
+  const solved = solverActions(sc.id, code);
+  if (solved)
+    return solved.map((x) => {
+      const kind = x.kind ?? defaultKind(x.id);
+      return mk(x.id, solverLabel(sc, x.id, kind), x.freq, kind, x.ev);
+    });
+
   const opts: ActionOption[] = [];
   if (sc.facing === 'rfi') {
     if (sc.open?.has(code)) opts.push(mk('open', 'Open', 1, 'value'));
@@ -512,8 +547,8 @@ export function cellStrategy(sc: PreflopScenario, code: string): ActionOption[] 
   return opts;
 }
 
-function mk(id: ActionId, label: string, freq: number, kind: ActionOption['kind']): ActionOption {
-  return { id, label, freq, ev: 0, kind };
+function mk(id: ActionId, label: string, freq: number, kind: ActionOption['kind'], ev = 0): ActionOption {
+  return { id, label, freq, ev, kind };
 }
 
 /** Dominant action kind for grid coloring. */

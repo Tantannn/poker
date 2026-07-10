@@ -82,7 +82,14 @@
       "Bash(grep -iv \"wet\\\\b.*//\")",
       "Bash(echo \"LINT:$?\")",
       "Bash(echo \"BUILD:$?\")",
-      "PowerShell(npm test *)"
+      "PowerShell(npm test *)",
+      "Bash(git *)",
+      "WebSearch",
+      "Bash(xargs cat)",
+      "Bash(echo \"launched pid $!\")",
+      "Bash(pkill -f vitest)",
+      "Bash(pkill -f \"node.*_winrate\")",
+      "Bash(echo \"launched $!\")"
     ]
   }
 }

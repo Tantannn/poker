@@ -10,6 +10,7 @@ import { EquityCalc } from './components/EquityCalc';
 const RangeGrid = lazy(() => import('./components/RangeGrid').then((m) => ({ default: m.RangeGrid })));
 const PreflopTrainer = lazy(() => import('./components/PreflopTrainer').then((m) => ({ default: m.PreflopTrainer })));
 const PostflopLab = lazy(() => import('./components/PostflopLab').then((m) => ({ default: m.PostflopLab })));
+const SpotDebugger = lazy(() => import('./components/SpotDebugger').then((m) => ({ default: m.SpotDebugger })));
 const PotOddsCalc = lazy(() => import('./components/PotOddsCalc').then((m) => ({ default: m.PotOddsCalc })));
 const Analytics = lazy(() => import('./components/Analytics').then((m) => ({ default: m.Analytics })));
 const Reference = lazy(() => import('./components/Reference').then((m) => ({ default: m.Reference })));
@@ -30,7 +31,7 @@ const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -43,6 +44,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'charts', label: 'Preflop Charts' },
   { id: 'trainer', label: 'Range Trainer' },
   { id: 'lab', label: 'Postflop Lab' },
+  { id: 'debug', label: '🧪 Custom Spot' },
   { id: 'heatmap', label: '🔥 Flop Heatmap' },
   { id: 'gameplan', label: '📋 Gameplan' },
   { id: 'quiz', label: 'Leak Quiz' },
@@ -188,6 +190,11 @@ export default function App() {
         {tab === 'lab' && (
           <div className="content-col">
             <PostflopLab />
+          </div>
+        )}
+        {tab === 'debug' && (
+          <div className="content-col">
+            <SpotDebugger />
           </div>
         )}
         {tab === 'heatmap' && (

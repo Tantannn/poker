@@ -56,6 +56,52 @@ function usualPlay(
   return { action: 'Check or give up.', why: 'Weak / air — bluff only with blockers + a plan.' };
 }
 
+// "Can a bet here actually make hands FOLD?" — the bluff-suitability read the
+// value-side `usualPlay` ignores. Only meaningful when hero ISN'T already value
+// betting (strength < 4: a value hand WANTS calls, so fold equity is irrelevant).
+// Multiway is the dominant killer — someone almost always holds a piece — so it
+// caps fold equity LOW no matter the board. Heads-up, street + position set the
+// rest. This is the leak behind "the model shows a thin 3-way bluff": there's ~no
+// fold equity into a field, so that edge is noise.
+type FeLevel = 'low' | 'ok' | 'good';
+function foldEquityRead(
+  strength: number,
+  opponents: number,
+  ip: boolean,
+  street: string,
+): { level: FeLevel; text: string } | null {
+  if (strength >= 4) return null; // value hand — you want calls, not folds
+  if (opponents >= 2)
+    return {
+      level: 'low',
+      text: `${opponents + 1}-way — someone usually has a piece, so a bluff rarely gets through. Bluff heads-up, not into a field: check, or bet only real value.`,
+    };
+  const pos = ip
+    ? 'In position you pick up extra fold equity'
+    : 'Out of position you realise less and get floated more, so bluff more selectively';
+  if (street === 'river')
+    return {
+      level: 'ok',
+      text: `Heads-up river — a bluff needs blockers to his value AND a credible story (a line that reps a hand you can actually hold). ${pos}. Match your value size so it isn't a tell.`,
+    };
+  if (strength === 3)
+    return {
+      level: 'good',
+      text: `Heads-up with a draw — a semi-bluff has real fold equity plus outs as backup. ${pos}. Keep barrelling the cards that complete your draw.`,
+    };
+  if (strength === 2)
+    return {
+      level: 'ok',
+      text: `Heads-up medium made hand — mostly a check / pot-control spot. If you bet it's thin value or protection (deny draws), NOT a bluff — you don't need folds. Real bluffs come from air and draws. ${pos}.`,
+    };
+  return {
+    level: 'ok',
+    text: `Heads-up with air — bluff only on boards that hit YOUR range (so you can rep the nuts) and with good blockers. ${pos}.`,
+  };
+}
+const FE_WORD: Record<FeLevel, string> = { low: 'LOW', ok: 'OK', good: 'GOOD' };
+const FE_CLASS: Record<FeLevel, string> = { low: 'bad', ok: 'okv', good: 'good' };
+
 export function SituationPanel({ board, heroCards, street, active, villain, opponents = 1, spr = 0 }: Props) {
   const [showCheat, setShowCheat] = useState(false);
   const [showPlay, setShowPlay] = useState(false);
@@ -73,6 +119,7 @@ export function SituationPanel({ board, heroCards, street, active, villain, oppo
   const hand = classifyHandClass(heroCards, board);
   const ip = villain?.heroInPosition;
   const play = preflop ? null : usualPlay(street, boardWetness(board), hand.strength, spr, opponents, !!ip);
+  const fe = preflop ? null : foldEquityRead(hand.strength, opponents, !!ip, street);
 
   return (
     <div className="sit-panel">
@@ -138,6 +185,15 @@ export function SituationPanel({ board, heroCards, street, active, villain, oppo
         <div className="sit-h">Your hand: {hand.label}</div>
         <p>{hand.blurb}</p>
       </div>
+
+      {fe && (
+        <div className="sit-block">
+          <div className="sit-h">
+            Fold equity: <span className={`sit-v ${FE_CLASS[fe.level]}`}>{FE_WORD[fe.level]}</span>
+          </div>
+          <p className="sit-muted">{fe.text}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,14 +17,23 @@ import { mixFromEv } from './types';
 // Four-way classification of an aggressive line by hero equity (+ draw), so the
 // explanation distinguishes a real bluff from thin value / a semi-bluff.
 type BetClass = 'value' | 'thin' | 'semibluff' | 'bluff';
-function classifyBet(e: number, outs: number, hasMade: boolean): BetClass {
+function classifyBet(eHU: number, eField: number, outs: number, hasMade: boolean): BetClass {
   // value / thin value require an actual MADE hand (pair or better). A big draw can
   // sit at >60% equity vs a wide range, but it's a SEMI-BLUFF, not a value bet — so
   // it must NOT borrow the made-hand "you're ahead, get worse hands to call" story
   // (worse hands FOLD to the bet; the draw wins by folds + improving, not by calls).
-  if (hasMade && e >= 0.62) return 'value';
-  if (hasMade && e >= 0.5) return 'thin';
-  if (e >= 0.3 || outs >= 4) return 'semibluff';
+  //
+  // MULTIWAY GUARD: heads-up equity (eHU, vs the ONE caller a bet isolates) and field
+  // equity (eField, vs EVERYONE) diverge hard in a 3-way+ pot — bottom pair can be
+  // ~50% heads-up yet only ~32% vs two players. If we tier off eHU alone, that hand is
+  // painted "thin value" (green, "get worse hands to call") while buildNote — which
+  // reads the field equity — calls the very same bet a bluff ("profits only from
+  // folds"). Same action, opposite stories. Requiring value/thin to clear BOTH a
+  // heads-up favourite AND a not-sunk-vs-field bar keeps the colour and the note
+  // consistent: a hand that's behind the field can no longer read as value.
+  if (hasMade && eHU >= 0.62 && eField >= 0.5) return 'value';
+  if (hasMade && eHU >= 0.5 && eField >= 0.45) return 'thin';
+  if (eHU >= 0.3 || outs >= 4) return 'semibluff';
   return 'bluff';
 }
 // kind drives grid/bar color; we keep the existing 2-tone (value vs bluff).
@@ -58,6 +67,23 @@ function riverBalance(frac: number): string {
   const bluffFrac = requiredEquityForBet(frac);
   const ratio = (1 - bluffFrac) / Math.max(0.001, bluffFrac);
   return ` River balance: this size wants ~${Math.round(bluffFrac * 100)}% bluffs (≈ ${ratio.toFixed(1)} : 1 value-to-bluff).`;
+}
+
+/** Compact range-balance chip for a BET/RAISE of `frac`×pot. On the river a bet is
+ *  polarized, so the meaningful number is the value:bluff BALANCE (how many bluffs
+ *  this size wants). On the flop/turn there's no clean bluff% (semi-bluffs have
+ *  equity, ranges aren't polarized), so show the opponent's MINIMUM-DEFENCE
+ *  frequency instead — how much of their range must continue vs this size,
+ *  = pot/(pot+bet) = 1/(1+frac). Both are honest per street; a fake bluff% on the
+ *  flop is exactly what this avoids. */
+function sizeBalanceNote(frac: number, river: boolean): string {
+  if (river) {
+    const bluff = requiredEquityForBet(frac);
+    const ratio = (1 - bluff) / Math.max(0.001, bluff);
+    return `⚖ ~${Math.round(bluff * 100)}% bluffs · ${ratio.toFixed(1)}:1 value:bluff`;
+  }
+  const mdf = 1 / (1 + Math.max(0, frac));
+  return `villain must defend ~${Math.round(mdf * 100)}% vs this size (MDF)`;
 }
 
 // River call wording. The river is a pure pot-odds spot (no more cards, no
@@ -148,6 +174,7 @@ interface Candidate {
   kind: ActionOption['kind'];
   why?: string;
   math?: string;
+  sizeNote?: string;
 }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -238,6 +265,10 @@ function buildNote(a: {
       s.push(
         `On the river nothing can improve: a medium hand is a pure bluff-catcher, so that ~${ePct}% really asks "how often is this bet a bluff?". River bets are polarized — strong value and bluffs, little between.`,
       );
+    else if (a.hasMade && a.eHU >= 0.62)
+      s.push(`On the river no more cards are coming, so bet to get WORSE hands to call — with a made hand this strong you profit every time a weaker hand pays you off, and checking a value hand just leaves that money behind.`);
+    else if (a.hasMade && a.eHU >= 0.5)
+      s.push(`On the river no more cards are coming: only a slight favourite, so this is thin value — a small bet gets called by worse, but don't bloat the pot.`);
     else
       s.push(`On the river no more cards are coming, so a bet only makes money when MORE worse hands call than better ones — with a middling hand, checking usually beats betting.`);
   } else if (a.outs >= 4 && a.e < 0.55) {
@@ -286,7 +317,7 @@ function buildNote(a: {
     const verb = a.C > 0 ? 'raise' : 'bet';
     if (a.sprKnown && a.spr < 1 && a.eHU >= 0.6)
       s.push(`SPR is under 1 and you hold a strong hand, so you're committed: the stack goes in over the streets regardless. Any committing size is close in EV — a token ${verb} just gives draws a cheap card first, so ${verb} big (or jam) and take the equity now.`);
-    else if (a.wet01 >= 0.35 && a.e >= 0.5 && a.eHU >= 0.6)
+    else if (a.street !== 'river' && a.wet01 >= 0.35 && a.e >= 0.5 && a.eHU >= 0.6)
       s.push(`The board is draw-heavy, so ${verb} bigger — charging the straight/flush draws and denying their equity is worth more than the extra thin calls a small ${verb} would pick up.`);
     else if (a.eHU >= 0.65 && (a.C === 0 || a.e >= 0.5))
       s.push(`You're strong enough to ${verb} for value — size to the worst hand that still calls; oversizing folds out your customers.`);
@@ -463,7 +494,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
     const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);
-    const cls = classifyBet(eHU, outs, hasMade);
+    const cls = classifyBet(eHU, e, outs, hasMade);
     const sv = d.streetValue > 0.05;
     const dv = d.denial > 0.05;
     cands.push({
@@ -473,7 +504,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       amount: target,
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
       kind: classKind(cls),
-      why: whyBet(cls, eHU, d, outs, false, isRiver, frac),
+      sizeNote: sizeBalanceNote(frac, isRiver),
+      why: whyBet(cls, e, d, outs, false, isRiver, frac),
       math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${
         d.committed
           ? `\n   (SPR < 1: you're committed, so the effective stack goes in over the streets whatever you bet now — every committing size wins ~the same; only the draws you deny THIS street differ, so sizing is a minor EV choice here)`
@@ -489,12 +521,13 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   };
 
   addBet('bet33', 0.33, C === 0 ? 'Bet 33%' : 'Raise 33%');
+  addBet('bet50', 0.5, C === 0 ? 'Bet 50%' : 'Raise 50%');
   addBet('bet75', 0.75, C === 0 ? 'Bet 75%' : 'Raise 75%');
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
     const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);
-    const cls = classifyBet(eHU, outs, hasMade);
+    const cls = classifyBet(eHU, e, outs, hasMade);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
     // apply a risk premium — all-in only "wins" when it's clearly best. SCALES
@@ -511,8 +544,9 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       amount: inp.maxRaiseTo,
       sizePct: Math.round((100 * (inp.maxRaiseTo - inp.currentBet)) / Math.max(1, potForSize)),
       kind: classKind(cls),
+      sizeNote: sizeBalanceNote(allinFrac, isRiver),
       why:
-        whyBet(cls, eHU, d, outs, true, isRiver, allinFrac) +
+        whyBet(cls, e, d, outs, true, isRiver, allinFrac) +
         ` Note: a ${RISK.toFixed(1)}bb risk premium is applied (scaled to SPR ${spr.toFixed(1)} — deeper stacks risk more, so the premium is bigger) — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
       math: `EV = ${d.evExpr} = ${d.ev.toFixed(1)} chips ≈ ${rawEv.toFixed(2)} bb\n   ${
         d.isThinValue
@@ -549,6 +583,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       kind: c.kind,
       why: c.why,
       math: c.math,
+      sizeNote: c.sizeNote,
     }))
     .sort((a, b) => b.freq - a.freq || b.ev - a.ev);
 

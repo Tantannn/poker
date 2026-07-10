@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "source": "TexasSolver / GTO Wizard export (SAMPLE)",
+    "stackBB": 100,
+    "notes": "Sample only — NOT loaded. Copy entries into solverPreflop.json to activate. Keys are scenario ids (see README). Each hand maps to a list of {a: action, f: frequency, k?: kind, ev?: bb}. Frequencies for a hand should sum to ~1."
+  },
+  "charts": {
+    "rfi-UTG": {
+      "AA": [{ "a": "open", "f": 1 }],
+      "AKs": [{ "a": "open", "f": 1 }],
+      "AKo": [{ "a": "open", "f": 1 }],
+      "99": [{ "a": "open", "f": 1 }],
+      "AJo": [{ "a": "open", "f": 0.62 }, { "a": "fold", "f": 0.38 }],
+      "KJs": [{ "a": "open", "f": 0.85 }, { "a": "fold", "f": 0.15 }],
+      "72o": [{ "a": "fold", "f": 1 }]
+    },
+    "bb-vs-btn": {
+      "KK": [{ "a": "raise", "f": 1, "k": "value", "ev": 12.4 }],
+      "A5s": [{ "a": "raise", "f": 0.5, "k": "bluff" }, { "a": "call", "f": 0.5 }],
+      "T9s": [{ "a": "call", "f": 1 }],
+      "72o": [{ "a": "fold", "f": 1 }]
+    }
+  }
+}

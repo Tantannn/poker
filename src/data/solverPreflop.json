@@ -1,0 +1,8 @@
+{
+  "meta": {
+    "source": "",
+    "stackBB": 100,
+    "notes": "EMPTY by default — the app falls back to its built-in heuristic charts, so behaviour is unchanged. Drop real solver-exported charts into `charts` to override (bots, range grid, preflop trainer, and feedback all pick them up on the next build). See README.md for the format and solverPreflop.example.json for a filled sample."
+  },
+  "charts": {}
+}

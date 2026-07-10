@@ -98,7 +98,10 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       const potRef = pot + (isBet ? 0 : la.callAmount);
       const potAfter = potRef + added;
       const crumbs = behindAfter <= state.bigBlind * 8; // unplayable nub left
-      const committing = crumbs || (potAfter > 0 && behindAfter / potAfter < 0.4);
+      // jitter the SPR commitment line (~0.36..0.44) so the stack-off threshold
+      // isn't a fixed, readable 0.4 every time.
+      const commitLine = 0.4 + (r() - 0.5) * 0.08;
+      const committing = crumbs || (potAfter > 0 && behindAfter / potAfter < commitLine);
       if (committing) {
         if (willCommit || crumbs) {
           // Strong enough to play for stacks (or only a <8bb nub would remain) →
@@ -192,53 +195,98 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       }
       // it's folded to us (or limps in front) — RFI by blueprint open frequency:
       // strong hands open ~always, borderline hands mix, a thin off-chart band steals.
-      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness)) return sizeTo(1.1, false); // ~2.2-2.5bb
+      // Position-aware size: earlier seats and the SB open a touch bigger (less
+      // position, more players behind); late seats open smaller.
+      const openFrac = pos === 'SB' ? 1.35 : pos === 'UTG' || pos === 'MP' ? 1.25 : 1.1;
+      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness)) return sizeTo(openFrac, false);
       return { type: 'fold' };
     }
 
-    // facing a raise: (re)raise / call / fold. Detect the raise level so a re-raise
-    // facing a 3-bet is treated as a 4-bet — far tighter than a 3-bet vs an open.
-    const facing4betPlus = preflopRaiseCount(state) >= 2; // open + 3-bet already in
-    const value4bet = code === 'AA' || code === 'KK' || code === 'AKs' || code === 'AKo';
-    // Value 3-bet floor: chart premiums + TT+ (strength > 0.90 ⇒ 99 out, TT in) —
-    // 3-betting 77/88/99 vs an open is a leak. Vs a 3-bet, only KK+/AK get it in;
-    // JJ/QQ/AQ flat or fold rather than spew a 4-bet.
-    const threeBetWorthy = facing4betPlus ? value4bet : THREEBET_RANGE.has(code) || strength > 0.9;
-    if (threeBetWorthy && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq)) {
-      return sizeTo(1.0, false);
+    // ---- facing a raise: mixed 3-bet / 4-bet / 5-bet / flat / fold nodes ----
+    // Level by how many raises are already in this hand: 1 = facing an OPEN (hero
+    // 3-bets), 2 = facing a 3-BET (hero 4-bets), 3+ = facing a 4-BET (hero 5-bets).
+    // Sizing is position-aware (3-bet 3x IP / 4x OOP, 4-bet ~2.2x), and every node
+    // MIXES value, bluff, flat and fold by frequency — so the range isn't a fixed,
+    // readable set (the old "only AA/KK/AK ever 4-bets, no flats" leak).
+    const raiseCount = preflopRaiseCount(state);
+    const bb = state.bigBlind;
+    const villainToBB = state.currentBet / bb; // the raise hero faces, in bb
+    const raiser = state.lastAggressor;
+    const nP = state.players.length;
+    const ord = (s: number) => (s - state.buttonIndex - 1 + nP) % nP; // 0 = first to act … n-1 = button
+    const ipPre = raiser < 0 || ord(i) > ord(raiser); // hero acts after the raiser postflop
+    const raiseToBB = (xBB: number): Action => ({
+      type: 'raise',
+      amount: Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, Math.round(xBB * bb))),
+    });
+    const threeBetSize = () => raiseToBB((ipPre ? 3 : 4) * villainToBB);
+    const fourBetSize = () => raiseToBB(2.2 * villainToBB);
+    const jamAllIn = (): Action => ({ type: 'raise', amount: la.maxRaiseTo });
+
+    if (raiseCount >= 3) {
+      // facing a 4-bet → 5-bet jam or fold. Flatting a 4-bet is rare (IP only).
+      if ((code === 'AA' || code === 'KK' || code === 'AKs') && la.canRaise) return jamAllIn();
+      if ((code === 'AKo' || code === 'QQ') && la.canRaise && r() < 0.5) return jamAllIn();
+      if (ipPre && (code === 'QQ' || code === 'JJ' || code === 'AKs' || code === 'AKo') && la.callAmount > 0 && r() < 0.3)
+        return { type: 'call' };
+      return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
     }
-    // bluff 3-bet only the blocker family (suited wheel aces + suited Broadway
-    // gappers) — they block AA/AK and keep backup equity, unlike random offsuit
-    // air. Never a light 4-bet spaz vs a 3-bet.
-    if (
-      !facing4betPlus &&
-      !threeBetWorthy &&
-      BLUFF_THREEBET_RANGE.has(code) &&
-      la.canRaise &&
-      r() < profile.bluffFreq * 0.5
-    ) {
-      return sizeTo(1.0, false);
+
+    if (raiseCount === 2) {
+      // facing a 3-bet → 4-bet (value/bluff), flat in position, or fold. Premiums
+      // MIX 4-bet with a trap-flat but NEVER fold; QQ mixes 4-bet/flat; blockers
+      // bluff-4-bet; playable hands flat IP; the rest fold.
+      const premium = code === 'AA' || code === 'KK' || code === 'AKs' || code === 'AKo';
+      if (premium) {
+        if (la.canRaise && r() < 0.9) return fourBetSize();
+        return la.callAmount > 0 ? { type: 'call' } : jamAllIn(); // trap-flat, never fold a premium
+      }
+      if (code === 'QQ') {
+        if (la.canRaise && r() < 0.5) return fourBetSize();
+        return la.callAmount > 0 ? { type: 'call' } : { type: 'check' }; // else flat, never fold QQ
+      }
+      // 4-bet BLUFF: suited wheel aces block AA/AK — a thin, blocker-only bluff so the
+      // 4-bet range isn't pure value (was AA/KK/AK only, trivially read).
+      if ((code === 'A5s' || code === 'A4s' || code === 'A3s') && la.canRaise && r() < profile.bluffFreq * 0.35)
+        return fourBetSize();
+      // FLAT the 3-bet in position with hands that play a flop well but don't want to
+      // 4-bet-and-fold (the "no flat vs 3-bet" gap).
+      if (
+        ipPre &&
+        (code === 'JJ' || code === 'TT' || code === 'AQs' || code === 'AJs' || code === 'KQs') &&
+        la.callAmount > 0 &&
+        r() < 0.6
+      )
+        return { type: 'call' };
+      return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
     }
+
+    // facing an OPEN → 3-bet (value / bluff), flat, or fold.
+    const valueThreeBet = THREEBET_RANGE.has(code) || strength > 0.9;
+    if (valueThreeBet && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq)) return threeBetSize();
+    // 3-bet BLUFF: blocker family (suited wheel aces + suited Broadway gappers), a
+    // touch more often IP (more fold equity, better realisation).
+    if (BLUFF_THREEBET_RANGE.has(code) && la.canRaise && r() < profile.bluffFreq * (ipPre ? 0.55 : 0.4))
+      return threeBetSize();
+
+    // ---- flat (cold-call) / fold vs an open ----
     const odds = potOdds(pot, la.callAmount);
     let callThreshold = 0.58 - profile.callRaiseLooseness * 0.18;
-
-    // Facing a shove or a big overbet preflop, villains tighten HARD — nobody
-    // stacks off 100bb light. The bigger the price, the closer to a premium-only
-    // calling range. This is what gives a hero's all-in real fold equity instead
-    // of always getting snapped off by a better hand.
-    const callBB = la.callAmount / state.bigBlind;
+    // Facing a shove / big overbet, tighten HARD — nobody stacks off 100bb light, so
+    // a hero jam has real fold equity instead of always being snapped by a better hand.
+    const callBB = la.callAmount / bb;
     const bigShove = la.isAllInCall || callBB >= 12;
     if (bigShove) {
       const pressure = Math.min(1, callBB / 50); // ~50bb+ to call ⇒ max tightness
-      // up to ~0.82 ≈ {66+, AK} — folds the rest of the deck to the jam
-      callThreshold = Math.max(callThreshold, 0.62 + pressure * 0.2);
+      callThreshold = Math.max(callThreshold, 0.62 + pressure * 0.2); // up to ~{66+, AK}
     }
-
-    // good-price call only applies to normal-sized raises, never a jam
-    const priceOk = !bigShove && odds.requiredEquity < strength * 0.6 + 0.1;
+    // SB plays 3-bet-or-fold vs an open (flatting OOP into the BB bleeds) — it already
+    // took its 3-bet shot above, so here it continues only to a premium / great price.
+    const sbNoFlat = pos === 'SB' && !bigShove;
+    if (sbNoFlat) callThreshold += 0.14;
+    const priceOk = !bigShove && !sbNoFlat && odds.requiredEquity < strength * 0.6 + 0.1;
     if (strength > callThreshold || priceOk) {
-      if (la.callAmount > 0) return { type: 'call' };
-      return { type: 'check' };
+      return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
     }
     // calling stations peel light vs normal raises, but even they fold to a jam
     if (!bigShove && profile.callStation > 0.7 && r() < profile.callStation - 0.4) return { type: 'call' };
@@ -293,21 +341,52 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   }
 
   // ---- adaptation: hard/extreme bots exploit the hero's leaks ----
-  // Read the running tally of how the hero plays and tilt bluff/value/call
-  // tendencies to attack it. Needs a small sample before it kicks in.
-  let bluffTilt = 1;
-  let valueTilt = 1;
-  let callWiden = 0;
-  if (reads && diff.adapt > 0 && reads.decisions >= 12) {
-    const f2b = reads.foldToBet / Math.max(1, reads.betsFaced);
-    const aggF = reads.aggrActions / Math.max(1, reads.passiveActions);
-    if (f2b > 0.55) bluffTilt += diff.adapt * 0.9; // hero over-folds → bluff more
-    if (f2b < 0.35) {
-      bluffTilt -= diff.adapt * 0.6; // hero is a station → bluff less,
-      valueTilt += diff.adapt * 0.5; // value bet more
+  // Read the running tally of how the hero plays and tilt bluff/value/call/size
+  // tendencies to attack SPECIFIC leaks — by bet size, by street, at showdown, and
+  // by position — not one blunt "folds too much" dial. Each read is gated on its
+  // OWN sample and ramped in by confidence, so a bot starts nudging early and leans
+  // harder as the sample grows (instead of a hard nothing-until-12-decisions cliff).
+  let bluffTilt = 1; // general bluff frequency
+  let valueTilt = 1; // value-bet frequency
+  let callWiden = 0; // widen calls vs an over-aggressive hero
+  let cbetTilt = 1; // flop c-bet frequency
+  let riverBluffTilt = 1; // river bluff frequency (kill it vs a station)
+  let riverValueTilt = 1; // river thin-value frequency (raise it vs a station)
+  let preferBigBluff = false; // hero overfolds big → size bluffs UP (polar)
+  let bluffSmallTilt = 1; // hero sticky vs small bets → bluff small less
+  if (reads && diff.adapt > 0) {
+    const a = diff.adapt;
+    const conf = (n: number, k: number) => Math.min(1, n / k); // 0..1 ramp by sample
+    // general fold-to-bet
+    if (reads.betsFaced >= 6) {
+      const f2b = reads.foldToBet / reads.betsFaced;
+      const c = conf(reads.betsFaced, 14);
+      if (f2b > 0.55) bluffTilt += a * 0.9 * c; // over-folds → bluff more
+      if (f2b < 0.35) { bluffTilt -= a * 0.6 * c; valueTilt += a * 0.5 * c; } // station → bluff less, value more
     }
-    if (aggF > 1.6) callWiden += diff.adapt * 0.07; // hero over-aggressive → call lighter
+    if (reads.passiveActions >= 6 && reads.aggrActions / reads.passiveActions > 1.6)
+      callWiden += a * 0.07; // over-aggressive → call lighter
+    // SIZE-specific: overfold vs big bets → size bluffs up; sticky vs small → bluff small less, value small more
+    if (reads.bigBetsFaced >= 5 && reads.foldToBig / reads.bigBetsFaced > 0.55) preferBigBluff = true;
+    if (reads.smallBetsFaced >= 5 && reads.foldToSmall / reads.smallBetsFaced < 0.4) {
+      bluffSmallTilt = 1 - a * 0.5; valueTilt += a * 0.3 * conf(reads.smallBetsFaced, 10);
+    }
+    // STREET: flop c-bet defence
+    if (reads.flopBetsFaced >= 5) {
+      const fFlop = reads.foldToFlopBet / reads.flopBetsFaced;
+      const c = conf(reads.flopBetsFaced, 12);
+      if (fFlop > 0.55) cbetTilt += a * 0.6 * c;
+      if (fFlop < 0.35) cbetTilt -= a * 0.4 * c;
+    }
+    // SHOWDOWN: river station → stop bluffing the river, value-bet it thinner
+    if (reads.riverBetsFaced >= 4 && reads.riverCalls / reads.riverBetsFaced > 0.6) {
+      riverBluffTilt = 1 - a * 0.7; riverValueTilt = 1 + a * 0.4;
+    }
+    // POSITION: hero passive out of position → attack it (bluff a touch more overall)
+    if (reads.oopActions >= 6 && reads.oopPassive / reads.oopActions > 0.7)
+      bluffTilt += a * 0.25 * conf(reads.oopActions, 12);
   }
+  const isRiver = state.street === 'river';
 
   // Board-texture sizing (realism): bet small on dry/static boards, big on
   // wet/draw-heavy ones, instead of one fixed fraction regardless of board.
@@ -329,6 +408,21 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const maxOppStack = Math.max(0, ...state.players.filter((q) => !q.folded && q.id !== p.id).map((q) => q.stack));
   const behindBB = Math.min(p.stack, maxOppStack) / state.bigBlind;
   const potBB = pot / state.bigBlind;
+  // FOLD EQUITY vs the field: a bluff needs EVERYONE to fold, and that chance
+  // collapses fast with more players. Heads-up = full; each extra live opponent
+  // roughly halves the through-rate. Replaces the old "bluff heads-up only" gate —
+  // the bot now barrels / semi-bluffs multiway, just far less often (thinning a
+  // field on a good board) instead of turning into a pure-value robot 3+ ways.
+  const fieldFold = Math.pow(0.5, Math.max(0, liveOpponents - 1)); // 1 · .5 · .25 …
+  const wet = state.board.length >= 3 ? boardWetScore(state.board) : 0;
+  const wetBoard = wet >= 2;
+  // Trap/slowplay frequency by texture: safe to trap on a dry/static board (few
+  // draws to hand a free card to), but a wet board must be charged — so trap rarely.
+  // Replaces the old flat r()<0.3 that slowplayed the same on every texture.
+  const trapFreq = wet <= 0 ? 0.42 : wet === 1 ? 0.3 : 0.14;
+  // Value/bluff bet size for THIS board — shared so a bluff fires the same fraction a
+  // value hand would here (no size tell). Polar (wet) boards bet big; dry bet small.
+  const polarBase = wetBoard ? 0.8 : 0.6;
 
   if (la.callAmount > 0) {
     // facing a bet
@@ -350,18 +444,19 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
 
     // value raise with strong hands — but sometimes just flat to trap (slowplay)
     if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7 * mood) {
-      if (equity > 0.85 && r() < 0.25) return { type: 'call' }; // trap the monster
+      if (equity > 0.85 && r() < trapFreq * 0.8) return { type: 'call' }; // trap the monster (rarely on wet)
       // only stack off with a genuinely strong hand (sets/strong two pair+)
       return sizeTo(tFrac(0.7), false, { willCommit: equity > 0.8 });
     }
-    // semi-bluff raise (heads-up only; not into a jam we can't profitably inflate)
+    // semi-bluff raise — now fires multiway too, scaled by field fold-through (a
+    // draw with backup equity can still raise 3-way on a good board, just less).
+    // Never into a jam we can't profitably inflate.
     if (
-      heads &&
       !bigBet &&
       margin > 0 &&
       equity < 0.55 &&
       la.canRaise &&
-      r() < profile.bluffFreq * 0.5 * mood * bluffTilt * blockerMult
+      r() < profile.bluffFreq * 0.5 * mood * bluffTilt * blockerMult * fieldFold * (isRiver ? riverBluffTilt : 1)
     ) {
       // commit only on a strong draw (decent equity when called); weak draws size down
       return sizeTo(tFrac(0.8), false, { willCommit: equity > 0.5 });
@@ -388,29 +483,43 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // can check or bet
   const wasAggressor = state.lastAggressor === i || state.lastAggressor === -1;
   const canSlowplay = state.street === 'flop' || state.street === 'turn';
-  // trap: occasionally check a monster to induce bluffs / keep their range in
-  if (equity > 0.85 && canSlowplay && r() < 0.3) {
+  // trap: check a monster to induce bluffs / keep their range in — board-dependent
+  // (often on dry, rarely on wet where a free card is dangerous).
+  if (equity > 0.85 && canSlowplay && r() < trapFreq) {
     return { type: 'check' };
   }
-  // value bet — only the strong end (overpair+/top-pair-strong-kicker and up) is
-  // willing to get stacks in; thin value sizes down instead of punting. Thin value
-  // keys off realised equity, so OOP bets a touch less thin than IP.
-  if (eqR > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt) {
-    return sizeTo(tFrac(equity > 0.8 ? 0.75 : 0.55), true, { willCommit: equity > 0.78 });
+  // value bet, polarized: the NUT end overbets (deep, wet/polar board) for max value
+  // and to share a size with bluffs; strong value bets big; thin value sizes down.
+  // Vs a river station, value thinner/more often (riverValueTilt).
+  if (eqR > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt * (isRiver ? riverValueTilt : 1)) {
+    const nut = equity > 0.9 && behindBB > potBB * 1.5 && wetBoard;
+    const base = nut ? 1.25 : equity > 0.8 ? 0.8 : 0.6;
+    return sizeTo(tFrac(base), true, { willCommit: equity > 0.78 });
   }
-  // continuation / barrel as the aggressor (heads-up). Flop c-bet wide; turn & river
-  // barrel less often, and only with some equity or fold equity — a bricked bluff
-  // gives up instead of auto-firing every street.
-  if (wasAggressor && heads) {
+  // continuation / barrel as the aggressor — now MULTIWAY too, scaled by field
+  // fold-through (thinning a field on a good board). Flop c-bet wide; turn/river
+  // barrel less often and only with equity or fold equity. cbetTilt exploits a hero
+  // who over/under-folds flop c-bets. Size mirrors the value bet (no size tell), or
+  // sizes up when the hero overfolds big bets (preferBigBluff).
+  if (wasAggressor) {
     const streetMult = state.street === 'flop' ? 1 : state.street === 'turn' ? 0.55 : 0.4;
     const canBarrel = state.street === 'flop' || eqR > 0.32;
-    if (canBarrel && r() < profile.cbetFreq * streetMult * mood * bluffTilt * blockerMult) {
-      return sizeTo(tFrac(0.5), true, { willCommit: equity > 0.78 });
+    if (canBarrel && r() < profile.cbetFreq * streetMult * mood * bluffTilt * blockerMult * fieldFold * cbetTilt) {
+      return sizeTo(tFrac(preferBigBluff ? Math.min(1.1, polarBase + 0.25) : polarBase), true, { willCommit: equity > 0.78 });
     }
   }
-  // pure bluff (heads-up only — bluffing into a field is -EV)
-  if (heads && equity < 0.4 && r() < profile.bluffFreq * 0.5 * mood * bluffTilt * blockerMult) {
-    return sizeTo(tFrac(0.6), true);
+  // pure bluff — fires multiway only on a DRY board (fold equity survives a field
+  // only when nobody likely connected), scaled hard by field fold-through. Killed
+  // vs a river station (riverBluffTilt), thinned vs a hero who calls small bets
+  // (bluffSmallTilt), and sized up vs one who overfolds big (preferBigBluff).
+  const smallBluff = !wetBoard && !preferBigBluff;
+  if (
+    (heads || !wetBoard) &&
+    equity < 0.4 &&
+    r() < profile.bluffFreq * 0.5 * mood * bluffTilt * blockerMult * fieldFold *
+      (isRiver ? riverBluffTilt : 1) * (smallBluff ? bluffSmallTilt : 1)
+  ) {
+    return sizeTo(tFrac(preferBigBluff ? Math.min(1.1, polarBase + 0.25) : polarBase), true);
   }
   return { type: 'check' };
 }
@@ -426,7 +535,7 @@ function boardSizeMult(board: Card[]): number {
 }
 
 /** True if the hero is last to act postflop among the live players (in position). */
-function inPositionPostflop(state: GameState, seat: number): boolean {
+export function inPositionPostflop(state: GameState, seat: number): boolean {
   const n = state.players.length;
   const orderIdx = (s: number) => (s - state.buttonIndex - 1 + n) % n; // 0 = first to act, n-1 = button (last)
   const heroOrder = orderIdx(seat);

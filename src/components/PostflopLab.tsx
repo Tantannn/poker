@@ -83,7 +83,7 @@ function villainById(id: string) {
 const REF_RANGE = rangeFromSet(BB_DEFEND_RANGE);
 const RAISE_CAP = 3; // max aggressive actions per street before it's call/fold only
 
-const ACTION_ORDER: ActionId[] = ['fold', 'check', 'call', 'bet33', 'bet75', 'betpot', 'allin', 'raise', 'open'];
+const ACTION_ORDER: ActionId[] = ['fold', 'check', 'call', 'bet33', 'bet50', 'bet75', 'betpot', 'allin', 'raise', 'open'];
 const orderRank = (id: ActionId) => {
   const i = ACTION_ORDER.indexOf(id);
   return i < 0 ? 99 : i;
@@ -707,11 +707,13 @@ function SingleMode(props: {
               {actionRule(strategy.bestId, spot.board) && (
                 <div className="bsd-rule"><b>💡 Rule:</b> {actionRule(strategy.bestId, spot.board)}</div>
               )}
+              {bestOpt?.sizeNote && <div className="bsd-rule"><b>⚖ Balance:</b> {bestOpt.sizeNote}</div>}
             </div>
             {chosen !== strategy.bestId && chosenOpt && (
               <div className="lab-why-row">
                 <span className="lab-why-tag you">Your pick · {chosenOpt.label}</span>
                 {chosenOpt.why && <p>{chosenOpt.why}</p>}
+                {chosenOpt.sizeNote && <div className="bsd-rule"><b>⚖ Balance:</b> {chosenOpt.sizeNote}</div>}
               </div>
             )}
           </div>

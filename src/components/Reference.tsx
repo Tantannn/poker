@@ -17,7 +17,7 @@ const SECTIONS: { id: string; title: string }[] = [
   { id: 'texture', title: 'Board texture playbook' },
   { id: 'turn', title: 'The turn: pivot street' },
   { id: 'river', title: 'River: value, bluff, or fold' },
-  { id: 'bluffing', title: 'Bluff frequency & blockers' },
+  { id: 'bluffing', title: '🃏 How to bluff — semi-bluff, fold equity & blockers' },
   { id: 'coolers', title: 'Coolers: one pair in trouble' },
   { id: 'reverse', title: 'Reverse implied odds' },
   { id: 'shape', title: 'Range shape, capping & foundations' },
@@ -656,38 +656,131 @@ export function Reference() {
         </div>
       </Section>
 
-      <Section id="bluffing" title="Bluff frequency & blockers" open={isOpen('bluffing')} onToggle={() => toggle('bluffing')}>
+      <Section id="bluffing" title="🃏 How to bluff — semi-bluff, fold equity & blockers" open={isOpen('bluffing')} onToggle={() => toggle('bluffing')}>
+        <p className="sub">
+          A bluff makes money exactly <b>one way — folds</b>. Before you fire, clear three gates:
+          <b> fold equity</b> (will enough <i>better</i> hands actually fold?), a <b>credible story</b> (does
+          your line represent a hand that beats what you're trying to fold out?), and <b>blockers</b> (do you
+          hold cards that make their strong hands less likely?). Miss any one and a check usually beats the bet.
+        </p>
+
         <div className="two-col">
           <div>
-            <h4>How often to bluff (river, balanced)</h4>
+            <h4>Two kinds of bluff</h4>
+            <ul className="tips">
+              <li><b>Semi-bluff</b> — a draw with outs (flush/straight/overcards + backdoors). Wins <b>two
+                ways:</b> they fold now, <i>or</i> you hit later. The workhorse — bet flop/turn draws; the equity
+                is your safety net when called. <b>Keep barrelling cards that complete your draw.</b></li>
+              <li><b>Pure bluff</b> — air, no outs. Wins <b>one way:</b> folds. Needs max fold equity, good
+                blockers and a clean story. Best on the <b>river</b> (no cards to come) with <i>missed draws</i>
+                — they have zero showdown value, so checking wins nothing anyway.</li>
+            </ul>
             <p className="sub">
-              <b>bluff% = bet ÷ (pot + 2 × bet)</b>. Bigger bets allow more bluffs:
+              Hook: <b>with outs, bet to win two ways; without outs, bet only when they'll fold.</b>
             </p>
-            <table>
-              <thead><tr><th>Bet size</th><th>Bluff %</th></tr></thead>
-              <tbody>
-                <tr><td>⅓ pot</td><td className="num">20%</td></tr>
-                <tr><td>½ pot</td><td className="num">25%</td></tr>
-                <tr><td>¾ pot</td><td className="num">30%</td></tr>
-                <tr><td>Pot</td><td className="num">33%</td></tr>
-                <tr><td>1.5× pot</td><td className="num">38%</td></tr>
-                <tr><td>2× pot</td><td className="num">40%</td></tr>
-              </tbody>
-            </table>
           </div>
           <div>
-            <h4>Combos &amp; blockers</h4>
+            <h4>Fold equity — will THIS bluff profit? (exploitative)</h4>
+            <p className="sub">
+              Risk the bet to win the pot, so a bluff of size <i>s</i>×pot needs villain to fold at least
+              <b> s ÷ (1 + s)</b>:
+            </p>
+            <table>
+              <thead><tr><th>Bet size</th><th>Villain must fold ≥</th></tr></thead>
+              <tbody>
+                <tr><td>⅓ pot</td><td className="num">25%</td></tr>
+                <tr><td>½ pot</td><td className="num">33%</td></tr>
+                <tr><td>¾ pot</td><td className="num">43%</td></tr>
+                <tr><td>Pot</td><td className="num">50%</td></tr>
+                <tr><td>2× pot</td><td className="num">67%</td></tr>
+              </tbody>
+            </table>
+            <p className="sub">
+              Hook: <b>bigger bluff → more folds required.</b> If you can't name why they'd fold that often,
+              don't fire.
+            </p>
+          </div>
+        </div>
+
+        <div className="two-col">
+          <div>
+            <h4>Board &amp; range fit — the story</h4>
             <ul className="tips">
-              <li><b>6</b> combos per pocket pair · <b>16</b> per unpaired hand (<b>4</b> suited + <b>12</b> offsuit).</li>
-              <li><b>Good bluff blockers:</b> hold a card that kills their value — the A♠ on a spade board
-                (blocks the nut flush), a straight card, top-pair kicker.</li>
-              <li><b>Unblock their folds:</b> the best bluff cards don't block the hands villain folds. Missed
-                draws still make prime bluffs — they have zero showdown value, so checking wins nothing anyway.</li>
-              <li><b>Read by elimination:</b> put them on a <i>range</i>, then remove hands their line rules out
-                — never one specific hand.</li>
+              <li><b>Bluff boards that hit YOUR range, not theirs.</b> As the preflop raiser you hold more big
+                cards — high/ace boards let you credibly rep the nuts.</li>
+              <li><b>Barrel scare cards</b> that complete draws <i>you'd</i> have and miss their calling range
+                (an A or a flush-completing card on the turn/river).</li>
+              <li><b>Attack capped ranges</b> — a line that can't hold the nuts (flat preflop, checked the flop)
+                folds to pressure. Overbet the hands they can't have.</li>
+              <li><b>Don't bluff into a board that smashed them</b> — low connected boards vs a BB caller are
+                <i>their</i> range, not yours.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>When NOT to bluff <span className="sub">(the biggest leak)</span></h4>
+            <ul className="tips">
+              <li><b>Multiway.</b> Someone almost always has a piece, so fold equity collapses — bluff
+                <b> heads-up, never into a field.</b> (Bottom pair 3-way is a check, not a bluff, even if a
+                model shows a razor-thin edge.)</li>
+              <li><b>Calling stations.</b> They don't fold — <b>value bet them, never bluff.</b></li>
+              <li><b>No fold equity / low SPR.</b> A pot-committed villain can't be folded out; a bet just
+                bloats a pot you'll have to show down.</li>
+              <li><b>You block their folds.</b> Holding a card in their <i>folding</i> range is backwards — you
+                want to block their <b>continues</b> (their value), and <b>unblock</b> the junk they'd fold.</li>
+              <li><b>Your line makes no sense.</b> If you can't name the value hand you're repping, they'll call.</li>
             </ul>
           </div>
         </div>
+
+        <div className="note-block">
+          <h4>Combos &amp; blockers — picking the right air</h4>
+          <div className="two-col">
+            <div>
+              <ul className="tips">
+                <li><b>6</b> combos per pocket pair · <b>16</b> per unpaired hand (<b>4</b> suited + <b>12</b> offsuit).</li>
+                <li><b>Good bluff blockers:</b> hold a card that kills their value — the <b>A♠ on a spade board</b>
+                  (blocks the nut flush), a straight-completing card, a top-pair kicker.</li>
+              </ul>
+            </div>
+            <div>
+              <ul className="tips">
+                <li><b>Unblock their folds:</b> the best bluff cards <i>don't</i> block the hands villain folds.
+                  Missed draws make prime bluffs — zero showdown value, so a check gains nothing.</li>
+                <li><b>Read by elimination:</b> put them on a <i>range</i>, then remove the hands their line rules
+                  out — never one specific hand.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="note-block">
+          <h4>How many bluffs to <i>have</i> — balancing your betting range (GTO)</h4>
+          <p className="sub">
+            Separate question from "will this one profit". To stay unexploitable, a river bet of size <i>s</i>
+            should be <b>bet ÷ (pot + 2 × bet)</b> bluffs — the frequency that makes a bluff-catcher exactly
+            indifferent to calling. Bigger bets carry <b>more</b> bluffs:
+          </p>
+          <table>
+            <thead><tr><th>Bet size</th><th>Bluff share</th><th>Value : bluff</th></tr></thead>
+            <tbody>
+              <tr><td>⅓ pot</td><td className="num">20%</td><td className="num">4 : 1</td></tr>
+              <tr><td>½ pot</td><td className="num">25%</td><td className="num">3 : 1</td></tr>
+              <tr><td>¾ pot</td><td className="num">30%</td><td className="num">2.3 : 1</td></tr>
+              <tr><td>Pot</td><td className="num">33%</td><td className="num">2 : 1</td></tr>
+              <tr><td>2× pot</td><td className="num">40%</td><td className="num">1.5 : 1</td></tr>
+            </tbody>
+          </table>
+          <p className="sub">
+            <b>Match sizes:</b> bluff the same size you value-bet — different sizes for value vs bluff is a tell.
+            <b> Exploit note:</b> live low/mid-stakes players <b>under-bluff</b>, so overfold vs their big bets and
+            bluff <i>them</i> a little less (they also under-fold).
+          </p>
+        </div>
+
+        <p className="sub">
+          Bottom line: <b>semi-bluff with equity as your net; pure-bluff only when the fold% and the blockers
+          both line up; multiway or vs a station, just check.</b>
+        </p>
       </Section>
 
       <Section id="coolers" title="Coolers: when one pair is in trouble" open={isOpen('coolers')} onToggle={() => toggle('coolers')}>

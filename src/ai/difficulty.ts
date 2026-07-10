@@ -62,7 +62,12 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
 
 export const DIFFICULTY_LIST = Object.values(DIFFICULTIES);
 
-/** Running tally of how the hero plays, so hard/extreme bots can exploit it. */
+/** Running tally of how the hero plays, so hard/extreme bots can exploit it.
+ *  Beyond the coarse fold-to-bet, the granular buckets let a bot read the hero
+ *  by SIZE (overfolds big? sticky vs small?), by STREET/BOARD (folds flop c-bets?),
+ *  by SHOWDOWN (river station?), and by POSITION (passive out of position?) — so it
+ *  can counter-exploit specific leaks instead of one blunt tendency. Each bucket
+ *  carries its own denominator so a read only fires once it has a real sample. */
 export interface HeroReads {
   decisions: number;
   preflopActions: number;
@@ -71,6 +76,20 @@ export interface HeroReads {
   passiveActions: number; // calls (any street)
   betsFaced: number; // decisions where the hero faced a bet
   foldToBet: number; // folds when facing a bet
+  // --- SIZE-specific fold-to-bet (postflop) ---
+  bigBetsFaced: number; // faced a bet ≥ ~⅔ pot
+  foldToBig: number;
+  smallBetsFaced: number; // faced a bet < ~⅔ pot
+  foldToSmall: number;
+  // --- STREET/BOARD: flop c-bet defence (highest-frequency spot) ---
+  flopBetsFaced: number;
+  foldToFlopBet: number;
+  // --- SHOWDOWN: river calling (station read) ---
+  riverBetsFaced: number;
+  riverCalls: number;
+  // --- POSITION: how passive the hero is out of position postflop ---
+  oopActions: number;
+  oopPassive: number; // checked or folded while OOP
 }
 
 export function emptyReads(): HeroReads {
@@ -82,5 +101,15 @@ export function emptyReads(): HeroReads {
     passiveActions: 0,
     betsFaced: 0,
     foldToBet: 0,
+    bigBetsFaced: 0,
+    foldToBig: 0,
+    smallBetsFaced: 0,
+    foldToSmall: 0,
+    flopBetsFaced: 0,
+    foldToFlopBet: 0,
+    riverBetsFaced: 0,
+    riverCalls: 0,
+    oopActions: 0,
+    oopPassive: 0,
   };
 }

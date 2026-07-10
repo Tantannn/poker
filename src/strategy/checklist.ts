@@ -10,6 +10,7 @@
 import type { Card } from '../engine/cards';
 import { boardWetness } from '../engine/board';
 import { classifyHandClass } from './handClass';
+import { requiredEquityForBet } from '../engine/potOdds';
 
 export type HeroCategory = 'value' | 'marginal' | 'draw' | 'air';
 export type Street = 'flop' | 'turn' | 'river';
@@ -123,19 +124,21 @@ const sprBucket = (spr: number): SprBucket => (spr > 0 && spr <= 1 ? 'committed'
 const sprBinds = (spr: number | undefined): boolean => spr != null && spr > 0 && (spr <= 1 || spr > 4);
 
 // Pot-fraction sizing bands — one source of truth with SizingCheatSheet.
-export type SizeId = 'small' | 'half' | 'big' | 'over' | 'jam';
+export type SizeId = 'small' | 'half' | 'big' | 'pot' | 'over' | 'jam';
 export const SIZE_OPTIONS: ChecklistOption[] = [
   { id: 'small', label: '25–33% pot — small / range bet' },
   { id: 'half', label: '~50% pot — medium' },
   { id: 'big', label: '66–75% pot — large / polar' },
-  { id: 'over', label: 'Overbet (125%+) — very polar, nut edge' },
+  { id: 'pot', label: '~pot-sized (85–125%) — very polar' },
+  { id: 'over', label: 'Overbet (125%+) — max polar, nut edge' },
   { id: 'jam', label: 'All-in / jam' },
 ];
-const SIZE_ORDER: SizeId[] = ['small', 'half', 'big', 'over', 'jam'];
+const SIZE_ORDER: SizeId[] = ['small', 'half', 'big', 'pot', 'over', 'jam'];
 const SIZE_WORD: Record<SizeId, string> = {
   small: 'small, ~⅓ pot',
   half: 'about half pot',
   big: 'large, ⅔–¾ pot',
+  pot: 'about pot-sized',
   over: 'an overbet',
   jam: 'a jam',
 };
@@ -187,6 +190,7 @@ export function turnImpact(board: Card[]): 'brick' | 'draw' | 'pair' | 'over' {
 /** Which pot-fraction the real bet actually is (jam handled separately by SPR). */
 function fractionBucket(frac: number): SizeId {
   if (frac >= 1.25) return 'over';
+  if (frac >= 0.85) return 'pot';
   if (frac >= 0.6) return 'big';
   if (frac >= 0.42) return 'half';
   return 'small';
@@ -386,10 +390,23 @@ export function gradeChecklist(
           ? ' Your bet runs bigger than that — consider sizing down.'
           : ' Your bet runs smaller than that — consider sizing up.';
     }
+    // range-balance consequence of the size: on the river the value:bluff ratio, on
+    // earlier streets the opponent's minimum-defence frequency (no clean bluff% yet).
+    // Skipped when committed (a jam isn't a balance choice).
+    let balance = '';
+    if (!committed && frac > 0) {
+      if (street === 'river') {
+        const b = requiredEquityForBet(frac);
+        const r = (1 - b) / Math.max(0.001, b);
+        balance = ` ⚖ This size wants ~${Math.round(b * 100)}% bluffs (≈ ${r.toFixed(1)}:1 value:bluff).`;
+      } else {
+        balance = ` ⚖ It makes villain defend ~${Math.round(100 / (1 + frac))}% (MDF).`;
+      }
+    }
     grades.push({
       questionId: 'size',
       ok,
-      note: `${real} ${sizeCoach(target, street)}${nudge}`,
+      note: `${real} ${sizeCoach(target, street)}${nudge}${balance}`,
     });
   }
 

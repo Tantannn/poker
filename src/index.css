@@ -611,6 +611,7 @@ ul.tips li { margin: 6px 0; }
 .neg { color: var(--red); }
 .gold { color: var(--gold); }
 .good { color: var(--raise); }
+.okv { color: var(--gold); }
 .bad { color: var(--red); }
 kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 11px; }
 
@@ -739,8 +740,10 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .lab-tag { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
 .lab-cards { display: flex; gap: 6px; }
 .lab-eq { margin-left: auto; text-align: center; }
+.strat-balance { font-size: 11px; color: var(--muted); margin-top: 2px; opacity: 0.9; }
 .lab-rng { background: var(--chip); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 14px; }
 .lab-rng b { color: var(--gold); }
+.lab-math { margin: 8px 0 0; padding: 8px 10px; background: var(--chip); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-x: auto; color: var(--muted); }
 .lab-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .lab-act { position: relative; overflow: hidden; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 4px; color: var(--txt); }
 .lab-act:hover { border-color: var(--raise2); }

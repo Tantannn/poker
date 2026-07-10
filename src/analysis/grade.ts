@@ -128,7 +128,19 @@ export function gradeNode(
   const chosenEv = evOf(strategy, chosen);
   const prescribed = rngPrescription(strategy, roll);
 
-  const verdict: Verdict = moveTier(loss, chosenEv);
+  let verdict: Verdict = moveTier(loss, chosenEv);
+  // Preflop CHART EVs are relative estimates, NOT solved — so a tiny EV gap can hide
+  // a real leak. Grade chart deviations by FREQUENCY instead: taking an action the
+  // chart almost never plays (e.g. folding AJo when it's a pure ~100% call) is at
+  // least an inaccuracy, never "✓ Correct — sound line". Legit MIXED spots are spared
+  // (folding a 40%-fold hand stays fine) because the chosen action still has weight.
+  if (strategy.source === 'preflop-chart' && chosen !== strategy.bestId) {
+    const chosenFreq = strategy.options.find((o) => o.id === chosen)?.freq ?? 0;
+    const bestFreq = strategy.options.find((o) => o.id === strategy.bestId)?.freq ?? 0;
+    if (chosenFreq < 0.15 && bestFreq >= 0.6 && (verdict === 'best' || verdict === 'correct')) {
+      verdict = 'inaccuracy';
+    }
+  }
 
   const headline = HEADLINE[verdict](loss);
 

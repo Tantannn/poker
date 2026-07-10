@@ -31,6 +31,10 @@ export function actionRule(id: ActionId, board: Card[]): string {
       return wet
         ? 'Range/merge bet — too connected to deny much, so bet your whole range cheaply and keep worse hands in. 💡 Bet small to bet often.'
         : 'Dry, static board / range advantage — bet small, bet often. 💡 Dry board → small.';
+    case 'bet50':
+      return wet
+        ? 'Half-pot on a semi-wet board — one draw axis to charge; a medium size denies equity without bloating. 💡 Semi-wet → half.'
+        : 'Half-pot merge — a decent (not nutted) value hand: get called by worse without committing the pot. 💡 Medium hand → half.';
     case 'bet75':
       return wet
         ? 'Wet, dynamic board — charge their draws and build the pot. 💡 Wet board → big.'

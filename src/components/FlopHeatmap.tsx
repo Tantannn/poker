@@ -51,6 +51,7 @@ const BUCKETS: { name: string; flops: [string, string, string][] }[] = [
 const ACT: Record<string, { label: string; color: string }> = {
   check: { label: 'Check', color: '#6b7a72' },
   bet33: { label: '⅓', color: '#3aa0e0' },
+  bet50: { label: '½', color: '#5bb8a0' },
   bet75: { label: '¾', color: '#e7c873' },
   betpot: { label: 'Pot', color: '#2ec27e' },
   allin: { label: 'Jam', color: '#e0573a' },
