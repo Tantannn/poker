@@ -105,6 +105,11 @@ export interface PersistSettings {
   seatDiffs?: string[];
   /** hide bot archetypes — hero builds reads from observed stats and guesses. */
   anonymousVillains?: boolean;
+  /** bias the hero's dealt hole cards toward mixed/edge preflop hands. */
+  edgeFocus?: boolean;
+  /** cash only: when any seat busts to 0, the next deal starts fresh equal
+   *  stacks instead of rebuying — keeps a focused drill table even. */
+  autoResetOnBust?: boolean;
   tableSize?: number;
   /** legacy single-mode flag — kept for back-compat reads; `activeMode` supersedes it. */
   tournament?: boolean;

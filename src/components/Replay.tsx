@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import type { useGame } from '../hooks/useGame';
+import type { Card } from '../engine/cards';
 import { rangeFromSet } from '../engine/range';
 import { RFI_RANGES, handCode } from '../ai/preflop';
 import { classifyHandClass } from '../strategy/handClass';
@@ -15,8 +16,10 @@ import { equityVsRange, countOuts, ruleOf2and4 } from '../engine/equity';
 import type { NodeStrategy } from '../strategy/types';
 import type { DecisionSnapshot, HistoryHand } from '../store/history';
 import { moveTier, type MoveTier } from '../store/stats';
+import { buildSizingCoach } from '../analysis/grade';
 import { PlayingCard } from './PlayingCard';
 import { RangeChartModal } from './RangeChartModal';
+import { ReasonList } from './ReasonList';
 
 const KIND_COLOR: Record<string, string> = {
   value: '#2ec27e', bluff: '#e0843a', passive: '#3aa0e0', call: '#3aa0e0', fold: '#7a8a80', aggressive: '#2ec27e',
@@ -91,12 +94,19 @@ const TIER_TEXT: Record<MoveTier, { label: string; cls: string; gloss: string }>
 
 /** Deep-dive on a single decision: pot-odds math, equity vs price, EV cost over
  *  a sample, and a concept hook. Renders as a collapsible under the decision. */
-function DecisionDeepDive({ d, bigBlind }: { d: DecisionSnapshot; bigBlind: number }) {
+function DecisionDeepDive({ d, bigBlind, heroCards, board }: { d: DecisionSnapshot; bigBlind: number; heroCards: Card[]; board: Card[] }) {
   const req = d.toCall > 0 ? d.toCall / (d.pot + d.toCall) : null;
   const bestOpt = d.options.find((o) => o.id === d.bestId);
   const chosenOpt = d.options.find((o) => o.id === d.chosenId);
   const tier = TIER_TEXT[moveTier(d.evLoss, chosenOpt?.ev ?? 0)];
   const ahead = req != null && d.equity != null ? d.equity >= req : null;
+  // Reuse the live oversizing coach so Hand Review teaches the same sizing lesson
+  // (size follows hand strength, not the board; the size-up test). Fires only when
+  // this decision was bigger than the solver's best line and cost EV. Opponent
+  // count + equity-when-called come from the snapshot; hands captured before those
+  // fields fall back to heads-up (no multiway caution) / the generic wording.
+  const handLabel = heroCards.length === 2 ? classifyHandClass(heroCards, board.slice(0, d.boardLen)).label : undefined;
+  const sizingCoach = buildSizingCoach(snapToStrategy(d, ''), d.chosenId, d.evLoss, d.opponents ?? 1, handLabel);
 
   return (
     <details className="rv-deep">
@@ -148,6 +158,13 @@ function DecisionDeepDive({ d, bigBlind }: { d: DecisionSnapshot; bigBlind: numb
               This is a mixed spot — more than one action is correct at some frequency. The RNG roll picked this
               branch, and you followed it, so it's graded as correct even if a different action also scores well.
             </p>
+          </div>
+        )}
+
+        {sizingCoach && (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">Sizing</div>
+            <div className="gp-muted"><ReasonList text={sizingCoach} /></div>
           </div>
         )}
 
@@ -490,7 +507,7 @@ export function Replay({ g }: { g: G }) {
                   )}
                 </div>
 
-                <DecisionDeepDive d={d} bigBlind={hand.bigBlind} />
+                <DecisionDeepDive d={d} bigBlind={hand.bigBlind} heroCards={hand.heroCards} board={hand.board} />
               </div>
             );
           })
@@ -525,7 +542,7 @@ export function Replay({ g }: { g: G }) {
           </div>
           <div className="gp-block">
             <div className="gp-h">Your hand: {analysis.hand.label}</div>
-            <p>{analysis.hand.blurb}</p>
+            <div className="gp-hand-blurb"><ReasonList text={analysis.hand.blurb} /></div>
           </div>
 
           {outsInfo && (

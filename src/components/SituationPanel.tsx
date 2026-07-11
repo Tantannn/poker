@@ -8,6 +8,7 @@ import type { VillainInfo } from '../hooks/useGame';
 import { describeTexture, boardWetness } from '../engine/board';
 import { classifyHandClass } from '../strategy/handClass';
 import { SizingCheatSheet } from './SizingCheatSheet';
+import { ReasonList } from './ReasonList';
 
 const BOARD_TYPE: Record<'dry' | 'semi' | 'wet', string> = { dry: 'Dry', semi: 'Semi-wet', wet: 'Wet' };
 
@@ -51,7 +52,16 @@ function usualPlay(
 
   // 3) flop / turn — strength × texture
   if (strength >= 4) return { action: `Bet for value${mw ? ' (size up)' : ''} — ${size}.`, why: mw ? `${opponents + 1}-way: size up, need more equity to value-bet, protect vs the field.` : ip ? 'In position — you may also check back to trap.' : 'Out of position — bet now, you realize less equity.' };
-  if (strength === 3) return { action: wet === 'wet' ? `Semi-bluff big (${size}) or check-call.` : `Bet ${size} or check for a free card.`, why: 'A draw / decent hand — pressure on wet boards, realize cheaply on dry.' };
+  if (strength === 3)
+    return {
+      action: wet === 'wet' ? `Semi-bluff (${size}) or check-call.` : `Bet ${size} or take a free card.`,
+      why:
+        `Strong draw — bet as a SEMI-BLUFF, not for showdown:` +
+        ` • Two ways to win — fold equity now (worse hands / air give up), plus real equity when called (your outs; rarely drawing dead).` +
+        ` • Builds the pot for when you hit.` +
+        ` • Denies a free card to his overcards/draws.` +
+        (ip ? ` • In position you can also check back to realize cheaply and keep his range wide.` : ` • Out of position, betting seizes initiative — check and he controls the pot, sees free cards, and barrels the scary runouts.`),
+    };
   if (strength === 2) return { action: 'Check — pot control / bluff-catch.', why: 'Medium made hand; keep the pot small.' };
   return { action: 'Check or give up.', why: 'Weak / air — bluff only with blockers + a plan.' };
 }
@@ -151,7 +161,7 @@ export function SituationPanel({ board, heroCards, street, active, villain, oppo
         <div className="sit-block sit-play">
           <div className="sit-h">💡 Usual play</div>
           <p className="sit-play-action">{play.action}</p>
-          <p className="sit-muted">{play.why}</p>
+          <div className="sit-muted"><ReasonList text={play.why} /></div>
         </div>
       )}
 
@@ -183,7 +193,7 @@ export function SituationPanel({ board, heroCards, street, active, villain, oppo
 
       <div className="sit-block">
         <div className="sit-h">Your hand: {hand.label}</div>
-        <p>{hand.blurb}</p>
+        <div className="sit-blurb"><ReasonList text={hand.blurb} /></div>
       </div>
 
       {fe && (

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  biasHoleCards,
   createGame,
   startHand,
   liveSeatCount,
@@ -8,6 +9,8 @@ import {
   handsToNextLevel,
   TOURNEY_HANDS_PER_LEVEL,
 } from './table';
+import { cardId, makeDeck, parseCard } from './cards';
+import { handCode } from '../ai/preflop';
 
 const PROFILES = ['tag', 'tag', 'tag', 'tag', 'tag'];
 
@@ -48,6 +51,60 @@ describe('createGame', () => {
     expect(g.handNumber).toBe(0);
     expect(g.tournament).toBe(true);
     expect(new Set(g.players.map((p) => p.stack))).toEqual(new Set([200])); // 100bb × 2
+  });
+});
+
+describe('biasHoleCards — focus borderline hands', () => {
+  // A borderline hand class covering a pair, a suited hand, and an offsuit hand.
+  // None use ranks 2 or 3, so a villain holding 2c/3d never blocks them and
+  // placement is deterministic (biasHoleCards no-ops only if the exact cards are
+  // already dealt — a best-effort fallback that random deals can trigger).
+  const CODES = ['77', 'AJs', 'K9o', 'T9s', 'A5o', 'QQ', '54s'];
+
+  // A controlled heads-up state: hero + one villain whose cards can't block the
+  // test codes, deck = the remaining 48. Avoids the flakiness of a random deal.
+  const controlled = () => {
+    const g = createGame(2, 100, 2, ['tag'], false);
+    g.players[0].holeCards = [parseCard('Ah'), parseCard('Kd')];
+    g.players[1].holeCards = [parseCard('2c'), parseCard('3d')];
+    const out = new Set([...g.players[0].holeCards, ...g.players[1].holeCards].map(cardId));
+    g.deck = makeDeck().filter((c) => !out.has(cardId(c)));
+    return g;
+  };
+
+  it('gives the hero the requested hand class and keeps the deck valid', () => {
+    for (const code of CODES) {
+      const g = controlled();
+      biasHoleCards(g, 0, code);
+      // hero holds exactly the requested class
+      expect(g.players[0].holeCards).toHaveLength(2);
+      expect(handCode(g.players[0].holeCards)).toBe(code);
+      // deck + every hole card together form the full 52-card deck, no duplicates
+      const all = [...g.deck, ...g.players.flatMap((p) => p.holeCards)];
+      const ids = all.map(cardId);
+      expect(ids).toHaveLength(52);
+      expect(new Set(ids).size).toBe(52);
+    }
+  });
+
+  it('never collides the hero hand with another seat or the board', () => {
+    const g = dealHandNumber(1, false);
+    biasHoleCards(g, 0, 'AKs');
+    const heroIds = new Set(g.players[0].holeCards.map(cardId));
+    // no other seat holds a hero card, and the deck (future board) is disjoint too
+    for (let i = 1; i < g.players.length; i++) {
+      for (const c of g.players[i].holeCards) expect(heroIds.has(cardId(c))).toBe(false);
+    }
+    for (const c of g.deck) expect(heroIds.has(cardId(c))).toBe(false);
+  });
+
+  it('is a no-op when the hero has no cards (folded/sitting out)', () => {
+    const g = dealHandNumber(1, false);
+    g.players[0].holeCards = [];
+    const deckLen = g.deck.length;
+    biasHoleCards(g, 0, 'AA');
+    expect(g.players[0].holeCards).toHaveLength(0);
+    expect(g.deck).toHaveLength(deckLen);
   });
 });
 

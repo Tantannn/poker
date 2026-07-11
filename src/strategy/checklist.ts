@@ -148,6 +148,15 @@ const SIZE_WORD: Record<SizeId, string> = {
 const DRAW_LABEL =
   /^(Combo Draw|Nut Flush Draw|Flush Draw|Open-Ended Straight Draw|Gutshot Straight Draw|Two Overcards)/;
 
+// A STRONG draw (flush draw or open-ender, ≈8-9+ outs) anywhere in the label —
+// whether the hand is a pure draw ("Nut Flush Draw") or a made hand carrying one
+// ("Bottom Pair + Flush Draw", "Top Pair, Weak Kicker + Open-Ender"). Gutshots
+// are excluded — too thin to reclassify a made hand as a semi-bluff. When true
+// pre-river, betting is a legitimate semi-bluff regardless of the made-hand
+// bucket, so the purpose/category grading accepts it.
+const STRONG_DRAW = /(Combo Draw|Flush Draw|Open-End)/;
+const hasStrongDraw = (label: string): boolean => STRONG_DRAW.test(label);
+
 /** Which street this board is on. Postflop only — 3 cards = flop … 5 = river. */
 export function streetOf(board: Card[]): Street {
   return board.length >= 5 ? 'river' : board.length === 4 ? 'turn' : 'flop';
@@ -319,9 +328,13 @@ export function gradeChecklist(
   const river = street === 'river';
   const grades: ChecklistGrade[] = [];
 
+  // A made hand carrying a live (pre-river) strong draw plays as a semi-bluff, so
+  // reading it as "draw" is correct even though its strength buckets it as a made
+  // hand — accept either. The blurb already spells out the semi-bluff logic.
+  const semiBluff = !river && hasStrongDraw(hc.label);
   grades.push({
     questionId: 'category',
-    ok: answers.category === cat,
+    ok: answers.category === cat || (semiBluff && answers.category === 'draw'),
     note: `You hold ${hc.label} — ${CATEGORY_WORD[cat]}. ${hc.blurb}`,
   });
 
@@ -354,10 +367,22 @@ export function gradeChecklist(
     });
   }
 
+  // Purpose: a live strong draw makes "semi-bluff" a valid reason to bet on top
+  // of the made-hand bucket's usual purposes — the draw, not thin value, is why
+  // you fire. This keeps the gate consistent with the semi-bluff read the hand
+  // class / situation panel now give.
+  const purposeOk =
+    (river ? PURPOSE_OK_RIVER : PURPOSE_OK)[cat].includes(answers.purpose ?? '') ||
+    (semiBluff && answers.purpose === 'semibluff');
   grades.push({
     questionId: 'purpose',
-    ok: (river ? PURPOSE_OK_RIVER : PURPOSE_OK)[cat].includes(answers.purpose ?? ''),
-    note: (river ? PURPOSE_COACH_RIVER : PURPOSE_COACH)[cat],
+    ok: purposeOk,
+    note: semiBluff
+      ? `You also hold a strong draw, so betting is a SEMI-BLUFF:` +
+        ` • Fold equity now — worse hands give up.` +
+        ` • Outs when called — that, not thin value, is the reason to bet.` +
+        ` • Builds the pot for when you hit, and denies a free card.`
+      : (river ? PURPOSE_COACH_RIVER : PURPOSE_COACH)[cat],
   });
 
   if (size && answers.spr != null) {

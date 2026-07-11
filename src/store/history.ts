@@ -17,6 +17,9 @@ export interface SnapOption {
   kind?: string;
   amount?: number;
   sizePct?: number;
+  /** hero's equity WHEN CALLED (0..1) for a bet/raise — drives the oversizing
+   *  coach's "equity-when-called drops X → Y" line in Hand Review. */
+  calledEq?: number;
 }
 
 export interface DecisionSnapshot {
@@ -37,6 +40,10 @@ export interface DecisionSnapshot {
   note: string;
   rangeNote?: string;
   options: SnapOption[];
+  /** live opponents (not folded, excluding hero) when the hero acted — drives the
+   *  multiway caution in Hand Review's sizing coach. Optional: hands captured
+   *  before this field default to heads-up (1) in review. */
+  opponents?: number;
   /** serialized villain WeightedRange (Map) for the range chart. */
   villainRange: [string, number][];
 }

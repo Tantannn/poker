@@ -3,7 +3,7 @@
 // the React layer clones state before applying so reducers stay pure.
 
 import type { Card } from './cards';
-import { makeDeck, shuffle } from './cards';
+import { cardId, charToRank, makeDeck, shuffle } from './cards';
 import { evaluate7, describeHand } from './evaluator';
 
 export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
@@ -362,6 +362,65 @@ function postAnte(state: GameState, idx: number) {
   p.stack -= amt;
   p.totalCommitted += amt;
   if (p.stack === 0) p.allIn = true;
+}
+
+// Concrete cards for a 169 code (e.g. "AJs", "77", "K9o"), picking suits that
+// don't collide with `used` card ids. Returns null if the code can't be placed
+// (all needed suits already dealt) — essentially never, with only hole cards out.
+function concreteCardsForCode(code: string, used: Set<number>, rng: () => number): [Card, Card] | null {
+  const suits = [0, 1, 2, 3];
+  const free = (rank: number) => suits.filter((s) => !used.has(cardId({ rank, suit: s })));
+  const pick = (a: number[]) => a[Math.floor(rng() * a.length)];
+  if (code.length === 2) {
+    // pair — two distinct free suits of the same rank
+    const r = charToRank(code[0]);
+    const f = free(r);
+    if (f.length < 2) return null;
+    const s1 = pick(f);
+    const s2 = pick(f.filter((s) => s !== s1));
+    return [{ rank: r, suit: s1 }, { rank: r, suit: s2 }];
+  }
+  const hi = charToRank(code[0]);
+  const lo = charToRank(code[1]);
+  if (code[2] === 's') {
+    // suited — one suit where BOTH ranks are free
+    const f = suits.filter((s) => !used.has(cardId({ rank: hi, suit: s })) && !used.has(cardId({ rank: lo, suit: s })));
+    if (!f.length) return null;
+    const s = pick(f);
+    return [{ rank: hi, suit: s }, { rank: lo, suit: s }];
+  }
+  // offsuit — different free suits for hi and lo
+  const hiFree = free(hi);
+  const loFree = free(lo);
+  for (const sh of hiFree) {
+    const loOpts = loFree.filter((s) => s !== sh);
+    if (loOpts.length) return [{ rank: hi, suit: sh }, { rank: lo, suit: pick(loOpts) }];
+  }
+  return null;
+}
+
+// Swap the hero's freshly-dealt hole cards for a hand matching `code` (a 169
+// hand class), keeping the deck valid: the target cards leave the deck and the
+// hero's old cards return to it, then it's re-shuffled so the board draw stays
+// fair. Call AFTER startHand, before any board is dealt. No-op if the hero has
+// no cards (folded/busted) or the code can't be placed without a collision.
+export function biasHoleCards(state: GameState, heroIdx: number, code: string, rng: () => number = Math.random): void {
+  const hero = state.players[heroIdx];
+  if (hero.holeCards.length !== 2) return;
+  // cards already committed to other seats' hole cards (the board isn't dealt yet)
+  const used = new Set<number>();
+  state.players.forEach((p, i) => {
+    if (i !== heroIdx) p.holeCards.forEach((c) => used.add(cardId(c)));
+  });
+  const target = concreteCardsForCode(code, used, rng);
+  if (!target) return;
+  const targetIds = new Set([cardId(target[0]), cardId(target[1])]);
+  const oldHole = hero.holeCards;
+  hero.holeCards = [target[0], target[1]];
+  // deck must end as (52 − all hole cards): drop the targets, return the old cards.
+  state.deck = state.deck.filter((c) => !targetIds.has(cardId(c)));
+  for (const c of oldHole) if (!targetIds.has(cardId(c))) state.deck.push(c);
+  shuffle(state.deck, rng);
 }
 
 export function potTotal(state: GameState): number {

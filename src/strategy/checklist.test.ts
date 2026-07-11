@@ -75,6 +75,26 @@ describe('gradeChecklist', () => {
     expect(grades.find((g) => g.questionId === 'purpose')?.ok).toBe(true);
   });
 
+  it('treats a made pair with a live flush draw as a semi-bluff', () => {
+    // the reported spot: bottom pair + nut flush draw on a monotone turn.
+    const h = cards('Ac 2h');
+    const b = cards('9c Tc 2c 6d');
+    // "semi-bluff" is a valid purpose even though the hand buckets as marginal…
+    const semi = gradeChecklist(h, b, null, {
+      category: 'draw', texture: 'wet', turn: 'brick', purpose: 'semibluff', plan: 'call',
+    });
+    expect(semi.grades.find((g) => g.questionId === 'purpose')?.ok).toBe(true);
+    // …and reading it as a "draw" is accepted too (the draw drives the bet).
+    expect(semi.grades.find((g) => g.questionId === 'category')?.ok).toBe(true);
+
+    // control: the SAME pair with no draw (A♦ not A♣) — semi-bluff is now wrong.
+    const dry = gradeChecklist(cards('Ad 2h'), b, null, {
+      category: 'draw', texture: 'wet', turn: 'brick', purpose: 'semibluff', plan: 'call',
+    });
+    expect(dry.grades.find((g) => g.questionId === 'purpose')?.ok).toBe(false);
+    expect(dry.grades.find((g) => g.questionId === 'category')?.ok).toBe(false);
+  });
+
   it('gives boundary credit on a near-miss equity bucket', () => {
     const near = gradeChecklist(hero, board, 0.62, {
       category: 'value', texture: 'dry', equity: 'b4560', purpose: 'value', plan: 'call',

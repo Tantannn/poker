@@ -111,6 +111,16 @@ export function ScenarioBar({ g }: { g: G }) {
           <input type="checkbox" checked={g.anonymousVillains} onChange={(e) => g.setAnonymousVillains(e.target.checked)} />
           Anonymous villains
         </label>
+        <label className="sc-check" title="Bias your dealt hole cards toward mixed / range-edge hands so more spots are close decisions. Weights the preflop spot only — the hand still plays out fully.">
+          <input type="checkbox" checked={g.edgeFocus} onChange={(e) => g.setEdgeFocus(e.target.checked)} />
+          🎯 Focus borderline hands
+        </label>
+        {!g.isTournament && (
+          <label className="sc-check" title="When any seat busts to 0, the next deal starts fresh equal stacks instead of the standard cash rebuy — keeps a drill table even.">
+            <input type="checkbox" checked={g.autoResetOnBust} onChange={(e) => g.setAutoResetOnBust(e.target.checked)} />
+            ♻ Reset on bust
+          </label>
+        )}
         <button className="sc-config-toggle" onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide opponents' : 'Configure opponents'}
         </button>

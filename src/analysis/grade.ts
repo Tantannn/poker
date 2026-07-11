@@ -72,11 +72,16 @@ const isAggro = (id: ActionId) => id.startsWith('bet') || id.startsWith('raise')
  *  and it cost EV. Surfaces the reason a big bet backfires — worse hands fold,
  *  so only stronger hands call and hero's equity-when-called drops (value-own) —
  *  plus a multiway caution. Returns undefined when it doesn't apply. */
-function buildSizingCoach(
+// One-pair made-hand labels (not two-pair+/sets) — a medium tier that sizes
+// small even on a wet board. Used to make the size lesson concrete.
+const ONE_PAIR_LABEL = /(Top Pair|Middle Pair|Bottom Pair|Pocket Pair|Pair of)/;
+
+export function buildSizingCoach(
   strategy: NodeStrategy,
   chosen: ActionId,
   loss: number,
   nOpp: number,
+  handLabel?: string,
 ): string | undefined {
   if (loss <= 0.05 || !isAggro(chosen)) return undefined;
   const chosenOpt = strategy.options.find((o) => o.id === chosen);
@@ -86,21 +91,43 @@ function buildSizingCoach(
   const bestSize = bestOpt.sizePct ?? 0; // check/call have none → treat as 0
   if (chosenSize <= bestSize) return undefined; // only coach OVER-sizing
 
-  let msg = `⚠ Too big — ${bestOpt.label} beat ${chosenOpt.label} by ${loss.toFixed(2)} bb.`;
+  // Built as " • "-delimited segments: a lead line + bullet points (rendered as
+  // a dot list in the Explain panel).
+  const bullets: string[] = [];
   if (
     chosenOpt.calledEq != null &&
     bestOpt.calledEq != null &&
     chosenOpt.calledEq < bestOpt.calledEq - 0.005
   ) {
-    msg += ` Worse hands fold to the bigger size, so only stronger hands call — your equity-when-called drops ${pctOf(bestOpt.calledEq)} → ${pctOf(chosenOpt.calledEq)}. You bet more into a range that beats you more.`;
+    bullets.push(
+      `Worse hands fold to the bigger size, so only stronger hands call — your equity-when-called drops ${pctOf(bestOpt.calledEq)} → ${pctOf(chosenOpt.calledEq)}. You bet more into a range that beats you more.`,
+    );
   } else {
-    msg += ` A bigger bet folds out the worse hands you wanted to call and gets called mostly by what beats you.`;
+    bullets.push(`A bigger bet folds out the worse hands you wanted to call and gets called mostly by what beats you.`);
   }
-  msg += ` Size to the worst hand that still calls — oversizing folds out your customers.`;
+  bullets.push(`Size to the worst hand that still calls — oversizing folds out your customers.`);
   if (nOpp > 1) {
-    msg += ` Multiway (${nOpp} opponents) someone is likelier to actually have it: size down or check with anything short of premium value.`;
+    bullets.push(
+      `Multiway (${nOpp} opponents) — someone is likelier to actually have it: size down, or check with anything short of premium value.`,
+    );
   }
-  return msg;
+
+  // The core lesson: SIZE comes from hand strength, not board wetness. A wet
+  // board is a reason to BET (charge draws), never a reason to bet big — one
+  // pair sizes small even when wet; big sizes are for the strong tier.
+  const onePair = handLabel != null && ONE_PAIR_LABEL.test(handLabel) && !/Two Pair/.test(handLabel);
+  bullets.push(
+    onePair
+      ? `Your size comes from HAND STRENGTH, not the board. ${handLabel} is one pair — a medium hand that sizes small (⅓–½ pot) even on a wet board. Big sizes (⅔–pot) are for two-pair+, sets and overpairs, where worse hands still call and you're ahead when called. A wet board means BET (charge draws), not bet big.`
+      : `Your size comes from HAND STRENGTH, not the board. A wet board is a reason to bet (charge draws) — your hand decides how big. Big sizes are for the strong tier (two-pair+, sets, overpairs); one pair sizes small even when wet.`,
+  );
+  // The reusable mental tool.
+  bullets.push(
+    `The size-up test — before betting bigger, ask: would WORSE hands still call it? Yes → big is fine (value + protection). No → you only fold worse and get called by better, so size down.`,
+  );
+
+  const lead = `⚠ Too big — ${bestOpt.label} beat ${chosenOpt.label} by ${loss.toFixed(2)} bb.`;
+  return [lead, ...bullets].join(' • ');
 }
 
 /** Build the rich gameplan context from the live state at the hero's decision. */
@@ -208,6 +235,9 @@ export function gradeNode(
   const nOpp = ctx
     ? ctx.state.players.filter((p, i) => i !== ctx.heroIdx && !p.folded).length
     : 1;
+  const handLabel = ctx
+    ? classifyHandClass(ctx.state.players[ctx.heroIdx].holeCards, ctx.state.board).label
+    : undefined;
 
   return {
     verdict,
@@ -224,7 +254,7 @@ export function gradeNode(
     equity: strategy.equity,
     headline,
     detail,
-    coach: buildSizingCoach(strategy, chosen, loss, nOpp),
+    coach: buildSizingCoach(strategy, chosen, loss, nOpp, handLabel),
     strategy,
     context: ctx ? buildFeedbackContext(ctx.state, ctx.heroIdx) : undefined,
   };

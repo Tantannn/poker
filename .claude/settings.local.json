@@ -105,7 +105,12 @@
       "Skill(run)",
       "Bash(command -v chromium-cli)",
       "Bash('/c/Program Files \\(x86\\)/Microsoft/Edge/Application/msedge.exe' --headless=new --disable-gpu --hide-scrollbars --virtual-time-budget=6000 --screenshot=C:/Users/tango/AppData/Local/Temp/claude/D--code-poker/2dcd7f81-2a4c-4ab5-98e5-26f1f90596f1/scratchpad/shot-initial.png --window-size=1400,900 http://localhost:5173)",
-      "Bash(pkill -f \"vite\")"
+      "Bash(pkill -f \"vite\")",
+      "Read(//tmp/**)",
+      "Bash(rtk diff *)",
+      "Bash(grep -v '^< *$')",
+      "Bash(echo \"TSC_DONE exit=$?\")",
+      "Bash(echo \"VITEST exit=$?\")"
     ]
   }
 }

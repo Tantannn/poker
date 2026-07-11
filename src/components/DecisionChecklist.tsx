@@ -16,6 +16,7 @@ import {
   gradeCallChecklist,
   type ChecklistGrade,
 } from '../strategy/checklist';
+import { ReasonList } from './ReasonList';
 
 interface Props {
   /** 'aggressive' gates a bet/raise; 'call' gates a defensive call. */
@@ -137,7 +138,7 @@ export function DecisionChecklist({
                   </button>
                 ))}
               </div>
-              {grade && <div className={`dc-note ${grade.ok === false ? 'bad' : ''}`}>{grade.note}</div>}
+              {grade && <div className={`dc-note ${grade.ok === false ? 'bad' : ''}`}><ReasonList text={grade.note} /></div>}
             </div>
           );
         })}

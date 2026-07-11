@@ -4,6 +4,7 @@ import { RangeChartModal } from './RangeChartModal';
 import { SizingCheatSheet } from './SizingCheatSheet';
 import { KIND_COLOR } from './chartColors';
 import { CalcLabel, GlossaryText } from './CalcTip';
+import { ReasonList } from './ReasonList';
 
 export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boolean }) {
   const [explain, setExplain] = useState(false);
@@ -80,7 +81,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
       </div>
       <div className="fb-detail"><GlossaryText text={fb.detail} /></div>
       {fb.coach && (
-        <div className="fb-coach"><GlossaryText text={fb.coach} /></div>
+        <div className="fb-coach"><ReasonList text={fb.coach} /></div>
       )}
 
       {explain && (
@@ -112,7 +113,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
 
               <div className="gp-block">
                 <div className="gp-h">Your hand: {ctx.handLabel}</div>
-                <p><GlossaryText text={ctx.handBlurb} /></p>
+                <div className="gp-hand-blurb"><ReasonList text={ctx.handBlurb} /></div>
                 {fb.equity != null && (
                   <p className="gp-muted">
                     <CalcLabel id="equity">Equity vs villain's range</CalcLabel>: <b>{(fb.equity * 100).toFixed(1)}%</b>.

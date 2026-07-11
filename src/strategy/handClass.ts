@@ -116,6 +116,51 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
     return base;
   };
 
+  // A real draw riding along with a made hand: flush draw or OESD ≈ 8–9+ outs is
+  // "strong" (upgrades the hand to a semi-bluff); a gutshot is thin backup equity.
+  const hasStrongDraw = fd.draw || sd === 'oesd';
+  const hasAnyDraw = hasStrongDraw || sd === 'gutshot';
+  const drawPhrase =
+    fd.draw && sd !== 'none'
+      ? `a ${fd.nut ? 'nut ' : ''}flush draw plus a straight draw`
+      : fd.draw
+      ? `a ${fd.nut ? 'nut ' : ''}flush draw (~9 outs)`
+      : sd === 'oesd'
+      ? 'an open-ended straight draw (~8 outs)'
+      : 'a gutshot (~4 outs)';
+
+  // A MADE hand that ALSO holds a draw is a semi-bluff, not a "keep the pot
+  // small" hand — the mistake behind "why bet, I only have bottom pair?". The
+  // draw, not the weak pair, drives the bet: you win two ways (fold equity now +
+  // big equity when called), build the pot for when you hit, and deny a free
+  // card. The pair is a backup + showdown bonus. Upgrades weak/medium made hands
+  // to semi-bluff strength (3) so the downstream "usual play" / fold-equity reads
+  // stop advising a check.
+  const withDraw = (base: HandClass): HandClass => {
+    if (!hasAnyDraw) return base;
+    if (base.strength >= 4)
+      return {
+        ...base,
+        blurb: `${base.blurb} You ALSO hold ${drawPhrase} — value-strong AND drawing, so bet big for value + protection and keep barrelling the cards that complete your draw.`,
+      };
+    if (hasStrongDraw)
+      return {
+        label: base.label,
+        blurb:
+          `More than a made hand — you also hold ${drawPhrase}. Play it as a strong SEMI-BLUFF, not a pot-control spot:` +
+          ` • Wins two ways — fold equity now (worse hands and air give up), plus big equity when called (the draw + your pair outs, so you're rarely drawing dead).` +
+          ` • Builds the pot for when you hit.` +
+          ` • Denies a free card to his overcards and draws.` +
+          ` • The made pair is a backup + showdown bonus, not the reason to bet.`,
+        strength: 3,
+      };
+    // pair + gutshot: extra outs, but still thin
+    return {
+      ...base,
+      blurb: `${base.blurb} You also have ${drawPhrase} for backup outs — enough to bet with fold equity or peel a cheap card, but it stays a thin holding.`,
+    };
+  };
+
   // No pair of hero's OWN — either true high card, or the evaluator credited the
   // BOARD's own pair/trips, which every player shares. Classify by draws/overcards
   // instead; `shared` names the board-made hand so the blurb can explain it away.
@@ -205,25 +250,25 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
       // overpair / pocket pair vs board
       if (pocket && hero[0].rank === pr) {
         if (pr > topBoard)
-          return { label: drawTag('Overpair'), blurb: 'A pocket pair above the board — bet for value and protection against overcards/draws.', strength: 4 };
-        return { label: drawTag(`Pocket Pair below top (${RC(pr)}${RC(pr)})`), blurb: 'A medium pair that misses top pair — pot-control and look to get cheap showdowns.', strength: 2 };
+          return withDraw({ label: drawTag('Overpair'), blurb: 'A pocket pair above the board — bet for value and protection against overcards/draws.', strength: 4 });
+        return withDraw({ label: drawTag(`Pocket Pair below top (${RC(pr)}${RC(pr)})`), blurb: 'A medium pair that misses top pair — pot-control and look to get cheap showdowns.', strength: 2 });
       }
       // pair using a hole card matching the board
       const kicker = hero.find((c) => c.rank !== pr)?.rank ?? 0;
       if (pr === topBoard) {
         const kq = kicker === 14 ? 'Top Kicker' : kicker >= 11 ? 'Good Kicker' : 'Weak Kicker';
-        return {
+        return withDraw({
           label: drawTag(`Top Pair, ${kq}`),
           blurb:
             kicker >= 11
               ? 'A strong top pair — bet for value and protection; usually good for two to three streets.'
               : 'Top pair but the kicker is vulnerable — value bet thinly and avoid bloating the pot.',
           strength: kicker >= 11 ? 4 : 3,
-        };
+        });
       }
       if (pr === secondBoard)
-        return { label: drawTag('Middle Pair'), blurb: 'A marginal made hand — usually a check/call, realize equity cheaply.', strength: 2 };
-      return { label: drawTag('Bottom Pair'), blurb: 'Weak made hand — mostly a bluff-catcher/showdown hand; keep the pot small.', strength: 2 };
+        return withDraw({ label: drawTag('Middle Pair'), blurb: 'A marginal made hand — usually a check/call, realize equity cheaply.', strength: 2 });
+      return withDraw({ label: drawTag('Bottom Pair'), blurb: 'Weak made hand — mostly a bluff-catcher/showdown hand; keep the pot small.', strength: 2 });
     }
     default:
       // high card — is it a draw or air?

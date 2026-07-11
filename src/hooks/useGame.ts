@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Action, GameState } from '../engine/table';
 import {
   applyAction,
+  biasHoleCards,
   createGame,
   handResults,
   legalActions,
@@ -15,6 +16,9 @@ import {
   startHand,
   tablePositions,
 } from '../engine/table';
+import type { TableSize } from '../strategy/preflopChart';
+import { scenariosForSize } from '../strategy/preflopChart';
+import { pickBorderlineCode } from '../strategy/borderline';
 import { decideAction, inPositionPostflop } from '../ai/decide';
 import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
 import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
@@ -148,6 +152,12 @@ export function useGame(initialProfiles: string[]) {
   // anonymous villains: hide bot archetypes/exploit plans — the hero must build
   // reads from observed behavior (VPIP/PFR/AF) and GUESS each villain's type.
   const [anonymousVillains, setAnonymousVillains] = useState<boolean>(SAVED?.anonymousVillains ?? false);
+  // focus borderline hands: bias the hero's dealt hole cards toward mixed /
+  // range-edge preflop hands so reps land on close decisions, not obvious spots.
+  const [edgeFocus, setEdgeFocus] = useState<boolean>(SAVED?.edgeFocus ?? false);
+  // cash only: when any seat busts to 0, the next deal resets to fresh equal
+  // stacks instead of the standard cash rebuy — keeps a drill table even.
+  const [autoResetOnBust, setAutoResetOnBust] = useState<boolean>(SAVED?.autoResetOnBust ?? false);
   // seat → guessed profileId. A guess reveals the truth for that seat (the
   // pedagogic payoff). Cleared when the lineup changes; not persisted (a fresh
   // session is a fresh read exercise).
@@ -271,8 +281,20 @@ export function useGame(initialProfiles: string[]) {
     // tournament freezeout: stop dealing once the hero is eliminated or only one
     // player has chips left (champion decided). Cash mode never blocks.
     if (game.tournament && (liveSeatCount(game) <= 1 || game.players[0].stack <= 0)) return;
+    // cash "reset on bust": if the last hand left any seat at 0, start the next
+    // hand on fresh equal stacks instead of the standard rebuy. Reset the session
+    // bookkeeping up-front (side effects belong outside the setGame updater).
+    const bustReset =
+      autoResetOnBust && !game.tournament && game.handNumber > 0 && game.players.some((p) => p.stack <= 0);
+    if (bustReset) {
+      newSession(mode);
+      recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
+    }
     setGame((prev) => {
-      const next = structuredClone(prev);
+      const base = bustReset
+        ? createGame(tableSize, stackDepth, BIG_BLIND, profiles, mode === 'tourney')
+        : prev;
+      const next = structuredClone(base);
       if (scenario !== 'random') {
         // place the button so the hero (seat 0) lands on the requested seat — only
         // if that position exists at this table size, else just deal random.
@@ -284,6 +306,17 @@ export function useGame(initialProfiles: string[]) {
         }
       }
       startHand(next);
+      // focus borderline hands: after the deal, swap the hero's hole cards for a
+      // borderline-weighted hand class read off the RFI chart for the seat the
+      // hero landed on. Weights the PREFLOP spot only (BB / heads-up BB have no
+      // open chart, so those hands stay as dealt).
+      if (edgeFocus && next.players[0].holeCards.length === 2) {
+        const pos = positionLabel(0, next.buttonIndex, next.players.length);
+        const sc = scenariosForSize(next.players.length as TableSize).find(
+          (s) => s.facing === 'rfi' && s.heroPos === pos,
+        );
+        if (sc) biasHoleCards(next, 0, pickBorderlineCode(sc));
+      }
       // snapshot the freshly-dealt hand (same hole cards + deck) so "Repeat
       // hand" can replay the exact same spot — persisted so it survives a refresh.
       lastDealtRef.current = structuredClone(next);
@@ -298,7 +331,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     decisionsRef.current = [];
     playDeal();
-  }, [scenario, game, mode]);
+  }, [scenario, game, mode, edgeFocus, autoResetOnBust, tableSize, stackDepth, profiles]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
@@ -383,8 +416,9 @@ export function useGame(initialProfiles: string[]) {
         note: strat.note,
         rangeNote: strat.rangeNote,
         options: strat.options.map((o) => ({
-          id: o.id, label: o.label, freq: o.freq, ev: o.ev, kind: o.kind, amount: o.amount, sizePct: o.sizePct,
+          id: o.id, label: o.label, freq: o.freq, ev: o.ev, kind: o.kind, amount: o.amount, sizePct: o.sizePct, calledEq: o.calledEq,
         })),
+        opponents: prev.players.filter((p, i) => i !== 0 && !p.folded).length,
         villainRange: strat.villainRange ? Array.from(strat.villainRange.entries()) : [],
       });
 
@@ -478,12 +512,12 @@ export function useGame(initialProfiles: string[]) {
   useEffect(() => {
     saveSettings({
       profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
-      anonymousVillains,
+      anonymousVillains, edgeFocus, autoResetOnBust,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, autoResetOnBust, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
@@ -767,6 +801,10 @@ export function useGame(initialProfiles: string[]) {
     setSeatDiffs,
     anonymousVillains,
     setAnonymousVillains,
+    edgeFocus,
+    setEdgeFocus,
+    autoResetOnBust,
+    setAutoResetOnBust,
     villainGuesses,
     guessVillain,
     obsCounters,
