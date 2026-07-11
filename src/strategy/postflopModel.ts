@@ -542,6 +542,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   addBet('bet50', 0.5, C === 0 ? 'Bet 50%' : 'Raise 50%');
   addBet('bet75', 0.75, C === 0 ? 'Bet 75%' : 'Raise 75%');
   addBet('betpot', 1.0, C === 0 ? 'Bet pot' : 'Raise pot');
+  // NOTE: no intermediate overbet sizes (1.5×/2×). This model computes EV for
+  // hero's SPECIFIC hand vs the range — not range-vs-range — so it can't see that
+  // an overbet is called because hero's RANGE is polar (nuts + bluffs). A nut hand
+  // alone just folds out bluff-catchers, so interior overbets are always dominated
+  // by "pot" (for calls) or "all-in" (to commit). Real overbet strategy needs
+  // range-vs-range modelling (a Tier-2 change), not more sizes here.
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
     const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);

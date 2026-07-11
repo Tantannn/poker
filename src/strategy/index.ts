@@ -10,11 +10,17 @@ import type { WeightedRange, ComboWeight } from '../engine/range';
 import { rangeFromSet, codeToCombos } from '../engine/range';
 import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
-import { RFI_RANGES, BB_DEFEND_RANGE, handCode, preflopStrength } from '../ai/preflop';
+import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import { getProfile } from '../ai/profiles';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
+import { solveRiverNode, solveRiverVsBetNode, solveTurnNode } from './solver/riverAdapter';
+
+// Tier-2 (Stage 0): route hero-first heads-up RIVER nodes through the range-vs-range
+// CFR solver instead of the per-hand EV model. Flip to false to A/B against the old
+// engine. Non-river / facing-a-bet / multiway nodes always use the per-hand model.
+export const RIVER_SOLVER_ENABLED = true;
 import { solvePostflop } from './postflopModel';
 
 export type { NodeStrategy } from './types';
@@ -314,6 +320,17 @@ function whyPreflop(kind: ActionOption['kind'], sc: PreflopScenario, code: strin
 }
 
 // ----------------- postflop -----------------
+const unionSet = (a: Set<string>, b: Set<string>): Set<string> => {
+  const s = new Set(a);
+  b.forEach((x) => s.add(x));
+  return s;
+};
+const diffSet = (a: Set<string>, b: Set<string>): Set<string> => {
+  const s = new Set(a);
+  b.forEach((x) => s.delete(x));
+  return s;
+};
+
 export function buildVillainRange(
   state: GameState,
   heroIdx: number,
@@ -325,28 +342,72 @@ export function buildVillainRange(
   const comboWeight = villainActionWeight(state, heroIdx);
   const villain = primaryVillain(state, heroIdx);
   if (villain < 0) {
-    return { range: rangeFromSet(RFI_RANGES.BTN), note: 'a generic continuing range', comboWeight };
+    // No single villain (a field). Use a neutral, CAPPED continue range — tighter
+    // than BTN's ~45% opener, since a random continuer isn't opening the button.
+    return {
+      range: rangeFromSet(diffSet(RFI_RANGES.CO, THREEBET_RANGE)),
+      note: 'a generic continuing range',
+      comboWeight,
+    };
   }
-  const pos = positionLabel(villain, state.buttonIndex, state.players.length);
-  // was this villain the preflop aggressor?
-  const wasAggressor = state.log.some(
-    (l) => l.handNumber === state.handNumber && l.street === 'preflop' && l.playerId === villain && (l.type === 'raise' || l.type === 'bet'),
-  );
-  let range: WeightedRange;
-  let note: string;
-  if (pos === 'BB' && !wasAggressor) {
-    range = rangeFromSet(BB_DEFEND_RANGE);
-    note = `${pos}'s wide defend range`;
-  } else {
-    const set = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
-    range = rangeFromSet(set);
-    note = `${pos}'s ~${pctOf(set)}% ${wasAggressor ? 'raising' : 'continuing'} range`;
-  }
+  const { baseSet, note } = roleBaseRange(state, villain);
+  const range = rangeFromSet(baseSet);
   const facingBet = state.currentBet > state.players[heroIdx].committed;
+  let noteOut = note;
   if (comboWeight && facingBet && state.board.length >= 3) {
-    note += ' · narrowed to the hands that bet this board (flushes/straights/sets up, air down)';
+    noteOut += ' · narrowed to the hands that bet this board (flushes/straights/sets up, air down)';
   }
-  return { range, note, comboWeight };
+  return { range, note: noteOut, comboWeight };
+}
+
+/** A player's realistic preflop base range from their action-log role. Shared by
+ *  the villain-range builder AND the range-vs-range solver's HERO range, so both
+ *  players get a 3-bettor / opener / flat-caller / BB range instead of a flat RFI.
+ *  Weighted board-conditioning (villainActionWeight) is layered on top by callers
+ *  that need it; the solver's hero side uses the base set uniformly. */
+export function roleBaseRange(state: GameState, seatIdx: number): { baseSet: Set<string>; note: string } {
+  const pos = positionLabel(seatIdx, state.buttonIndex, state.players.length);
+  const seatId = state.players[seatIdx].id;
+  // 'post' = blinds, not a raise, so the raise count is never inflated by blinds.
+  const pre = state.log.filter((l) => l.handNumber === state.handNumber && l.street === 'preflop');
+  const preRaises = pre.filter((l) => l.type === 'raise' || l.type === 'bet');
+  const raiseRank = preRaises.findIndex((l) => l.playerId === seatId);
+  const called = pre.some((l) => l.playerId === seatId && l.type === 'call');
+
+  let baseSet: Set<string>;
+  let note: string;
+  if (raiseRank > 0) {
+    // re-raised OVER an open → tight, polar 3-bet range (value + suited bluffs)
+    baseSet = unionSet(THREEBET_RANGE, BLUFF_THREEBET_RANGE);
+    note = `${pos}'s 3-bet range — tight value + suited bluffs`;
+  } else if (raiseRank === 0) {
+    // first (only) raiser → standard opening range
+    baseSet = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
+    note = `${pos}'s ~${pctOf(baseSet)}% opening range`;
+  } else if (pos === 'BB') {
+    // BB called/checked its option → wide defend range
+    baseSet = BB_DEFEND_RANGE;
+    note = `BB's wide defend range`;
+  } else if (called) {
+    // cold-called an open → CAPPED flat range (premiums would 3-bet), conditioned
+    // on the OPENER's seat: you continue TIGHTER vs an early raiser's strong range
+    // than vs a wide CO/BTN steal. vs UTG/MP drop the weakest flats (weak offsuit /
+    // loose suited); pairs (strength ≥0.76) always survive the floor.
+    const openerIdx = state.players.findIndex((p) => p.id === preRaises[0]?.playerId);
+    const openerPos = openerIdx >= 0 ? positionLabel(openerIdx, state.buttonIndex, state.players.length) : pos;
+    const earlyOpener = openerPos === 'UTG' || openerPos === 'MP';
+    let flat = diffSet(RFI_RANGES[pos] ?? RFI_RANGES.BTN, THREEBET_RANGE);
+    if (earlyOpener) flat = new Set([...flat].filter((code) => preflopStrength(code) >= 0.5));
+    baseSet = flat;
+    note = `${pos}'s flat-call range vs a ${openerPos} open (capped${earlyOpener ? ' + tightened vs the early raiser' : ' — premiums 3-bet'})`;
+  } else {
+    // limped / no clear preflop action → a capped continue range
+    baseSet = diffSet(RFI_RANGES[pos] ?? RFI_RANGES.BTN, THREEBET_RANGE);
+    note = `${pos}'s continuing range`;
+  }
+  // Safety: never return an empty range (e.g. RFI_RANGES.BB is empty by design).
+  if (baseSet.size === 0) baseSet = pos === 'BB' ? BB_DEFEND_RANGE : RFI_RANGES.BTN;
+  return { baseSet, note };
 }
 
 export interface RangeShapeBucket {
@@ -507,6 +568,89 @@ function postflopStrategy(
     const np = state.players.length;
     const orderRank = (seat: number) => (seat - (state.buttonIndex + 1) + np) % np;
     position = orderRank(heroIdx) > orderRank(vIdx) ? 'ip' : 'oop';
+  }
+
+  // Tier-2 Stage 0: a hero-FIRST heads-up river node (hero can check or bet, not
+  // facing a bet) goes through the range-vs-range CFR solver. Everything else —
+  // facing a bet, multiway, earlier streets — stays on the per-hand model below.
+  if (
+    RIVER_SOLVER_ENABLED &&
+    state.street === 'river' &&
+    la.callAmount === 0 &&
+    la.canCheck &&
+    la.canRaise &&
+    liveOpps === 1
+  ) {
+    // Hero's range from the SAME role-based builder the villain uses (3-bettor /
+    // opener / flat-caller / BB), not a flat position RFI — a big accuracy lift.
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const solved = solveRiverNode({
+      heroCards: hero.holeCards,
+      board: state.board,
+      pot,
+      effStack,
+      heroRange,
+      villainRange: range,
+      villainComboWeight: comboWeight,
+      bigBlind: state.bigBlind,
+      rangeNote: note,
+    });
+    if (solved) return solved;
+  }
+
+  // Tier-2 Stage 2: a hero-FIRST heads-up TURN node → range-vs-range solve with the
+  // river runouts enumerated for showdown equity (captures value / protection / air).
+  if (
+    RIVER_SOLVER_ENABLED &&
+    state.street === 'turn' &&
+    la.callAmount === 0 &&
+    la.canCheck &&
+    la.canRaise &&
+    liveOpps === 1
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const solved = solveTurnNode({
+      heroCards: hero.holeCards,
+      board: state.board,
+      pot,
+      effStack,
+      heroRange,
+      villainRange: range,
+      villainComboWeight: comboWeight,
+      bigBlind: state.bigBlind,
+      rangeNote: note,
+    });
+    if (solved) return solved;
+  }
+
+  // Tier-2: a hero-FACING-A-BET heads-up river node (villain led, hero's first
+  // decision this street) → fold / call / raise range-vs-range solve.
+  if (
+    RIVER_SOLVER_ENABLED &&
+    state.street === 'river' &&
+    la.callAmount > 0 &&
+    la.canRaise &&
+    liveOpps === 1 &&
+    hero.committed === 0
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const b = la.callAmount;
+    const raiseTo = Math.min(la.maxRaiseTo, Math.round(pot + b)); // ~pot-sized raise
+    if (raiseTo > b) {
+      const solved = solveRiverVsBetNode({
+        heroCards: hero.holeCards,
+        board: state.board,
+        potBeforeBet: pot - b,
+        bet: b,
+        raiseTo,
+        heroRange,
+        villainRange: range,
+        villainComboWeight: comboWeight,
+        bigBlind: state.bigBlind,
+        rangeNote: note,
+      });
+      if (solved) return solved;
+    }
   }
 
   const strat = solvePostflop({
