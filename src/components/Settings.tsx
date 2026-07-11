@@ -32,6 +32,21 @@ export function Settings({ g }: { g: G }) {
       </div>
 
       <div className="set-block">
+        <div className="an-h">Feedback</div>
+        <label
+          className="sc-check"
+          title="Exam mode: withhold every decision's graded answer until the hand is over, then show a full per-decision review. Stops early-street feedback from leaking into your later-street reads."
+        >
+          <input
+            type="checkbox"
+            checked={g.feedbackMode === 'deferred'}
+            onChange={(e) => g.setFeedbackMode(e.target.checked ? 'deferred' : 'immediate')}
+          />
+          Hold answers until the hand is over <span className="sc-hint">(exam mode — review the whole hand at the end instead of one answer per move)</span>
+        </label>
+      </div>
+
+      <div className="set-block">
         <div className="an-h">App</div>
         <label className="sc-check" title="Synthesised action/grade tones — 100% local WebAudio, no assets">
           <input type="checkbox" checked={sound} onChange={(e) => toggleSound(e.target.checked)} />

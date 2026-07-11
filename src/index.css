@@ -417,6 +417,33 @@ body {
 .step-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .waiting { text-align: center; color: var(--muted); font-style: italic; padding: 18px; margin-top: 40px; }
 
+/* ---------- deferred (exam) mode end-of-hand review ---------- */
+.deferred-review { margin: 14px 0 4px; text-align: left; }
+.dr-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; font-weight: 800; font-size: 14px; color: var(--txt); }
+.dr-sub { font-weight: 500; font-size: 12px; color: var(--muted); }
+.dr-item { margin-bottom: 12px; }
+.dr-item-h { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 3px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.dr-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); font-weight: 700; font-size: 12px; }
+.dr-street { font-weight: 600; }
+.dr-board { text-transform: none; letter-spacing: 0; color: var(--txt); opacity: 0.85; }
+.dr-you { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.dr-you b { color: var(--txt); }
+.dr-item .feedback-box { margin-top: 0; }
+
+/* betting-sequence strip at the top of the deferred review — the action context
+   (who acted, from where, how many ways) you can't reconstruct from the board */
+.dr-actions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+.dr-str { display: flex; flex-direction: column; gap: 5px; }
+.dr-str + .dr-str { border-top: 1px dashed var(--line); padding-top: 8px; }
+.dr-str-h { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gold); }
+.dr-nway { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font-size: 10px; font-weight: 700; color: var(--txt); letter-spacing: 0.02em; }
+.dr-acts { display: flex; flex-wrap: wrap; gap: 5px; }
+.dr-act { padding: 2px 8px; border-radius: 6px; font-size: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); white-space: nowrap; }
+.dr-act b { color: var(--txt); font-weight: 700; }
+.dr-act.you { border-color: var(--raise); background: color-mix(in srgb, var(--raise) 14%, transparent); color: var(--txt); }
+.dr-act.bet b, .dr-act.raise b { color: var(--raise); }
+.dr-act.fold { opacity: 0.6; }
+
 /* ---------- feedback ---------- */
 .feedback-box { margin-top: 12px; border-radius: 10px; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel); }
 .feedback-box.good { border-color: var(--raise); }

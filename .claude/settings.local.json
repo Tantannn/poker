@@ -110,7 +110,9 @@
       "Bash(rtk diff *)",
       "Bash(grep -v '^< *$')",
       "Bash(echo \"TSC_DONE exit=$?\")",
-      "Bash(echo \"VITEST exit=$?\")"
+      "Bash(echo \"VITEST exit=$?\")",
+      "Bash(echo \"=== EXIT $? ===\")",
+      "Bash(./node_modules/.bin/eslint src/hooks/useGame.ts --format stylish)"
     ]
   }
 }

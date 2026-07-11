@@ -99,6 +99,11 @@ export interface PersistSettings {
   /** show tilt banner + post-swing cool-off gate. Defaults on; false disables both. */
   tiltWarnings?: boolean;
   difficulty: string;
+  /** when the graded answer surfaces: 'immediate' shows it the moment you act
+   *  (default, drill mode); 'deferred' hides every decision's answer until the
+   *  hand is over, then shows a full per-decision review (exam mode — no live
+   *  feedback leaking into your later-street reads). */
+  feedbackMode?: 'immediate' | 'deferred';
   /** per-seat difficulty overrides aligned with `profiles` (seat 1..N-1);
    *  '' / missing = follow the table-wide `difficulty`. Enables a mixed table
    *  (one fish, two regs, a shark) like a real game. */

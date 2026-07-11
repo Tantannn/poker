@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../hooks/useGame';
 import { positionLabel, tournamentLevel, handsToNextLevel } from '../engine/table';
-import type { Action } from '../engine/table';
+import type { Action, ActionRecord } from '../engine/table';
 import { icmRead, payoutTable } from '../engine/icm';
 import { getProfile } from '../ai/profiles';
 import { Seat } from './Seat';
@@ -15,6 +15,7 @@ import { RangeChartModal } from './RangeChartModal';
 import { SituationPanel } from './SituationPanel';
 import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
+import type { NodeFeedback } from '../analysis/grade';
 import { DecisionChecklist } from './DecisionChecklist';
 import { ScenarioBar } from './ScenarioBar';
 import type { AggroWarning } from '../analysis/aggression';
@@ -30,7 +31,7 @@ interface Props {
 }
 
 export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
-  const { game, legal, isHeroTurn, handOver, feedback, hud, hudLoading, hero, pot, strategy, rng, villain, aggroWarning, tilt } = g;
+  const { game, legal, isHeroTurn, handOver, feedback, feedbackMode, feedbackLog, hud, hudLoading, hero, pot, strategy, rng, villain, aggroWarning, tilt } = g;
   const reveal = game.street === 'complete' || game.street === 'showdown';
   // A genuine showdown means 2+ players still hold cards at the end. An
   // uncontested win (everyone folded to one player) also lands on 'complete'
@@ -269,6 +270,12 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
                   {g.isTournament ? '⟲ New tournament (fresh equal stacks)' : '⟲ Reset game (fresh 100bb stacks)'}
                 </button>
               )}
+              {handOver && feedbackMode === 'deferred' && feedbackLog.length > 0 && (
+                <DeferredReview
+                  decisions={feedbackLog}
+                  actions={game.log.filter((l) => l.handNumber === game.handNumber)}
+                />
+              )}
             </div>
           ) : isHeroTurn ? (
             <Controls
@@ -309,6 +316,16 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           {supportsHidden ? '👁 Show all guides' : '🙈 Hide all guides (pure play)'}
         </button>
 
+        <button
+          className={`study-toggle ${feedbackMode === 'deferred' ? 'on' : ''}`}
+          onClick={() => g.setFeedbackMode(feedbackMode === 'deferred' ? 'immediate' : 'deferred')}
+          title="Deferred (exam) answers: hold every decision's grade until the hand is over, then show a full preflop→river review. Pair with 'Hide all guides' for a fully blind hand you review only at the end."
+        >
+          {feedbackMode === 'deferred'
+            ? '📋 Answers: AFTER the hand — full preflop→river review'
+            : '📋 Answers: after each move (live)'}
+        </button>
+
         {!supportsHidden && (
           <button
             className={`study-toggle ${studyMode ? 'on' : ''}`}
@@ -344,6 +361,11 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
             Pure-play mode — HUD, solver, situation &amp; opponent reads hidden. Decide blind like a real table.
             Hands play out to showdown (even after you fold) and only players who reach showdown reveal their
             cards. Your moves are still graded; the session score stays live above.
+            {feedbackMode === 'deferred' ? (
+              <> A full <b>preflop→river answer review</b> drops in under the table once the hand finishes.</>
+            ) : (
+              <> Turn on <b>📋 Answers: after the hand</b> above for a full preflop→river review at the end of each hand.</>
+            )}
           </div>
         ) : (
           <>
@@ -441,6 +463,78 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
 
 // Rolling "your big bets keep getting called/raised and losing" warning. Shows
 // while the leak persists; dismiss hides it until the leak type changes or clears.
+const DR_STREETS = ['preflop', 'flop', 'turn', 'river'] as const;
+const DR_STREET_NAME: Record<string, string> = {
+  preflop: 'Preflop', flop: 'Flop', turn: 'Turn', river: 'River',
+};
+function describeAct(type: string, amount: number): string {
+  switch (type) {
+    case 'fold': return 'folds';
+    case 'check': return 'checks';
+    case 'call': return `calls ${amount}`;
+    case 'bet': return `bets ${amount}`;
+    case 'raise': return `raises to ${amount}`;
+    case 'post': return `posts ${amount}`;
+    default: return type;
+  }
+}
+
+// Deferred (exam) mode end-of-hand review: the full betting sequence (who acted,
+// from what position, how many ways) grouped by street — you already see the
+// board on the table, so this is the action context you can't reconstruct — then
+// one row per hero decision with the graded Feedback box (Explain / Chart / Cheat).
+function DeferredReview({ decisions, actions }: { decisions: NodeFeedback[]; actions: ActionRecord[] }) {
+  const byStreet = DR_STREETS
+    .map((street) => ({ street, acts: actions.filter((a) => a.street === street) }))
+    .filter((g) => g.acts.length > 0);
+
+  return (
+    <div className="deferred-review">
+      <div className="dr-head">
+        📋 Hand review — {decisions.length} decision{decisions.length === 1 ? '' : 's'}
+        <span className="dr-sub">answers held back until the hand played out — full action below</span>
+      </div>
+
+      {byStreet.length > 0 && (
+        <div className="dr-actions">
+          {byStreet.map(({ street, acts }) => {
+            const nWay = new Set(acts.map((a) => a.playerId)).size;
+            return (
+              <div className="dr-str" key={street}>
+                <div className="dr-str-h">
+                  {DR_STREET_NAME[street] ?? street}
+                  {street !== 'preflop' && <span className="dr-nway">{nWay}-way</span>}
+                </div>
+                <div className="dr-acts">
+                  {acts.map((a, i) => (
+                    <span className={`dr-act ${a.playerId === 0 ? 'you' : ''} ${a.type}`} key={i}>
+                      <b>{a.playerId === 0 ? 'You' : a.position}</b> {describeAct(a.type, a.amount)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {decisions.map((fb, i) => (
+        <div key={i} className="dr-item">
+          <div className="dr-item-h">
+            <span className="dr-num">{i + 1}</span>
+            <span className="dr-street">{fb.context?.street ?? ''}</span>
+            {fb.context?.facing && <span className="dr-board">{fb.context.facing}</span>}
+            <span className="dr-you">
+              you <b>{fb.chosenLabel}</b>
+            </span>
+          </div>
+          <Feedback fb={fb} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AggroBanner({ w }: { w: AggroWarning | null }) {
   const [dismissed, setDismissed] = useState(false);
   const [prevSig, setPrevSig] = useState<string | null>(null);

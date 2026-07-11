@@ -60,6 +60,11 @@ export const NUM_PLAYERS = 6;
 export const STARTING_BB = 100;
 
 export type Speed = '1x' | '2x' | 'instant';
+// When the graded answer appears. 'immediate' = drill mode (answer the moment
+// you act). 'deferred' = exam mode (answers withheld until the hand ends, then
+// shown as a per-decision review) so early-street feedback can't leak into the
+// reads you make on later streets.
+export type FeedbackMode = 'immediate' | 'deferred';
 const SPEED_DELAY: Record<Speed, number> = { '1x': 750, '2x': 330, instant: 0 };
 
 export type HeroPositionPref = 'random' | 'BTN' | 'CO' | 'MP' | 'UTG' | 'SB' | 'BB';
@@ -131,6 +136,9 @@ export function useGame(initialProfiles: string[]) {
     () => loadGame(INITIAL_MODE) ?? createGame(SAVED?.tableSize ?? NUM_PLAYERS, SAVED?.stackDepth ?? STARTING_BB, BIG_BLIND, initProfiles, INITIAL_MODE === 'tourney'),
   );
   const [feedback, setFeedback] = useState<NodeFeedback | null>(null);
+  // deferred (exam) mode: the per-decision graded answers, revealed as one
+  // end-of-hand review only after the hand completes. Empty in immediate mode.
+  const [feedbackLog, setFeedbackLog] = useState<NodeFeedback[]>([]);
   const [hud, setHud] = useState<HudInfo | null>(null);
   const [strategy, setStrategy] = useState<NodeStrategy | null>(null);
   const [rng, setRng] = useState<RngInfo | null>(null);
@@ -144,6 +152,8 @@ export function useGame(initialProfiles: string[]) {
   const [tableSize, setTableSize] = useState<number>(SAVED?.tableSize ?? NUM_PLAYERS);
   const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
   const [tiltWarnings, setTiltWarnings] = useState<boolean>(SAVED?.tiltWarnings ?? true);
+  // when the graded answer surfaces — 'immediate' (drill) or 'deferred' (exam).
+  const [feedbackMode, setFeedbackMode] = useState<FeedbackMode>((SAVED?.feedbackMode as FeedbackMode) ?? 'immediate');
   const [difficulty, setDifficulty] = useState<Difficulty>((SAVED?.difficulty as Difficulty) ?? 'normal');
   // per-seat difficulty overrides aligned with `profiles` (index 0 = seat 1);
   // '' = follow the table-wide difficulty. Lets the table mix a fish, regs and a
@@ -188,6 +198,9 @@ export function useGame(initialProfiles: string[]) {
   // buffer of the real solved nodes the hero faced this hand; flushed onto the
   // HistoryHand at completion so Hand Review shows the actual decisions.
   const decisionsRef = useRef<DecisionSnapshot[]>([]);
+  // deferred-mode buffer: each decision's graded feedback, held during the hand
+  // and surfaced (via the derived `feedbackLog` below) only once it's complete.
+  const pendingFbRef = useRef<NodeFeedback[]>([]);
 
   const hero = game.players[0];
   const isHeroTurn = game.toAct === 0 && game.street !== 'complete' && game.street !== 'showdown';
@@ -205,6 +218,8 @@ export function useGame(initialProfiles: string[]) {
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setVillain(null);
@@ -222,6 +237,8 @@ export function useGame(initialProfiles: string[]) {
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setRng(null);
@@ -238,6 +255,8 @@ export function useGame(initialProfiles: string[]) {
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setRng(null);
@@ -270,6 +289,8 @@ export function useGame(initialProfiles: string[]) {
     recordedHand.current = restored.street === 'complete' ? restored.handNumber : -1;
     if (next === 'tourney') setWatchAfterFold(true);
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setRng(null);
@@ -324,6 +345,8 @@ export function useGame(initialProfiles: string[]) {
       return next;
     });
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setRng(null);
@@ -344,6 +367,8 @@ export function useGame(initialProfiles: string[]) {
     if (!snap) return;
     setGame(structuredClone(snap));
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setRng(null);
@@ -360,6 +385,8 @@ export function useGame(initialProfiles: string[]) {
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
     setFeedback(null);
+    pendingFbRef.current = [];
+    setFeedbackLog([]);
     setHud(null);
     setStrategy(null);
     setRng(null);
@@ -370,106 +397,118 @@ export function useGame(initialProfiles: string[]) {
   }, [profiles, stackDepth, tableSize, mode]);
 
   const heroAct = useCallback((action: Action) => {
-    setGame((prev) => {
-      if (prev.toAct !== 0) return prev;
-      const la = legalActions(prev);
-      const strat = strategyRef.current ?? getNodeStrategy(prev, 0, 900);
-      const roll = rollRef.current;
-      const fb = gradeNode(strat, action, la.callAmount, roll, { state: prev, heroIdx: 0 });
-      setFeedback(fb);
+    // Grade the decision + all the bookkeeping OUTSIDE the setGame updater. The
+    // updater must be pure (StrictMode double-invokes it in dev), so anything that
+    // mutates a ref or appends to a buffer has to run here, exactly once. `game`
+    // at call time is the pre-action state (heroAct only fires on the hero's turn
+    // with no update pending), so it's the right node to grade against.
+    const prev = game;
+    if (prev.toAct !== 0) return;
+    const la = legalActions(prev);
+    const strat = strategyRef.current ?? getNodeStrategy(prev, 0, 900);
+    const roll = rollRef.current;
+    const fb = gradeNode(strat, action, la.callAmount, roll, { state: prev, heroIdx: 0 });
+    // immediate (drill): reveal the answer now. deferred (exam): withhold it —
+    // buffer for the end-of-hand review and keep the live box empty so the grade
+    // can't leak into the reads you make on later streets (+ a neutral click, no
+    // verdict tone — that would leak the answer the mode is meant to withhold).
+    if (feedbackMode === 'immediate') setFeedback(fb);
+    else { pendingFbRef.current.push(fb); playAction(); }
 
-      const pos = positionLabel(0, prev.buttonIndex, prev.players.length);
-      setStats((s) => {
-        const updated = recordDecision(s, {
-          street: prev.street,
-          position: pos,
-          heroAction: idToClass(fb.chosen),
-          recommended: idToClass(fb.best),
-          verdict: fb.verdict === 'best' || fb.verdict === 'correct' ? 'correct' : fb.verdict === 'inaccuracy' ? 'ok' : 'mistake',
-          evLoss: fb.evLoss,
-          chosenEv: fb.chosenEv,
-          rngMatch: fb.rngMatch,
-        });
-        saveStats(updated);
-        return updated;
-      });
-
-      // capture the real solved node for Hand Review (strat already reflects the
-      // true villain range / pot / facing-bet at this decision).
-      const vIdx = primaryVillainIdx(prev, 0);
-      const vp = vIdx >= 0 && !prev.players[vIdx].isHero ? prev.players[vIdx] : null;
-      decisionsRef.current.push({
+    const pos = positionLabel(0, prev.buttonIndex, prev.players.length);
+    setStats((s) => {
+      const updated = recordDecision(s, {
         street: prev.street,
-        boardLen: prev.board.length,
-        pot: potTotal(prev),
-        toCall: la.callAmount,
         position: pos,
-        villainName: vp ? vp.name : 'the field',
-        villainTag: vp ? getProfile(vp.profileId).tag : '',
-        chosenId: fb.chosen,
-        chosenLabel: fb.chosenLabel,
-        bestId: fb.best,
-        bestLabel: fb.bestLabel,
+        heroAction: idToClass(fb.chosen),
+        recommended: idToClass(fb.best),
+        verdict: fb.verdict === 'best' || fb.verdict === 'correct' ? 'correct' : fb.verdict === 'inaccuracy' ? 'ok' : 'mistake',
         evLoss: fb.evLoss,
-        equity: strat.equity,
+        chosenEv: fb.chosenEv,
         rngMatch: fb.rngMatch,
-        note: strat.note,
-        rangeNote: strat.rangeNote,
-        options: strat.options.map((o) => ({
-          id: o.id, label: o.label, freq: o.freq, ev: o.ev, kind: o.kind, amount: o.amount, sizePct: o.sizePct, calledEq: o.calledEq,
-        })),
-        opponents: prev.players.filter((p, i) => i !== 0 && !p.folded).length,
-        villainRange: strat.villainRange ? Array.from(strat.villainRange.entries()) : [],
       });
+      saveStats(updated);
+      return updated;
+    });
 
-      // update the running read on how the hero plays (for adaptive bots)
-      const rd = heroReadsRef.current;
-      rd.decisions++;
-      if (prev.street === 'preflop') {
-        rd.preflopActions++;
-        if (action.type === 'call' || action.type === 'raise' || action.type === 'bet') rd.vpipActions++;
-      }
-      const isFold = action.type === 'fold';
-      if (action.type === 'bet' || action.type === 'raise') rd.aggrActions++;
-      else if (action.type === 'call') rd.passiveActions++;
-      const postflop = prev.street !== 'preflop';
-      if (la.callAmount > 0) {
-        rd.betsFaced++;
-        if (isFold) rd.foldToBet++;
-        if (postflop) {
-          // bet size as a fraction of the pot BEFORE the bet (subtract the call, which
-          // is already in potTotal) → split the hero's fold tendency by big vs small.
-          const potBeforeBet = Math.max(1, potTotal(prev) - la.callAmount);
-          const betFrac = la.callAmount / potBeforeBet;
-          if (betFrac >= 0.66) { rd.bigBetsFaced++; if (isFold) rd.foldToBig++; }
-          else { rd.smallBetsFaced++; if (isFold) rd.foldToSmall++; }
-          if (prev.street === 'flop') { rd.flopBetsFaced++; if (isFold) rd.foldToFlopBet++; }
-          if (prev.street === 'river') { rd.riverBetsFaced++; if (action.type === 'call') rd.riverCalls++; }
-        }
-      }
-      // positional passivity: checked or folded while OUT of position postflop
-      if (postflop && !inPositionPostflop(prev, 0)) {
-        rd.oopActions++;
-        if (action.type === 'check' || isFold) rd.oopPassive++;
-      }
+    // capture the real solved node for Hand Review (strat already reflects the
+    // true villain range / pot / facing-bet at this decision).
+    const vIdx = primaryVillainIdx(prev, 0);
+    const vp = vIdx >= 0 && !prev.players[vIdx].isHero ? prev.players[vIdx] : null;
+    decisionsRef.current.push({
+      street: prev.street,
+      boardLen: prev.board.length,
+      pot: potTotal(prev),
+      toCall: la.callAmount,
+      position: pos,
+      villainName: vp ? vp.name : 'the field',
+      villainTag: vp ? getProfile(vp.profileId).tag : '',
+      chosenId: fb.chosen,
+      chosenLabel: fb.chosenLabel,
+      bestId: fb.best,
+      bestLabel: fb.bestLabel,
+      evLoss: fb.evLoss,
+      equity: strat.equity,
+      rngMatch: fb.rngMatch,
+      note: strat.note,
+      rangeNote: strat.rangeNote,
+      options: strat.options.map((o) => ({
+        id: o.id, label: o.label, freq: o.freq, ev: o.ev, kind: o.kind, amount: o.amount, sizePct: o.sizePct, calledEq: o.calledEq,
+      })),
+      opponents: prev.players.filter((p, i) => i !== 0 && !p.folded).length,
+      villainRange: strat.villainRange ? Array.from(strat.villainRange.entries()) : [],
+    });
 
-      strategyRef.current = null;
-      setStrategy(null);
-      setHud(null);
-      setRng(null);
-      setVillain(null);
+    // update the running read on how the hero plays (for adaptive bots)
+    const rd = heroReadsRef.current;
+    rd.decisions++;
+    if (prev.street === 'preflop') {
+      rd.preflopActions++;
+      if (action.type === 'call' || action.type === 'raise' || action.type === 'bet') rd.vpipActions++;
+    }
+    const isFold = action.type === 'fold';
+    if (action.type === 'bet' || action.type === 'raise') rd.aggrActions++;
+    else if (action.type === 'call') rd.passiveActions++;
+    const postflop = prev.street !== 'preflop';
+    if (la.callAmount > 0) {
+      rd.betsFaced++;
+      if (isFold) rd.foldToBet++;
+      if (postflop) {
+        // bet size as a fraction of the pot BEFORE the bet (subtract the call, which
+        // is already in potTotal) → split the hero's fold tendency by big vs small.
+        const potBeforeBet = Math.max(1, potTotal(prev) - la.callAmount);
+        const betFrac = la.callAmount / potBeforeBet;
+        if (betFrac >= 0.66) { rd.bigBetsFaced++; if (isFold) rd.foldToBig++; }
+        else { rd.smallBetsFaced++; if (isFold) rd.foldToSmall++; }
+        if (prev.street === 'flop') { rd.flopBetsFaced++; if (isFold) rd.foldToFlopBet++; }
+        if (prev.street === 'river') { rd.riverBetsFaced++; if (action.type === 'call') rd.riverCalls++; }
+      }
+    }
+    // positional passivity: checked or folded while OUT of position postflop
+    if (postflop && !inPositionPostflop(prev, 0)) {
+      rd.oopActions++;
+      if (action.type === 'check' || isFold) rd.oopPassive++;
+    }
 
-      const next = structuredClone(prev);
+    strategyRef.current = null;
+    setStrategy(null);
+    setHud(null);
+    setRng(null);
+    setVillain(null);
+
+    // Pure state transition — apply the action (and fast-forward the runout when
+    // the hero folds and "watch after fold" is off). The toAct guard defends
+    // against a stale double-fire; the graded side effects above already ran once.
+    setGame((cur) => {
+      if (cur.toAct !== 0) return cur;
+      const next = structuredClone(cur);
       applyAction(next, action);
-      // If the hero folded and "watch after fold" is off, fast-forward the bots
-      // to the end immediately. When watch is on, leave it — the AI-stepping
-      // effect plays the runout out at the normal speed so the user can see it.
       if (next.players[0].folded && !watchAfterFold) {
         runoutToEnd(next, diffFor);
       }
       return next;
     });
-  }, [watchAfterFold, diffFor]);
+  }, [game, watchAfterFold, diffFor, feedbackMode]);
 
   // instantly finish the current hand (bots play to the end) — used by the
   // "skip to end" button while watching a folded hand run out.
@@ -512,12 +551,12 @@ export function useGame(initialProfiles: string[]) {
   useEffect(() => {
     saveSettings({
       profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
-      anonymousVillains, edgeFocus, autoResetOnBust,
+      anonymousVillains, edgeFocus, autoResetOnBust, feedbackMode,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, autoResetOnBust, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, autoResetOnBust, feedbackMode, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
@@ -616,6 +655,11 @@ export function useGame(initialProfiles: string[]) {
       saveHistory(next);
       return next;
     });
+
+    // deferred (exam) mode: the hand is over — reveal every decision's graded
+    // answer at once as the end-of-hand review. (Immediate mode showed each the
+    // moment it was made, so its buffer is empty and this is a harmless no-op.)
+    if (feedbackMode === 'deferred') setFeedbackLog(pendingFbRef.current.slice());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.street, game.handNumber]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -766,6 +810,9 @@ export function useGame(initialProfiles: string[]) {
     heroPlace,
     tournamentEnd,
     feedback,
+    feedbackMode,
+    setFeedbackMode,
+    feedbackLog,
     hud,
     strategy,
     rng,
