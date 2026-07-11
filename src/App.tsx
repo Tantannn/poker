@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'gameplan', label: '📋 Gameplan' },
   { id: 'quiz', label: 'Leak Quiz' },
   { id: 'exploit', label: '🎯 Read & Exploit' },
-  { id: 'replay', label: 'Hand Review' },
+  { id: 'replay', label: '🌟 Hand Review' },
   { id: 'principles', label: '📓 Principles' },
   { id: 'odds', label: 'Pot Odds' },
   { id: 'eqdrill', label: '🧠 Equity Drill' },
@@ -90,6 +90,7 @@ export default function App() {
     try { localStorage.setItem('poker.hud', next ? '1' : '0'); } catch { /* ignore */ }
   };
   const [menuOpen, setMenuOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   // The Play and Tournament tabs are the two persisted game sessions; entering
   // one swaps the live table to its slot (other tabs leave the session as-is).
@@ -103,6 +104,12 @@ export default function App() {
       /* storage blocked — session is still consistent, just not persisted */
     }
     setMenuOpen(false);
+    setQuery('');
+  };
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    setQuery('');
   };
 
   // A restored Play/Tournament tab must also swap the live table to that mode
@@ -117,13 +124,17 @@ export default function App() {
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
+      if (e.key === 'Escape') closeMenu();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [menuOpen]);
 
   const currentLabel = TABS.find((t) => t.id === tab)?.label ?? 'Menu';
+
+  // Filter sections by the search box (case-insensitive substring on the label).
+  const q = query.trim().toLowerCase();
+  const filtered = q ? TABS.filter((t) => t.label.toLowerCase().includes(q)) : TABS;
 
   return (
     <div className="app">
@@ -155,13 +166,26 @@ export default function App() {
         </button>
         {menuOpen && (
           <>
-            <div className="nav-backdrop" onClick={() => setMenuOpen(false)} />
+            <div className="nav-backdrop" onClick={closeMenu} />
             <div className="nav-menu" role="tablist" aria-label="Trainer sections">
-              {TABS.map((t) => (
+              <input
+                className="nav-search"
+                type="search"
+                autoFocus
+                placeholder="Search sections…"
+                aria-label="Search sections"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && filtered[0]) selectTab(filtered[0].id);
+                }}
+              />
+              {filtered.map((t) => (
                 <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
                   {t.label}
                 </button>
               ))}
+              {filtered.length === 0 && <div className="nav-empty">No sections match “{query}”.</div>}
             </div>
           </>
         )}

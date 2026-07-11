@@ -3,7 +3,7 @@
 // formula lives in exactly one place and any panel can surface it on hover.
 // Homemade portal tooltip (was antd — the app's only use, worth ~420 kB gzipped).
 
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CALC, GLOSSARY } from './CalConstant';
@@ -25,10 +25,39 @@ export function Tooltip({
   className?: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const popRef = useRef<HTMLSpanElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
+  // Resolved after the bubble mounts: exact top-left clamped so the WHOLE bubble
+  // stays on-screen (center-only clamping let wide bubbles overflow on mobile).
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
 
   const show = () => setRect(ref.current?.getBoundingClientRect() ?? null);
-  const hide = () => setRect(null);
+  const hide = () => {
+    setRect(null);
+    setCoords(null);
+  };
+
+  // Measure the rendered bubble, then clamp its edges into the viewport and flip
+  // sides if the preferred side has no room. Runs once the portal is in the DOM.
+  useLayoutEffect(() => {
+    if (!rect || !popRef.current) return;
+    const pop = popRef.current.getBoundingClientRect();
+    const m = 8; // viewport margin
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // horizontal: centre on the trigger, then clamp both edges on-screen
+    let left = rect.left + rect.width / 2 - pop.width / 2;
+    left = Math.min(Math.max(m, left), Math.max(m, vw - pop.width - m));
+
+    // vertical: use the requested side, flip when it would clip off-screen
+    let top = pos === 'bottom' ? rect.bottom + m : rect.top - pop.height - m;
+    if (pos === 'top' && top < m) top = rect.bottom + m;
+    else if (pos === 'bottom' && top + pop.height > vh - m) top = rect.top - pop.height - m;
+    top = Math.min(Math.max(m, top), Math.max(m, vh - pop.height - m));
+
+    setCoords({ left, top });
+  }, [rect, pos]);
 
   return (
     <span
@@ -44,12 +73,14 @@ export function Tooltip({
       {rect &&
         createPortal(
           <span
+            ref={popRef}
             className={`tip-pop ${pos}`}
             role="tooltip"
             style={{
-              // fixed-position, clamped to the viewport; flips handled by `pos`
-              left: Math.min(Math.max(8, rect.left + rect.width / 2), window.innerWidth - 8),
-              top: pos === 'bottom' ? rect.bottom + 8 : rect.top - 8,
+              left: coords?.left ?? rect.left,
+              top: coords?.top ?? rect.top,
+              // hide the pre-measurement frame so the bubble doesn't flash off-screen
+              visibility: coords ? 'visible' : 'hidden',
             }}
           >
             {content}

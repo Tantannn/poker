@@ -11,6 +11,7 @@ import { rangeFromSet, codeToCombos } from '../engine/range';
 import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, handCode, preflopStrength } from '../ai/preflop';
+import { getProfile } from '../ai/profiles';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
@@ -412,13 +413,26 @@ function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | u
   // bet-inclusive pot understated every size (a real ¾-pot barrel read as ~43%),
   // so big bets never polarized fully and junk kept too much weight.
   const betFrac = pot - toCall > 0 ? toCall / (pot - toCall) : 1;
-  return (a: Card, b: Card) => betConditionedWeight(a, b, board, facingBet, betFrac);
+  // ARCHETYPE-AWARE BLUFF WEIGHT. How value-heavy a villain's BET range is depends
+  // on how often he bluffs, not just his position. A loose-passive calling station
+  // (bluffFreq ~0.08) barrels almost only value; a maniac (0.7) fires tons of air.
+  // Position-only conditioning modelled everyone as a balanced barreler, so it kept
+  // phantom bluffs/semi-bluffs in a station's range — and a bluff-catcher like
+  // ace-high then showed inflated equity (it "beats" bluffs that a station never
+  // has), turning a clear fold into a +EV call. Scale the non-made (bluff/semi-bluff/
+  // air) part of the bet range by the villain's bluff tendency vs a ~0.33 GTO
+  // baseline; made value is untouched. Human hero / unknown → 1 (balanced).
+  const vIdx = primaryVillain(state, heroIdx);
+  const vp = vIdx >= 0 ? state.players[vIdx] : null;
+  const bluffFreq = vp && !vp.isHero ? getProfile(vp.profileId).bluffFreq : 0.33;
+  const bluffMult = Math.max(0.12, Math.min(1.6, bluffFreq / 0.33));
+  return (a: Card, b: Card) => betConditionedWeight(a, b, board, facingBet, betFrac, bluffMult);
 }
 
 /** Likelihood (relative weight) that a villain holding this concrete combo would
  *  take the action they took, given the board. Value/strong-draw hands bet; air
  *  mostly gives up — and a bigger bet thins the weak end harder (polarization). */
-function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolean, betFrac: number): number {
+function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolean, betFrac: number, bluffMult = 1): number {
   const held = evaluate7([a, b, ...board]);
   const cat = held.categoryRank; // 0 high card .. 8 straight flush
   const outs = board.length < 5 ? countOuts([a, b], board).outs : 0; // draws (flop/turn)
@@ -454,6 +468,10 @@ function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolea
   // 3-flush board should tank a bluff-catcher's equity.
   const polar = Math.min(1, betFrac / 0.75); // 0 (tiny) .. 1 (¾-pot or bigger)
   if (w < 0.7) w *= 1 - 0.55 * polar;
+  // Archetype bluff scaling: only the NON-made part (bluffs / semi-bluffs / air).
+  // A low-bluff villain (LP/NIT) collapses these toward 0, leaving a value-heavy
+  // barrel; a maniac inflates them. Made value (improves) is never scaled.
+  if (!improves) w *= bluffMult;
   return w;
 }
 
@@ -491,7 +509,7 @@ function postflopStrategy(
     position = orderRank(heroIdx) > orderRank(vIdx) ? 'ip' : 'oop';
   }
 
-  return solvePostflop({
+  const strat = solvePostflop({
     hero: hero.holeCards,
     board: state.board,
     oppRange: range,
@@ -513,6 +531,44 @@ function postflopStrategy(
     comboWeight,
     position,
   });
+
+  // Villain-read overlay: name how THIS opponent's tendencies shift the baseline
+  // (balanced) line — the "normally X, vs this villain Y" the user asked for. The
+  // EV numbers already bake the archetype in (via bluffMult); this just says WHY in
+  // words, so no second solve is needed. Only added when the read is meaningfully
+  // off-balanced (a station / a heavy bluffer); a balanced villain gets nothing.
+  const vnote = villainReadNote(state, heroIdx, la.callAmount);
+  if (vnote) {
+    return { ...strat, note: `${strat.note} ${vnote}`, notes: [...(strat.notes ?? []), vnote] };
+  }
+  return strat;
+}
+
+/** One-line, spot-specific villain read for the Explain panel: how this opponent's
+ *  tendencies shift the baseline (balanced) recommendation. Text only — no second
+ *  solve — it names the DIRECTION the archetype implies (value-heavy vs air-heavy
+ *  bet; station vs bluffer). Returns null for a balanced/unknown villain. */
+function villainReadNote(state: GameState, heroIdx: number, callAmount: number): string | null {
+  if (state.board.length < 3) return null;
+  const vIdx = primaryVillain(state, heroIdx);
+  if (vIdx < 0 || state.players[vIdx].isHero) return null;
+  const p = getProfile(state.players[vIdx].profileId);
+  const name = state.players[vIdx].name;
+  const bluffPct = Math.round(p.bluffFreq * 100);
+  if (callAmount > 0) {
+    // facing a bet → the read is about bluff-catching
+    if (p.bluffFreq <= 0.18)
+      return `Villain read: ${name} (${p.tag}) rarely bluffs (~${bluffPct}%), so this bet is value-heavy. Vs a balanced player you'd defend more here — against ${name} bluff-catch tighter and fold marginal hands; there's little to catch.`;
+    if (p.bluffFreq >= 0.42)
+      return `Villain read: ${name} (${p.tag}) bluffs a lot (~${bluffPct}%), so this bet range is wide and air-heavy. Vs a balanced player you'd fold more — against ${name} call down lighter and don't overfold your bluff-catchers.`;
+    return null;
+  }
+  // not facing a bet → the read is about how to value/pressure this villain
+  if (p.callStation >= 0.6)
+    return `Villain read: ${name} (${p.tag}) is a calling station — pays off too much, rarely folds. Value bet thin and BIG with made hands, and check back air instead of bluffing (his bluff-catches don't fold).`;
+  if (p.aggression >= 0.8)
+    return `Villain read: ${name} (${p.tag}) is hyper-aggressive — let him do the betting. Check-call / trap strong hands and avoid bluffing into a player who won't fold and barrels for you.`;
+  return null;
 }
 
 // ----------------- helpers -----------------

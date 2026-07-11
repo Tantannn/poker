@@ -29,6 +29,11 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
   const strat = fb.strategy;
   const best = strat.options.find((o) => o.id === fb.best);
   const chosen = strat.options.find((o) => o.id === fb.chosen);
+  // Postflop is an EV model, not a solver — name it "highest-EV" to match the
+  // headline/detail. Preflop charts aren't EV-solved, so keep the old wording.
+  const postflop = strat.source === 'postflop-model';
+  const bestTerm = postflop ? 'highest-EV line' : 'solver line';
+  const engineName = postflop ? 'EV model' : 'solver-model';
 
   return (
     <div className={`feedback-box ${cls}`}>
@@ -66,7 +71,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
       )}
 
       <div className="fb-line">
-        You <b>{fb.chosenLabel}</b> · solver line <b>{fb.bestLabel}</b>
+        You <b>{fb.chosenLabel}</b> · {bestTerm} <b>{fb.bestLabel}</b>
         {fb.evLoss > 0.001 && <span className="fb-evloss"> · −{fb.evLoss.toFixed(2)} bb <CalcLabel id="evLoss" pos="bottom">EV</CalcLabel></span>}
       </div>
       <div className={`fb-rng ${fb.rngMatch ? 'good' : ''}`}>
@@ -120,7 +125,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
           <div className="gp-block">
             <div className="gp-h">Recommended mix</div>
             <p className="gp-muted">
-              The solver-model's best line is <b>{fb.bestLabel}</b>. Frequencies are the mixed strategy; the bar
+              The {engineName}'s best line is <b>{fb.bestLabel}</b>. Frequencies are the mixed strategy; the bar
               shows how often to take each action.
             </p>
             <div className="gp-rows">
