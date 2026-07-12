@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSizingCoach } from './grade';
+import { buildSizingCoach, isFreeGiveUp } from './grade';
 import type { NodeStrategy } from '../strategy';
 
 // Minimal strategy: a small best size vs a big oversized line, with the
@@ -43,5 +43,52 @@ describe('buildSizingCoach', () => {
     const msg = buildSizingCoach(strat(), 'betpot', 2, 1, 'Two Pair');
     expect(msg).toContain('HAND STRENGTH, not the board');
     expect(msg).not.toContain('medium hand'); // Two Pair isn't the medium one-pair tier
+  });
+});
+
+describe('isFreeGiveUp — declining to bluff air is not a real leak', () => {
+  // solver node whose best line is a bet (the turn-solver over-values betting air)
+  const betBest = (): NodeStrategy => ({
+    source: 'postflop-model',
+    bestEv: 3.54,
+    bestId: 'bet33',
+    note: '',
+    options: [
+      { id: 'bet33', label: 'Bet 33%', freq: 0.6, ev: 3.54 },
+      { id: 'check', label: 'Check', freq: 0.0, ev: 1.34 },
+    ],
+  });
+
+  it('softens a CHECK of stone-cold air when best is a bet', () => {
+    expect(isFreeGiveUp(betBest(), 'check', 0)).toBe(true); // strength 0 = Air
+    expect(isFreeGiveUp(betBest(), 'fold', 0)).toBe(true);
+  });
+
+  it('does NOT soften a made hand that should bet (keeps the real penalty)', () => {
+    expect(isFreeGiveUp(betBest(), 'check', 4)).toBe(false); // strong made hand
+    expect(isFreeGiveUp(betBest(), 'check', 2)).toBe(false); // medium hand
+  });
+
+  it('only softens give-ups, never the aggressive line itself', () => {
+    expect(isFreeGiveUp(betBest(), 'bet33', 0)).toBe(false);
+  });
+
+  it('does not fire when the best line is itself a check', () => {
+    const checkBest: NodeStrategy = {
+      source: 'postflop-model',
+      bestEv: 1.34,
+      bestId: 'check',
+      note: '',
+      options: [
+        { id: 'check', label: 'Check', freq: 1, ev: 1.34 },
+        { id: 'bet33', label: 'Bet 33%', freq: 0, ev: 0.1 },
+      ],
+    };
+    expect(isFreeGiveUp(checkBest, 'check', 0)).toBe(false);
+  });
+
+  it('does not apply to preflop-chart nodes (only the postflop model over-penalises)', () => {
+    const preflop: NodeStrategy = { ...betBest(), source: 'preflop-chart' };
+    expect(isFreeGiveUp(preflop, 'check', 0)).toBe(false);
   });
 });

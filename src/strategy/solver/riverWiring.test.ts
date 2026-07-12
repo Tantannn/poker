@@ -37,10 +37,11 @@ describe('live wiring: river-first node routes through the range-vs-range solver
     expect(total).toBeGreaterThan(0.95);
     expect(total).toBeLessThan(1.05); // a valid probability mix
 
-    // best line = the highest-frequency (primary) equilibrium action
+    // best line = the highest-EV action (tie-break: frequency) — matches the
+    // "highest-EV line" the grader/UI reports, so EV-loss is a true regret.
     const best = strat.options.find((o) => o.id === strat.bestId)!;
-    const maxFreq = Math.max(...strat.options.map((o) => o.freq));
-    expect(best.freq).toBeCloseTo(maxFreq, 5);
+    const maxEv = Math.max(...strat.options.map((o) => o.ev));
+    expect(best.ev).toBeCloseTo(maxEv, 5);
 
     // the nuts on a dry board should value-bet big far more than it checks
     const check = strat.options.find((o) => o.id === 'check')!;

@@ -600,14 +600,22 @@ export function useGame(initialProfiles: string[]) {
   // ---- record hand result + history on completion ----
   // This effect reacts to a one-shot terminal transition (street → 'complete')
   // and persists the result to localStorage + analytics state. It is guarded by
-  // `recordedHand` so it runs exactly once per hand and can't cascade. The
-  // set-state-in-effect lint rule targets derived-state loops, which this is
-  // not — so it's disabled for these two legitimate, guarded writes.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  // `recordedHand` so it runs exactly once per hand and can't cascade.
   useEffect(() => {
     if (game.street !== 'complete') return;
-    if (recordedHand.current === game.handNumber) return;
     if (game.handNumber === 0) return;
+
+    // deferred (exam) mode: the hand is over — reveal every decision's graded
+    // answer at once as the end-of-hand review. This must run on EVERY
+    // completion, including a Repeat Hand replay (which reuses the same
+    // handNumber), so it sits ABOVE the record-once guard below. Immediate mode
+    // showed each answer live, so its buffer is empty and this is a no-op.
+    if (feedbackMode === 'deferred') setFeedbackLog(pendingFbRef.current.slice());
+
+    // record the result into stats / history / observed-stats exactly once per
+    // hand. A Repeat Hand replays the same handNumber, so this guard also stops
+    // the replay from double-counting into the session.
+    if (recordedHand.current === game.handNumber) return;
     recordedHand.current = game.handNumber;
 
     // fold this hand's actions into the per-seat observed stats (anonymous mode)
@@ -655,14 +663,8 @@ export function useGame(initialProfiles: string[]) {
       saveHistory(next);
       return next;
     });
-
-    // deferred (exam) mode: the hand is over — reveal every decision's graded
-    // answer at once as the end-of-hand review. (Immediate mode showed each the
-    // moment it was made, so its buffer is empty and this is a harmless no-op.)
-    if (feedbackMode === 'deferred') setFeedbackLog(pendingFbRef.current.slice());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.street, game.handNumber]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // play the outcome cue once per graded decision (effect, not the state
   // updater — keeps it from double-firing under StrictMode in dev).

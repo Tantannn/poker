@@ -11,7 +11,7 @@ import { classifyHandClass } from '../strategy/handClass';
 import { getProfile } from '../ai/profiles';
 import type { ActionClass } from './feedback';
 import type { MoveTier } from '../store/stats';
-import { moveTier } from '../store/stats';
+import { moveTier, TIER } from '../store/stats';
 
 // The grade uses the same five GTOW-style tiers as the session scorecard.
 export type Verdict = MoveTier;
@@ -67,6 +67,24 @@ export interface NodeFeedback {
 
 const pctOf = (f: number) => `${Math.round(f * 100)}%`;
 const isAggro = (id: ActionId) => id.startsWith('bet') || id.startsWith('raise') || id === 'allin';
+
+/** GTO give-up guard: a CHECK/FOLD of a stone-cold air hand (strength 0) when the
+ *  solver's best line is a bet is a "declining to bluff" — ~free at equilibrium, yet
+ *  the turn model over-penalises it (a hero check is scored as an instant showdown,
+ *  no river subgame). gradeNode uses this to clamp the penalty into the sound-line
+ *  band. Scoped to postflop-model + true air so it never softens a real error (e.g.
+ *  checking a made hand that should value-bet keeps its full penalty). */
+export function isFreeGiveUp(
+  strategy: NodeStrategy,
+  chosen: ActionId,
+  handStrength: number | null,
+): boolean {
+  if (strategy.source !== 'postflop-model') return false;
+  if (chosen !== 'check' && chosen !== 'fold') return false;
+  if (handStrength !== 0) return false;
+  const bestOpt = strategy.options.find((o) => o.id === strategy.bestId);
+  return !!bestOpt && isAggro(bestOpt.id);
+}
 
 /** Oversizing coach: fires only when hero bet/raised BIGGER than the best line
  *  and it cost EV. Surfaces the reason a big bet backfires — worse hands fold,
@@ -192,9 +210,20 @@ export function gradeNode(
   ctx?: { state: GameState; heroIdx: number },
 ): NodeFeedback {
   const chosen = matchActionId(strategy, action, callAmount);
-  const loss = computeEvLoss(strategy, chosen);
+  let loss = computeEvLoss(strategy, chosen);
   const chosenEv = evOf(strategy, chosen);
   const prescribed = rngPrescription(strategy, roll);
+
+  // Hand class (air / draw / made) at this node — reused for the give-up guard
+  // below and the sizing coach further down.
+  const hand = ctx ? classifyHandClass(ctx.state.players[ctx.heroIdx].holeCards, ctx.state.board) : null;
+
+  // GTO give-up guard (see isFreeGiveUp): the turn model over-penalises declining to
+  // bluff stone-cold air, because it scores a hero check as an instant showdown. When
+  // it applies, clamp the penalty into the "sound line" band — live AND in the
+  // scorecard, which re-derives the tier from this same evLoss.
+  const softenedGiveUp = isFreeGiveUp(strategy, chosen, hand?.strength ?? null) && loss > TIER.correct;
+  if (softenedGiveUp) loss = TIER.correct;
 
   let verdict: Verdict = moveTier(loss, chosenEv);
   // Preflop CHART EVs are relative estimates, NOT solved — so a tiny EV gap can hide
@@ -217,7 +246,9 @@ export function gradeNode(
   const rngMatch = chosen === prescribed;
 
   let detail: string;
-  if (verdict === 'best' || verdict === 'correct') {
+  if (softenedGiveUp) {
+    detail = `Giving up is fine — you're never forced to bluff. The model rates ${bestLabel} higher mainly because it scores a check as an instant turn showdown (no river), which understates a give-up. Checking air is a sound, low-cost line.`;
+  } else if (verdict === 'best' || verdict === 'correct') {
     const lead = verdict === 'best' ? '' : `A fine alternative (−${loss.toFixed(2)} bb). `;
     detail = lead + (strategy.source === 'preflop-chart'
       ? `${strategy.rangeNote}: ${bestLabel} is the standard line.`
@@ -235,9 +266,7 @@ export function gradeNode(
   const nOpp = ctx
     ? ctx.state.players.filter((p, i) => i !== ctx.heroIdx && !p.folded).length
     : 1;
-  const handLabel = ctx
-    ? classifyHandClass(ctx.state.players[ctx.heroIdx].holeCards, ctx.state.board).label
-    : undefined;
+  const handLabel = hand?.label;
 
   return {
     verdict,

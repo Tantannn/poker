@@ -98,8 +98,12 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
 }
 
 /** Shared mapping: a hero-first solver result (river or turn) → NodeStrategy for
- *  hero's specific hand. "Best" = the highest-frequency (primary) equilibrium line;
- *  in equilibrium the played actions are ~EV-indifferent, so freq is the real answer. */
+ *  hero's specific hand. "Best" = the highest-EV line (tie-break: frequency), so it
+ *  matches the "highest-EV line" the grader/UI reports and EV-loss is a true regret.
+ *  In a fully converged equilibrium the played actions are ~EV-indifferent, so this
+ *  is also the primary line; but the finite solve can leave an EV gap between mixed
+ *  actions, and when it does the genuinely most-profitable line must win — otherwise
+ *  we'd crown a lower-EV line "best" and mis-grade the deviation. */
 function heroFirstNodeStrategy(
   res: { heroStrategy: { action: string; freq: number }[][]; heroActionEv: number[][] },
   heroCombos: Combo[],
@@ -132,7 +136,7 @@ function heroFirstNodeStrategy(
   });
 
   let best = options[0];
-  for (const o of options) if (o.freq > best.freq) best = o;
+  for (const o of options) if (o.ev > best.ev || (o.ev === best.ev && o.freq > best.freq)) best = o;
 
   return {
     options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),
@@ -160,7 +164,15 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     pot: p.pot,
     effStack: p.effStack,
     betSizes: RIVER_SIZES,
-    iterations: 600,
+    // 4000, not the old 600: at low iteration counts the averaged villain hasn't
+    // learned to defend yet, so hero's BET EVs are overstated vs a CHECK (which is
+    // modelled as an immediate turn showdown). That made a marginal check — e.g.
+    // giving up with air — look like a ~1.5bb blunder when at equilibrium checking
+    // and betting are near-EV-indifferent. By ~4000 iters the bet EVs converge down
+    // to the check EV, so the grade stops flagging a legitimate give-up. The equity
+    // matrix is the fixed cost; the extra iterations add ~0.4s (worst-case caps, in
+    // the HUD worker) — see the header note on why the caps stay small.
+    iterations: 4000,
   });
 
   return heroFirstNodeStrategy(
@@ -230,7 +242,7 @@ export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | nul
   ];
 
   let best = options[0];
-  for (const o of options) if (o.freq > best.freq) best = o;
+  for (const o of options) if (o.ev > best.ev || (o.ev === best.ev && o.freq > best.freq)) best = o;
 
   return {
     options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),

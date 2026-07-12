@@ -112,7 +112,17 @@
       "Bash(echo \"TSC_DONE exit=$?\")",
       "Bash(echo \"VITEST exit=$?\")",
       "Bash(echo \"=== EXIT $? ===\")",
-      "Bash(./node_modules/.bin/eslint src/hooks/useGame.ts --format stylish)"
+      "Bash(./node_modules/.bin/eslint src/hooks/useGame.ts --format stylish)",
+      "PowerShell(npx eslint src/hooks/useGame.ts; npx tsc -b --pretty false 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 25)",
+      "PowerShell(npx vitest run src/strategy/preflopChart.test.ts 2>&1 | Select-Object -Last 12)",
+      "PowerShell(npx vitest run src/strategy/preflopChart.test.ts 2>&1 | Select-Object -Last 6)",
+      "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 20; echo \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 20)",
+      "PowerShell(npx vitest run src/strategy/solver/__conv_probe.test.ts 2>&1 | Select-String \"iters=\" | ForEach-Object { $_.Line })",
+      "PowerShell(npx vitest run src/strategy/solver/__conv_probe.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 15; echo \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 12)",
+      "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 15; echo \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 14)",
+      "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 15; echo \"---LINT---\"; npx eslint src/analysis/grade.ts src/analysis/grade.test.ts 2>&1 | Select-Object -First 20; echo \"---TESTS---\"; npx vitest run src/analysis/grade.test.ts 2>&1 | Select-Object -Last 10)"
     ]
   }
 }

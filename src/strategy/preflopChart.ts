@@ -252,8 +252,8 @@ export const SCENARIOS: PreflopScenario[] = [
     heroPos: 'BTN',
     bluffFreq: 0.5,
     value: S(['QQ+', 'AKs', 'AKo']),
-    bluff: S(['A5s', 'A4s', 'KQs']),
-    call: S(['JJ-77', 'AQs', 'AJs', 'KQs', 'KQo', 'AQo', 'JTs', 'T9s']),
+    bluff: S(['A5s', 'A4s']),
+    call: S(['JJ-77', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs', 'KQo', 'AQo', 'JTs', 'T9s']),
   },
   {
     id: 'co-vs-3bet',
