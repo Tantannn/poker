@@ -164,15 +164,15 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     pot: p.pot,
     effStack: p.effStack,
     betSizes: RIVER_SIZES,
-    // 4000, not the old 600: at low iteration counts the averaged villain hasn't
-    // learned to defend yet, so hero's BET EVs are overstated vs a CHECK (which is
-    // modelled as an immediate turn showdown). That made a marginal check — e.g.
-    // giving up with air — look like a ~1.5bb blunder when at equilibrium checking
-    // and betting are near-EV-indifferent. By ~4000 iters the bet EVs converge down
-    // to the check EV, so the grade stops flagging a legitimate give-up. The equity
-    // matrix is the fixed cost; the extra iterations add ~0.4s (worst-case caps, in
-    // the HUD worker) — see the header note on why the caps stay small.
-    iterations: 4000,
+    // 2000: the old 4000 was compensating for the CHECK being scored as an instant
+    // turn showdown — at low iters the bet EVs were overstated vs that too-low check,
+    // so a legitimate give-up looked like a ~1.5bb blunder and needed many iters to
+    // converge the bets back down. solveTurn now values a check as a real river
+    // subgame (nestRiverForCheck), so the check baseline is correct and the mix
+    // reaches near-indifference far sooner. 2000 is plenty; the nested per-river
+    // solves are the dominant cost now, so this also claws back the time they add.
+    iterations: 2000,
+    riverNestIterations: 140,
   });
 
   return heroFirstNodeStrategy(

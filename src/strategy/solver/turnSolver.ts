@@ -8,7 +8,7 @@
 
 import type { Card } from '../../engine/cards';
 import { evaluate7 } from '../../engine/evaluator';
-import type { Combo } from './riverSolver';
+import { solveRiver, type Combo } from './riverSolver';
 
 export interface TurnInput {
   heroRange: Combo[];
@@ -18,6 +18,12 @@ export interface TurnInput {
   effStack: number;
   betSizes: number[]; // fractions of pot
   iterations?: number;
+  /** Nest a real river subgame on the CHECK line instead of scoring a check as an
+   *  instant turn showdown. Default true. When false, check = static showdown (the
+   *  old v1 behaviour) — kept as an A/B escape hatch and for cheap unit tests. */
+  nestRiverForCheck?: boolean;
+  /** CFR iterations for each nested per-river-card solve (default 200). */
+  riverNestIterations?: number;
 }
 
 export interface TurnResult {
@@ -61,6 +67,71 @@ function equityVsCombo(hero: [Card, Card], vill: [Card, Card], board: Card[]): n
   return n > 0 ? (win + tie / 2) / n : 0.5;
 }
 
+/** Per-hero-combo EV (chips) of CHECKING the turn, valued as a real river subgame
+ *  instead of an instant showdown. For every river card, the check line is a
+ *  hero-first river node (hero checked the turn → OOP, acts first again) between
+ *  hero's and villain's full ranges — exactly what `solveRiver` models — so nesting
+ *  it credits the check with the river value the flat `equity × pot` payoff omits:
+ *  betting for value when the draw lands, bluffing good cards, giving up cheaply
+ *  when it bricks. Independent of the turn CFR (a check faces no prior turn bet), so
+ *  it's computed ONCE up front and fed in as the check payoff.
+ *
+ *  APPROXIMATION (v1.5): the river subgame uses hero's FULL range, not just the
+ *  hands that actually check the turn. Since strong hands tend to bet the turn, this
+ *  slightly over-credits hero's river bluffs (a capped checking range can't credibly
+ *  bluff as much). It is still far closer than the instant-showdown baseline it
+ *  replaces, and it only nudges the check UP toward its true value — the direction
+ *  that fixes the over-betting bias. Full reach-weighted nesting is a later step. */
+function checkLineRiverEv(
+  H: Combo[],
+  V: Combo[],
+  board4: Card[],
+  P: number,
+  effStack: number,
+  betSizes: number[],
+  riverIters: number,
+): number[] {
+  const nH = H.length;
+  const acc = new Array(nH).fill(0);
+  const cnt = new Array(nH).fill(0);
+  for (let rank = 2; rank <= 14; rank++) {
+    for (let suit = 0; suit < 4; suit++) {
+      const rid = rank * 4 + suit;
+      if (board4.some((c) => id(c) === rid)) continue;
+      const river = { rank, suit };
+      // combos that don't use the river card, with a back-map to the original index.
+      const Hr: Combo[] = [];
+      const hMap: number[] = [];
+      for (let i = 0; i < nH; i++) {
+        if (id(H[i].cards[0]) === rid || id(H[i].cards[1]) === rid) continue;
+        Hr.push(H[i]);
+        hMap.push(i);
+      }
+      const Vr = V.filter((c) => id(c.cards[0]) !== rid && id(c.cards[1]) !== rid);
+      if (!Hr.length || !Vr.length) continue;
+      const res = solveRiver({
+        heroRange: Hr,
+        villainRange: Vr,
+        board: [...board4, river],
+        pot: P,
+        effStack,
+        betSizes,
+        iterations: riverIters,
+      });
+      // hero's equilibrium value for each combo = its strategy-weighted action EV.
+      for (let k = 0; k < Hr.length; k++) {
+        const strat = res.heroStrategy[k];
+        const evs = res.heroActionEv[k];
+        let node = 0;
+        for (let a = 0; a < strat.length; a++) node += strat[a].freq * evs[a];
+        acc[hMap[k]] += node;
+        cnt[hMap[k]] += 1;
+      }
+    }
+  }
+  return acc.map((v, i) => (cnt[i] > 0 ? v / cnt[i] : NaN));
+}
+
 export function solveTurn(inp: TurnInput): TurnResult {
   const H = inp.heroRange;
   const V = inp.villainRange;
@@ -88,6 +159,37 @@ export function solveTurn(inp: TurnInput): TurnResult {
     }
     valid.push(vr);
     eq.push(er);
+  }
+
+  // Per-combo valid villain weight + the OLD static-showdown check value (avg chips),
+  // kept as the fallback. The turn CFR scores actions as villain-weight SUMS, so the
+  // check payoff below is rescaled by vwSum[i]; the final per-combo EV table wants the
+  // AVERAGE, so it uses checkAvg[i] directly.
+  const vwSum = new Array(nH).fill(0);
+  const checkStatic = new Array(nH).fill(0);
+  for (let i = 0; i < nH; i++) {
+    let w = 0;
+    let sd = 0;
+    for (let j = 0; j < nV; j++) {
+      if (!valid[i][j]) continue;
+      w += V[j].w;
+      sd += V[j].w * (eq[i][j] * P); // heroSD(eq, 0) = eq × P
+    }
+    vwSum[i] = w;
+    checkStatic[i] = w > 0 ? sd / w : 0;
+  }
+  // Deeper model: value a CHECK as a real river subgame (see checkLineRiverEv), not an
+  // instant turn showdown. Falls back to the static showdown per combo when disabled
+  // or when a runout yields no value (NaN). This is what stops the solver over-betting
+  // — a check now realises its river potential instead of being scored as give-up.
+  const checkAvg = new Array(nH);
+  const nested =
+    inp.nestRiverForCheck !== false
+      ? checkLineRiverEv(H, V, inp.board, P, inp.effStack, inp.betSizes, inp.riverNestIterations ?? 200)
+      : null;
+  for (let i = 0; i < nH; i++) {
+    const v = nested ? nested[i] : NaN;
+    checkAvg[i] = Number.isFinite(v) ? v : checkStatic[i];
   }
 
   const regretH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
@@ -126,9 +228,9 @@ export function solveTurn(inp: TurnInput): TurnResult {
 
     for (let i = 0; i < nH; i++) {
       const av = new Array(nHeroActions).fill(0);
-      let vCheck = 0;
-      for (let j = 0; j < nV; j++) if (valid[i][j]) vCheck += V[j].w * heroSD(eq[i][j], 0);
-      av[0] = vCheck;
+      // check payoff = river-subgame value, put on the villain-weight SUM scale the
+      // bet lines use (checkAvg is a per-combo average → × vwSum).
+      av[0] = checkAvg[i] * vwSum[i];
       for (let s = 0; s < nSizes; s++) {
         const b = bets[s];
         let vBet = 0;
@@ -164,12 +266,11 @@ export function solveTurn(inp: TurnInput): TurnResult {
   const heroActionEv: number[][] = [];
   for (let i = 0; i < nH; i++) {
     const av = new Array(nHeroActions).fill(0);
-    let vw = 0;
-    for (let j = 0; j < nV; j++) if (valid[i][j]) vw += V[j].w;
+    const vw = vwSum[i];
     const inv = vw > 0 ? 1 / vw : 0;
-    let c = 0;
-    for (let j = 0; j < nV; j++) if (valid[i][j]) c += V[j].w * heroSD(eq[i][j], 0);
-    av[0] = c * inv;
+    // reported check EV = the river-subgame value (average chips), matching the payoff
+    // the CFR optimised against — so the displayed EV and the solved mix agree.
+    av[0] = checkAvg[i];
     for (let s = 0; s < nSizes; s++) {
       const b = bets[s];
       let bt = 0;

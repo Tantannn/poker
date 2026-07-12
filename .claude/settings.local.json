@@ -123,7 +123,11 @@
       "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 15; echo \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 12)",
       "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 15; echo \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 14)",
       "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 15; echo \"---LINT---\"; npx eslint src/analysis/grade.ts src/analysis/grade.test.ts 2>&1 | Select-Object -First 20; echo \"---TESTS---\"; npx vitest run src/analysis/grade.test.ts 2>&1 | Select-Object -Last 10)",
-      "Bash(echo \"test-exit=$?\")"
+      "Bash(echo \"test-exit=$?\")",
+      "Bash(npm run *)",
+      "Bash(echo \"solver exit=$?\")",
+      "Bash(echo \"eslint exit=$?\")",
+      "Bash(echo \"build exit=$?\")"
     ]
   }
 }

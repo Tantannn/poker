@@ -144,15 +144,19 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
             </p>
             <div className="gp-rows">
               {strat.options.map((o) => {
-                const open = openWhy.has(o.id);
+                // Only postflop options carry a `why`/`sizeNote`; preflop-chart
+                // options don't. Without this guard the caret would flip open on a
+                // preflop row and reveal nothing — reads as a broken dropdown.
+                const hasWhy = !!(o.why || o.sizeNote);
+                const open = hasWhy && openWhy.has(o.id);
                 return (
                   <div key={o.id} className="gp-row-wrap">
                     <button
                       type="button"
-                      className={`gp-row ${o.id === fb.best ? 'is-best' : ''} ${o.id === fb.chosen ? 'is-chosen' : ''} ${open ? 'is-open' : ''}`}
-                      onClick={() => toggleWhy(o.id)}
-                      aria-expanded={open}
-                      title="Show why this line has this EV"
+                      className={`gp-row ${o.id === fb.best ? 'is-best' : ''} ${o.id === fb.chosen ? 'is-chosen' : ''} ${open ? 'is-open' : ''} ${hasWhy ? '' : 'no-why'}`}
+                      onClick={hasWhy ? () => toggleWhy(o.id) : undefined}
+                      aria-expanded={hasWhy ? open : undefined}
+                      title={hasWhy ? 'Show why this line has this EV' : undefined}
                     >
                       <span className="gp-bar-wrap">
                         <span
@@ -170,11 +174,11 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
                         {o.ev >= 0 ? '+' : ''}
                         {o.ev.toFixed(2)} bb
                       </span>
-                      <span className="gp-why-caret">{open ? '▾' : '▸'}</span>
+                      <span className="gp-why-caret">{hasWhy ? (open ? '▾' : '▸') : ''}</span>
                     </button>
-                    {open && o.why && (
+                    {open && (
                       <div className="gp-why">
-                        <GlossaryText text={o.why} />
+                        {o.why && <GlossaryText text={o.why} />}
                         {o.sizeNote && <div className="gp-why-size">{o.sizeNote}</div>}
                       </div>
                     )}

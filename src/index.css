@@ -934,6 +934,9 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 button.gp-row { width: 100%; border: none; background: none; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 button.gp-row:hover { background: rgba(255,255,255,0.05); }
 button.gp-row.is-best:hover { background: rgba(46,194,126,0.14); }
+button.gp-row.no-why { cursor: default; }
+button.gp-row.no-why:hover { background: none; }
+button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .gp-why-caret { flex: none; width: 12px; text-align: center; font-size: 10px; color: var(--muted); }
 .gp-why { font-size: 12.5px; line-height: 1.5; color: var(--txt); background: var(--bg2); border-left: 2px solid var(--gold); border-radius: 0 6px 6px 0; padding: 7px 10px; margin: 3px 0 5px; }
 .gp-why-size { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
