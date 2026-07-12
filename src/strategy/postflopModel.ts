@@ -122,7 +122,7 @@ function riverCallNote(isRiver: boolean, e: number, need: number): string {
 function whyBet(
   c: BetClass,
   e: number,
-  d: { fe: number; e2: number; contFrac?: number },
+  d: { fe: number; e2: number; contFrac?: number; denial?: number; streetValue?: number },
   outs: number,
   isAllIn: boolean,
   river: boolean,
@@ -134,11 +134,19 @@ function whyBet(
   const cont = d.contFrac != null ? `${Math.round(d.contFrac * 100)}%` : '';
   let base: string;
   switch (c) {
-    case 'value':
-      base = isAllIn
-        ? `Value shove — but a jam folds out every worse hand and gets called almost only by what beats you${cont ? ` (~${cont} of his range continues, the strong part)` : ''}, so your equity WHEN CALLED drops to ~${e2}. Worth it only when committed (low SPR) or vs a station who won't fold — otherwise a sized value bet that keeps worse hands in prints more across streets.`
-        : `Value bet: you're ahead (~${eq}). Bet to get WORSE hands to call and build the pot${cont ? ` — ~${cont} of his range continues at this size` : ''}. Size to the worst hand that still calls: too big and you fold out your customers and get called only by what beats you, too small and you leave value behind.`;
+    case 'value': {
+      if (isAllIn) {
+        base = `Value shove — but a jam folds out every worse hand and gets called almost only by what beats you${cont ? ` (~${cont} of his range continues, the strong part)` : ''}, so your equity WHEN CALLED drops to ~${e2}. Worth it only when committed (low SPR) or vs a station who won't fold — otherwise a sized value bet that keeps worse hands in prints more across streets.`;
+        break;
+      }
+      // Per-line reason stays short and table-usable: the continue% differs per
+      // size and is actionable; the raw denial / street-value chip deltas are
+      // solver internals a player can't use, so they stay in the math panel, not
+      // here. The "how big?" RULE (board texture → size) is printed once in the
+      // overview note (buildNote), not repeated on every line.
+      base = `Value bet: you're ahead (~${eq}). Bet to get WORSE hands to call and build the pot${cont ? ` — ~${cont} of his range continues at this size` : ''}. Size to the worst hand that still calls — too big folds out your customers, too small leaves value behind.`;
       break;
+    }
     case 'thin':
       base = `Thin value / merge: only a slight favourite (~${eq}). Bet to get called by worse — but size down, you're not strong enough to bloat the pot.`;
       break;
@@ -291,9 +299,9 @@ function buildNote(a: {
       s.push(
         `On the river nothing can improve: a medium hand is a pure bluff-catcher, so that ~${ePct}% really asks "how often is this bet a bluff?". River bets are polarized — strong value and bluffs, little between.`,
       );
-    else if (a.hasMade && a.eHU >= 0.62)
+    else if (a.hasMade && a.e >= 0.62)
       s.push(`On the river no more cards are coming, so bet to get WORSE hands to call — with a made hand this strong you profit every time a weaker hand pays you off, and checking a value hand just leaves that money behind.`);
-    else if (a.hasMade && a.eHU >= 0.5)
+    else if (a.hasMade && a.e >= 0.5)
       s.push(`On the river no more cards are coming: only a slight favourite, so this is thin value — a small bet gets called by worse, but don't bloat the pot.`);
     else
       s.push(`On the river no more cards are coming, so a bet only makes money when MORE worse hands call than better ones — with a middling hand, checking usually beats betting.`);
@@ -341,12 +349,15 @@ function buildNote(a: {
   // it can value-bet, contradicting the opening sentence.
   if (a.canRaise) {
     const verb = a.C > 0 ? 'raise' : 'bet';
+    // The one solid "how big?" rule (same mapping as the Cheat sheet), in plain
+    // fractions so it's usable at the table. Multiway bumps the size up a notch.
+    const mw = a.nOpp > 1 ? ', and a notch bigger multiway to charge the whole field' : '';
     if (a.sprKnown && a.spr < 1 && a.eHU >= 0.6)
       s.push(`SPR is under 1 and you hold a strong hand, so you're committed: the stack goes in over the streets regardless. Any committing size is close in EV — a token ${verb} just gives draws a cheap card first, so ${verb} big (or jam) and take the equity now.`);
     else if (a.street !== 'river' && a.wet01 >= 0.35 && a.e >= 0.5 && a.eHU >= 0.6)
-      s.push(`The board is draw-heavy, so ${verb} bigger — charging the straight/flush draws and denying their equity is worth more than the extra thin calls a small ${verb} would pick up.`);
-    else if (a.eHU >= 0.65 && (a.C === 0 || a.e >= 0.5))
-      s.push(`You're strong enough to ${verb} for value — size to the worst hand that still calls; oversizing folds out your customers.`);
+      s.push(`How big: size from the BOARD, not the pot in front of you — dry ⅓, semi-wet ½, wet ⅔–pot${mw}. This board is draw-heavy, so favour the bigger end and charge the straight/flush draws. Then the one test: would a WORSE hand still call it? Yes → the size is right; if only better hands call, come down.`);
+    else if (a.eHU >= 0.65 && a.e >= 0.5)
+      s.push(`How big: size from the BOARD — dry ⅓, semi-wet ½, wet ⅔–pot${mw}. Then the one test: would a WORSE hand still call it? Yes → the size is right; if only better hands call, come down (oversizing just folds out your customers).`);
     else if (a.eHU >= 0.45 && a.e >= 0.35)
       s.push(`Bigger bets only get called by stronger hands, so with a hand this strength ${verb === 'raise' ? 'raising' : 'betting'} huge or shoving isn't rewarded.`);
     else s.push(`With this little equity a ${verb} is a bluff — it profits only from folds, so it needs a believable story and good blockers, not a "maybe I'm good" hope.`);

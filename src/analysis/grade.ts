@@ -68,6 +68,40 @@ export interface NodeFeedback {
 const pctOf = (f: number) => `${Math.round(f * 100)}%`;
 const isAggro = (id: ActionId) => id.startsWith('bet') || id.startsWith('raise') || id === 'allin';
 
+/** The sizing family of an aggressive action: two bets (or two raises) that differ
+ *  only in % are the SAME strategic decision at different sizes. Returns null for
+ *  check/call/fold and for all-in (a jam is a commitment choice, not a size nuance). */
+function sizingFamily(id: ActionId): 'bet' | 'raise' | null {
+  if (id === 'allin') return null;
+  if (id.startsWith('bet')) return 'bet';
+  if (id.startsWith('raise')) return 'raise';
+  return null;
+}
+
+/** Bet-SIZING near-tie: the chosen line and the best line are aggressive of the
+ *  SAME family (both bets, or both raises) and differ only in size, with an EV gap
+ *  inside a small, pot-relative tolerance. Adjacent sizes are a mix the heuristic
+ *  can't resolve — they sit inside its EV noise — so this is a sound line, not a
+ *  "wrong". gradeNode uses it to clamp the tier into the sound band while still
+ *  displaying the TRUE gap; `best` (the top-EV size) is unchanged. Scoped to the
+ *  postflop model. A clearly-off size (a min-raise, a ½-pot on a board that wanted
+ *  pot) clears the tolerance and keeps its full penalty. `loss` = raw EV gap (bb),
+ *  `potBB` = pot at decision time (bb). */
+export function isSizingNearTie(
+  strategy: NodeStrategy,
+  chosen: ActionId,
+  chosenEv: number,
+  loss: number,
+  potBB: number,
+): boolean {
+  if (strategy.source !== 'postflop-model') return false;
+  const bestFam = sizingFamily(strategy.bestId);
+  if (bestFam == null || sizingFamily(chosen) !== bestFam || chosen === strategy.bestId) return false;
+  if (chosenEv <= 0 || loss <= TIER.correct) return false;
+  const tol = Math.min(3, Math.max(TIER.correct, potBB * 0.1));
+  return loss <= tol;
+}
+
 /** GTO give-up guard: a CHECK/FOLD of a stone-cold air hand (strength 0) when the
  *  solver's best line is a bet is a "declining to bluff" — ~free at equilibrium, yet
  *  the turn model over-penalises it (a hero check is scored as an instant showdown,
@@ -211,6 +245,7 @@ export function gradeNode(
 ): NodeFeedback {
   const chosen = matchActionId(strategy, action, callAmount);
   let loss = computeEvLoss(strategy, chosen);
+  const rawLoss = loss; // true EV gap, kept for display even when the tier is softened
   const chosenEv = evOf(strategy, chosen);
   const prescribed = rngPrescription(strategy, roll);
 
@@ -224,6 +259,20 @@ export function gradeNode(
   // scorecard, which re-derives the tier from this same evLoss.
   const softenedGiveUp = isFreeGiveUp(strategy, chosen, hand?.strength ?? null) && loss > TIER.correct;
   if (softenedGiveUp) loss = TIER.correct;
+
+  // Bet-SIZING near-tie: when hero's line and the best line are aggressive of the
+  // SAME family (both bets, or both raises), the only difference is size — a mixed
+  // decision the heuristic can't resolve precisely, since adjacent sizes sit inside
+  // its EV noise. Grade a small, pot-relative gap as a sound line instead of "wrong",
+  // so e.g. a ¾-pot raise where pot-pot rated highest isn't flagged as a costly
+  // error. `best` is unchanged (the star still points at the top-EV size) and the
+  // TRUE gap is still displayed (rawLoss) — only the verdict/scorecard tier softens.
+  // A clearly-off size (a min-raise, or a ½-pot on a board that wanted pot) keeps its
+  // full penalty because its gap clears the tolerance. Postflop-model only; preflop
+  // deviations are graded by frequency below.
+  const potBB = ctx ? potTotal(ctx.state) / ctx.state.bigBlind : 0;
+  const softenedSizing = !softenedGiveUp && isSizingNearTie(strategy, chosen, chosenEv, loss, potBB);
+  if (softenedSizing) loss = TIER.correct;
 
   let verdict: Verdict = moveTier(loss, chosenEv);
   // Preflop CHART EVs are relative estimates, NOT solved — so a tiny EV gap can hide
@@ -239,7 +288,7 @@ export function gradeNode(
     }
   }
 
-  const headline = HEADLINE[verdict](loss);
+  const headline = HEADLINE[verdict](softenedSizing ? rawLoss : loss);
 
   const bestLabel = labelFor(strategy, strategy.bestId);
   const chosenLabel = labelFor(strategy, chosen);
@@ -248,6 +297,8 @@ export function gradeNode(
   let detail: string;
   if (softenedGiveUp) {
     detail = `Giving up is fine — you're never forced to bluff. The model rates ${bestLabel} higher mainly because it scores a check as an instant turn showdown (no river), which understates a give-up. Checking air is a sound, low-cost line.`;
+  } else if (softenedSizing) {
+    detail = `${chosenLabel} and ${bestLabel} are the same decision at a slightly different size — ${rawLoss.toFixed(2)} bb apart, which is inside the model's margin. Bet sizing is a mix and adjacent big sizes are near-equivalent, so this is a sound line, not an error. Pick one size and be consistent — ${bestLabel} edged it here, but that gap isn't something you can read at the table.`;
   } else if (verdict === 'best' || verdict === 'correct') {
     const lead = verdict === 'best' ? '' : `A fine alternative (−${loss.toFixed(2)} bb). `;
     detail = lead + (strategy.source === 'preflop-chart'
