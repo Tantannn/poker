@@ -38,7 +38,16 @@ function classifyBet(eHU: number, eField: number, outs: number, hasMade: boolean
   // and betting it isn't a semi-bluff (the old `eHU >= 0.3` trigger mislabelled 88 on
   // 9-7-7 as "semi-bluff — keep barreling cards that complete your draw", a draw that
   // doesn't exist).
-  if (outs >= 4) return 'semibluff';
+  //
+  // MADE-FAVOURITE GUARD: a hand that is already a heads-up favourite (eHU ≥ 0.5) is
+  // NOT semi-bluffing even with 4+ outs — those are IMPROVEMENT outs on a made hand
+  // (top pair → two pair/trips), upside, not its primary equity. Its plan is value /
+  // showdown, not "win by folds + completing a draw", so "keep barreling cards that
+  // complete your draw" is wrong coaching. Such a hand only fails the value/thin bars
+  // because the FIELD drags eField down multiway; that makes it MARGINAL (pot-control /
+  // check), handled just below — never a semi-bluff. Only an underdog-heads-up hand
+  // (eHU < 0.5), where the draw genuinely IS the equity, semi-bluffs.
+  if (outs >= 4 && !(hasMade && eHU >= 0.5)) return 'semibluff';
   // Made hand that failed the value/thin bars and holds no draw: a bluff-catcher /
   // pure showdown hand. A bet folds out the worse hands it beats and is called only by
   // better, so it can neither get value nor semi-bluff — it wants to CHECK. Give it its

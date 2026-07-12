@@ -10,6 +10,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
   const [explain, setExplain] = useState(false);
   const [showChart, setShowChart] = useState(false);
   const [showCheat, setShowCheat] = useState(false);
+  const [openWhy, setOpenWhy] = useState<Set<string>>(new Set());
   const [prevFb, setPrevFb] = useState(fb);
 
   // when a new decision is graded, auto-open the gameplan for a leak/mistake
@@ -17,7 +18,19 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
     setPrevFb(fb);
     setExplain(fb ? fb.verdict !== 'best' && fb.verdict !== 'correct' : false);
     setShowChart(false);
+    // pre-open the "why" for the best line and the line you took, so the
+    // comparison you most need — "why is the top line better than mine?" — is
+    // visible without a click.
+    setOpenWhy(fb ? new Set([fb.best, fb.chosen]) : new Set());
   }
+
+  const toggleWhy = (id: string) =>
+    setOpenWhy((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
 
   if (!fb) return null;
   const cls =
@@ -127,32 +140,47 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
             <div className="gp-h">Recommended mix</div>
             <p className="gp-muted">
               The {engineName}'s best line is <b>{fb.bestLabel}</b>. Frequencies are the mixed strategy; the bar
-              shows how often to take each action.
+              shows how often to take each action. <b>Tap any line</b> for the reason behind its EV.
             </p>
             <div className="gp-rows">
-              {strat.options.map((o) => (
-                <div
-                  key={o.id}
-                  className={`gp-row ${o.id === fb.best ? 'is-best' : ''} ${o.id === fb.chosen ? 'is-chosen' : ''}`}
-                >
-                  <span className="gp-bar-wrap">
-                    <span
-                      className="gp-bar"
-                      style={{ width: `${o.freq * 100}%`, background: KIND_COLOR[o.kind ?? 'fold'] }}
-                    />
-                    <span className="gp-lbl">
-                      {o.label}
-                      {o.id === fb.best && <span className="best-tag">best</span>}
-                      {o.id === fb.chosen && <span className="you-tag">you</span>}
-                    </span>
-                    <span className="gp-freq">{(o.freq * 100).toFixed(0)}%</span>
-                  </span>
-                  <span className={`gp-ev ${o.ev >= 0 ? 'pos' : 'neg'}`}>
-                    {o.ev >= 0 ? '+' : ''}
-                    {o.ev.toFixed(2)} bb
-                  </span>
-                </div>
-              ))}
+              {strat.options.map((o) => {
+                const open = openWhy.has(o.id);
+                return (
+                  <div key={o.id} className="gp-row-wrap">
+                    <button
+                      type="button"
+                      className={`gp-row ${o.id === fb.best ? 'is-best' : ''} ${o.id === fb.chosen ? 'is-chosen' : ''} ${open ? 'is-open' : ''}`}
+                      onClick={() => toggleWhy(o.id)}
+                      aria-expanded={open}
+                      title="Show why this line has this EV"
+                    >
+                      <span className="gp-bar-wrap">
+                        <span
+                          className="gp-bar"
+                          style={{ width: `${o.freq * 100}%`, background: KIND_COLOR[o.kind ?? 'fold'] }}
+                        />
+                        <span className="gp-lbl">
+                          {o.label}
+                          {o.id === fb.best && <span className="best-tag">best</span>}
+                          {o.id === fb.chosen && <span className="you-tag">you</span>}
+                        </span>
+                        <span className="gp-freq">{(o.freq * 100).toFixed(0)}%</span>
+                      </span>
+                      <span className={`gp-ev ${o.ev >= 0 ? 'pos' : 'neg'}`}>
+                        {o.ev >= 0 ? '+' : ''}
+                        {o.ev.toFixed(2)} bb
+                      </span>
+                      <span className="gp-why-caret">{open ? '▾' : '▸'}</span>
+                    </button>
+                    {open && o.why && (
+                      <div className="gp-why">
+                        <GlossaryText text={o.why} />
+                        {o.sizeNote && <div className="gp-why-size">{o.sizeNote}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 

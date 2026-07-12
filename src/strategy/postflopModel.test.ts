@@ -104,6 +104,29 @@ describe('solvePostflop — low-SPR sizing convergence', () => {
   });
 });
 
+describe('solvePostflop — a made hand behind the field is marginal, not a semi-bluff', () => {
+  // J9s top pair weak kicker, J-high two-tone flop, OOP first-to-act, 4-way so the
+  // field drags equity below the value/thin bars. Its ~5 IMPROVEMENT outs must NOT
+  // relabel a made top pair as a semi-bluff ("keep barreling cards that complete
+  // your draw") — it's a bluff-catcher that wants to check / small-bet.
+  const tpwk: PostflopInput = {
+    hero: cards('Js 9s'), board: cards('Jc 6c 2h'),
+    oppRange: range, oppRanges: [range, range, range],
+    pot: 25, toCall: 0, heroCommitted: 0, currentBet: 0,
+    minRaiseTo: 2, maxRaiseTo: 210, canCheck: true, canRaise: true,
+    bigBlind: 2, iterations: 4000, position: 'oop', effStack: 175,
+  };
+
+  it('classifies the small bet as marginal (passive), never bluff/semi-bluff', () => {
+    const s = solvePostflop(tpwk);
+    const bet = s.options.find((o) => o.id === 'bet33')!;
+    expect(s.equity!).toBeLessThan(0.45); // on the value/thin-fail path
+    expect(bet.kind).toBe('passive');
+    expect(bet.why?.startsWith('Marginal made hand')).toBe(true);
+    expect(bet.why).not.toContain('keep barreling cards that complete your draw');
+  });
+});
+
 describe('solvePostflop — sizing matters when DEEP', () => {
   const aa: PostflopInput = {
     hero: cards('Ad Ac'), board: cards('7s 9d 3c'),
