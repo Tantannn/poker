@@ -492,8 +492,10 @@ function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | u
 
 /** Likelihood (relative weight) that a villain holding this concrete combo would
  *  take the action they took, given the board. Value/strong-draw hands bet; air
- *  mostly gives up — and a bigger bet thins the weak end harder (polarization). */
-function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolean, betFrac: number, bluffMult = 1): number {
+ *  mostly gives up — and a bigger bet thins the weak end harder (polarization).
+ *  Exported so the equity-vs-range DRILL can condition on a bet the same way the
+ *  solver does — the discounted number the drill teaches then matches the game. */
+export function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet: boolean, betFrac: number, bluffMult = 1): number {
   const held = evaluate7([a, b, ...board]);
   const cat = held.categoryRank; // 0 high card .. 8 straight flush
   const outs = board.length < 5 ? countOuts([a, b], board).outs : 0; // draws (flop/turn)
@@ -653,6 +655,19 @@ function postflopStrategy(
     }
   }
 
+  // ARCHETYPE STICKINESS for the bet-EV model. When HERO bets, how big to size is
+  // driven by how much of villain's range keeps calling — which depends on his type,
+  // not just the board. Map the primary villain's callStation (GTO baseline ~0.30) to a
+  // continue-rate shift: a station (0.85 → +0.28) keeps calling big sizes, so the model
+  // now recommends bigger value and stops recommending bluffs; a nit (0.10 → −0.10)
+  // folds more, so fold equity rises. hero / unknown → 0 (balanced, unchanged).
+  const cbVIdx = primaryVillain(state, heroIdx);
+  const cbVp = cbVIdx >= 0 ? state.players[cbVIdx] : null;
+  const contBias =
+    cbVp && !cbVp.isHero
+      ? Math.max(-0.15, Math.min(0.3, (getProfile(cbVp.profileId).callStation - 0.3) * 0.5))
+      : 0;
+
   const strat = solvePostflop({
     hero: hero.holeCards,
     board: state.board,
@@ -674,13 +689,15 @@ function postflopStrategy(
     precomputedEquity: equityOverride,
     comboWeight,
     position,
+    contBias,
   });
 
   // Villain-read overlay: name how THIS opponent's tendencies shift the baseline
-  // (balanced) line — the "normally X, vs this villain Y" the user asked for. The
-  // EV numbers already bake the archetype in (via bluffMult); this just says WHY in
-  // words, so no second solve is needed. Only added when the read is meaningfully
-  // off-balanced (a station / a heavy bluffer); a balanced villain gets nothing.
+  // (balanced) line — the "normally X, vs this villain Y" the user asked for. The EV
+  // numbers already bake the archetype in (bluffMult when hero FACES a bet; contBias
+  // when hero BETS), so this just says WHY in words — no second solve is needed. Only
+  // added when the read is meaningfully off-balanced (a station / a heavy bluffer); a
+  // balanced villain gets nothing.
   const vnote = villainReadNote(state, heroIdx, la.callAmount);
   if (vnote) {
     return { ...strat, note: `${strat.note} ${vnote}`, notes: [...(strat.notes ?? []), vnote] };

@@ -196,6 +196,12 @@ export interface PostflopInput {
    *  draw that hits actually WINS vs the villain's *conditioned* betting range
    *  (clean outs), instead of crediting every raw out as a winner. */
   comboWeight?: ComboWeight;
+  /** villain-stickiness shift to the per-opponent continue rate (additive to contHU),
+   *  derived from the archetype's callStation. + for a calling station (continues with
+   *  a WIDER slice at every size, so big value sizes keep getting called — they win the
+   *  EV race and bluffs stop working); − for a nit (folds a wider slice, so fold equity
+   *  rises and bluffs / bigger bets gain). 0 = balanced / unknown / hero. */
+  contBias?: number;
 }
 
 interface Candidate {
@@ -423,6 +429,10 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const ip = inp.position === 'ip';
   const realize = ip ? 1.06 : oop ? 0.9 : 1.0;
   const feMult = ip ? 1.1 : oop ? 0.9 : 1.0;
+  // archetype stickiness (set by index.ts from the villain's callStation): how much
+  // wider (station, +) / tighter (nit, −) THIS opponent continues vs a bet than a
+  // balanced player. Threaded into computeAggro's base continue rate. 0 = balanced.
+  const contBias = inp.contBias ?? 0;
   const eReal = Math.min(1, e * realize);
 
   // ---- depth: effective stack behind + SPR ----
@@ -530,7 +540,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);
+    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01, contBias);
     const cls = classifyBet(eHU, e, outs, hasMade);
     const sv = d.streetValue > 0.05;
     const dv = d.denial > 0.05;
@@ -570,7 +580,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   // range-vs-range modelling (a Tier-2 change), not more sizes here.
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01);
+    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01, contBias);
     const cls = classifyBet(eHU, e, outs, hasMade);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
@@ -712,6 +722,7 @@ function computeAggro(
   eField = e,
   flushLevel = 0, // 0 = not flush-dominated; 3 = monotone/3-flush (mild); 4+ = made-flush wall
   wet01 = 0, // 0..1 draw pressure — drives the denial (charge) vs multi-street (keep-in) tradeoff
+  contBias = 0, // archetype stickiness: + station continues wider (big value wins), − nit folds more (bluffs win)
 ): AggroDetail {
   // Cap the bet by the EFFECTIVE stack: chips past what opponents can call come back,
   // so a jam vs a short stack is NOT a giant overbet — it's whatever fraction of the
@@ -769,6 +780,15 @@ function computeAggro(
   // 1/(1+s) of range. This single rate feeds the caller-count distribution, the
   // pot-split, and the range-strength lift below, so they can't disagree.
   let contHU = 1 / (1 + Math.max(0, s));
+  // ARCHETYPE STICKINESS: a calling station continues with a WIDER slice at every size
+  // (+contBias), a nit folds a wider slice (−contBias). Applied to the BASE per-opponent
+  // continue rate so it flows into BOTH the fold-equity `q` and the range-tightening
+  // `eTight`: vs a station big value sizes keep getting called (they win the EV race and
+  // bluffs stop working, since fe collapses); vs a nit fold equity rises so bluffs and
+  // bigger bets gain. Clamped here, then the physical flush floors below still override —
+  // a made flush never folds no matter the opponent's type. Guarded on contBias !== 0
+  // so the balanced path (no archetype set — drills, tests) is byte-identical to before.
+  if (contBias !== 0) contHU = Math.max(0.02, Math.min(0.98, contHU + contBias));
   // FLUSH DOMINATION floor: hero holds none of the board suit, so on a 4+ flush board
   // one-card flushes never fold; on a 3-flush board made flushes are rare but draws
   // are everywhere — a milder floor.
@@ -876,10 +896,10 @@ function computeAggro(
   if (!isAllIn && cardsToCome > 0 && sprLocal > 0 && sprLocal < 1 && eOne > 0.5) {
     committed = true;
     const sA = effStack / P; // the size the stacks actually go in at
-    const qA = Math.max(0.02, Math.min(0.98, 1 / (1 + sA) + (1 - feMult) * 0.15 + wetness));
+    const qA = Math.max(0.02, Math.min(0.98, 1 / (1 + sA) + contBias + (1 - feMult) * 0.15 + wetness));
     const contA = 1 - Math.max(0.02, Math.pow(1 - qA, oppCount));
     const kbarA = (oppCount * qA) / Math.max(1e-6, 1 - Math.pow(1 - qA, oppCount));
-    const contHUA = 1 / (1 + sA); // per-opponent continue vs the all-in size
+    const contHUA = contBias !== 0 ? Math.max(0.02, Math.min(0.98, 1 / (1 + sA) + contBias)) : 1 / (1 + sA); // per-opponent continue vs the all-in size, archetype-adjusted
     const eOneA = Math.max(0, (Math.min(1, e * realize) - (1 - contHUA)) / Math.max(1e-6, contHUA) - flushTax);
     let e2A = eOneA;
     if (oppCount > 1) {

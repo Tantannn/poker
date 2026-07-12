@@ -309,6 +309,9 @@ export default function App() {
       <footer className="app-footer">
         Runs 100% locally · nothing leaves your machine · ranges &amp; feedback are training baselines,
         not guarantees. Play responsibly.
+        <span className="app-version" title={`Built ${__BUILD_TIME__}`}>
+          v{__APP_VERSION__} · {__BUILD_SHA__} · {__BUILD_TIME__.slice(0, 16).replace('T', ' ')} UTC
+        </span>
       </footer>
     </div>
   );

@@ -78,6 +78,7 @@ body {
 .nav-empty { grid-column: 1 / -1; color: var(--muted); font-size: 13px; padding: 6px 4px; }
 
 .app-footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
+.app-version { display: block; margin-top: 6px; font-size: 10px; opacity: 0.55; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 
 /* ---------- calc tooltips (trigger + antd overlay content) ---------- */
 .tip { display: inline-flex; align-items: center; cursor: help; outline: none; }

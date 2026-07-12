@@ -1,9 +1,31 @@
 import { defineConfig } from 'vitest/config'
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Build stamp — surfaced in the app footer so you can confirm a deploy actually
+// shipped the commit you expect (the PWA service worker caches aggressively, so a
+// stale page is otherwise hard to spot). SHA falls back to the CI-provided
+// GITHUB_SHA, then 'dev', when git isn't available.
+function gitSha(): string {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim()
+  } catch {
+    return (process.env.GITHUB_SHA ?? 'dev').slice(0, 7)
+  }
+}
+const pkgVersion = JSON.parse(readFileSync('./package.json', 'utf8')).version as string
+const BUILD_SHA = gitSha()
+const BUILD_TIME = new Date().toISOString()
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+    __BUILD_SHA__: JSON.stringify(BUILD_SHA),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   // GitHub Pages serves the app under /poker/ — CI sets BASE_PATH (see
   // .github/workflows/deploy.yml). Local dev/preview stay at /.
   base: process.env.BASE_PATH ?? '/',

@@ -1,8 +1,9 @@
 // Math Trainer — the pure-number skills that Modern Poker Theory drills but the
-// rest of this app only TEACHES in the Reference tab. Three modes:
-//   • MDF     — minimum defense frequency vs a bet size (how often you must continue).
-//   • Ratio   — value:bluff ratio a polar betting range needs at a given size.
-//   • Combos  — hand combinatorics + blocker effects (6 pairs, 16 unpaired, …).
+// rest of this app only TEACHES in the Reference tab. Four modes:
+//   • MDF      — minimum defense frequency vs a bet size (how often you must continue).
+//   • Pot odds — the equity a CALL needs to break even at a bet size (the price you pay).
+//   • Ratio    — value:bluff ratio a polar betting range needs at a given size.
+//   • Combos   — hand combinatorics + blocker effects (6 pairs, 16 unpaired, …).
 // Every question is deterministic maths, so the answer is exact — no solver. Spots
 // are SRS-weighted (store/srs) so the size/template you keep missing comes back
 // more often, and the lifetime score persists per mode (store/drillScore). Matches
@@ -15,7 +16,7 @@ import { useDrillKeys, drillKeysHint } from '../hooks/useDrillKeys';
 import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 import { loadSrs, recordSrs, weightOf, weightedIndex, type SrsMap } from '../store/srs';
 
-type Mode = 'mdf' | 'ratio' | 'combos';
+type Mode = 'mdf' | 'potodds' | 'ratio' | 'combos';
 
 // A fully-built question: the SRS id, the text, four answer strings, the index of
 // the right one, and the teaching line shown after you answer.
@@ -69,6 +70,32 @@ const MDF_TEMPLATES: Template[] = SIZES.map(({ s, label }) => ({
       correct: pct(mdf),
       distractors: [pct(alpha), pct(callEq), pct(Math.min(0.95, mdf + 0.14))],
       explain: `MDF = pot ÷ (pot + bet) = 1 ÷ (1 + ${s}) = ${pct(mdf)}. You fold at most α = bet ÷ (pot + bet) = ${pct(alpha)}. Don't confuse it with the equity a CALL needs (${pct(callEq)} = bet ÷ (pot + 2·bet)) — that's a different question.`,
+    };
+  },
+}));
+
+// ---- pot-odds (call price) templates ----
+// The equity a CALL needs to break even = call ÷ (pot AFTER you call) = bet ÷ (pot +
+// 2·bet) = s / (1 + 2s), where s = bet ÷ pot-before-the-bet. This is the "you need X%"
+// side of the fold-to-a-bet decision the game keeps showing (⅓→20% · ½→25% · ⅔→28% ·
+// pot→33%). The two classic ERRORS are the distractors so a right answer means you know
+// which formula: MDF = 1/(1+s) (a RANGE-defense %, not your price) and the naive
+// bet÷(pot+bet) = s/(1+s) (forgets your own call also joins the pot).
+const POTODDS_TEMPLATES: Template[] = SIZES.map(({ s, label }) => ({
+  id: `potodds-${s}`,
+  build: () => {
+    const callEq = s / (1 + 2 * s); // required equity to call
+    const mdf = 1 / (1 + s); // range-defense % — the wrong grab
+    const naive = s / (1 + s); // bet ÷ (pot+bet) — forgot the call joins the pot
+    return {
+      prompt: `Villain bets ${label}. What equity do you need to CALL?`,
+      sub: 'The break-even price — call only if your hand wins at least this often.',
+      correct: pct(callEq),
+      // Two classic errors first (MDF, naive bet÷(pot+bet)); the last two are numeric
+      // backups so buildQuestion always has 3 DISTINCT distractors — at s=1 mdf and naive
+      // are both 50%, which would otherwise collide and make pad inject a bare number.
+      distractors: [pct(mdf), pct(naive), pct(callEq * 2), pct(callEq + 0.06)],
+      explain: `Need = call ÷ (pot after you call) = bet ÷ (pot + 2·bet) = ${s} ÷ (1 + 2·${s}) = ${pct(callEq)}. You risk the bet to win the pot + the bet, and your call also joins the pot. Compare to your equity (outs × 2 per card): more → call, less → fold. It is NOT the MDF (${pct(mdf)}, a range-defense %), nor bet÷(pot+bet) (${pct(naive)}, which forgets your own call goes in).`,
     };
   },
 }));
@@ -178,8 +205,8 @@ const COMBO_TEMPLATES: Template[] = [
   },
 ];
 
-const BANKS: Record<Mode, Template[]> = { mdf: MDF_TEMPLATES, ratio: RATIO_TEMPLATES, combos: COMBO_TEMPLATES };
-const MODE_LABEL: Record<Mode, string> = { mdf: '🛡 MDF', ratio: '⚖ Value:Bluff', combos: '🔢 Combos' };
+const BANKS: Record<Mode, Template[]> = { mdf: MDF_TEMPLATES, potodds: POTODDS_TEMPLATES, ratio: RATIO_TEMPLATES, combos: COMBO_TEMPLATES };
+const MODE_LABEL: Record<Mode, string> = { mdf: '🛡 MDF', potodds: '🎯 Pot odds', ratio: '⚖ Value:Bluff', combos: '🔢 Combos' };
 
 // Turn a template into a concrete question: dedupe distractors against the correct
 // answer (and each other), keep the first three unique, then shuffle all four.
@@ -262,9 +289,10 @@ export function MathDrill() {
     <div className="card">
       <h2>Math Trainer</h2>
       <p className="sub">
-        The pure-number skills — <b>MDF</b>, <b>value:bluff ratios</b>, and <b>combinatorics</b>. The
-        Reference tab explains these; this drills them until they're instant. Every answer is exact
-        maths (no solver). Spots you miss come back more often (spaced repetition).
+        The pure-number skills — <b>MDF</b>, <b>pot odds</b> (the price a call needs), <b>value:bluff
+        ratios</b>, and <b>combinatorics</b>. The Reference tab explains these; this drills them until
+        they're instant. Every answer is exact maths (no solver). Spots you miss come back more often
+        (spaced repetition).
       </p>
 
       <div className="quiz-bar">
@@ -318,7 +346,7 @@ export function MathDrill() {
           <div><span className="bsd-pill small">MDF</span> pot ÷ (pot + bet) = 1 ÷ (1 + s). ½ pot → 67% · pot → 50% · 2× → 33%. Fold more than this vs an under-bluffer.</div>
           <div><span className="bsd-pill big">α (alpha)</span> bet ÷ (pot + bet) = the max you may fold = 1 − MDF. Pot → 50%.</div>
           <div><span className="bsd-pill polar">Value:Bluff</span> (pot + bet) : bet. ½ pot → 3:1 · pot → 2:1 · 2× → 1.5:1. Bigger bet = fewer value per bluff.</div>
-          <div><span className="bsd-pill check">Call equity</span> bet ÷ (pot + 2·bet) — what a CALL needs to break even. NOT the same as MDF.</div>
+          <div><span className="bsd-pill check">Pot odds (call price)</span> bet ÷ (pot + 2·bet) — what a CALL needs to break even. ⅓ → 20% · ½ → 25% · ⅔ → 28% · pot → 33%. Compare to your equity (outs × 2 per card). NOT the same as MDF.</div>
           <div><span className="bsd-pill pos">Combos</span> pair = 6 · suited = 4 · offsuit = 12 · any two ranks = 16. Each blocker you or the board holds cuts the count.</div>
           <div><span className="bsd-pill polar">Blockers</span> #left(rank A) × #left(rank B) for unpaired; C(#left, 2) for a pair/set. Board + your hand both remove cards.</div>
         </div>
