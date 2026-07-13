@@ -103,11 +103,12 @@ export function isSizingNearTie(
 }
 
 /** GTO give-up guard: a CHECK/FOLD of a stone-cold air hand (strength 0) when the
- *  solver's best line is a bet is a "declining to bluff" — ~free at equilibrium, yet
- *  the turn model over-penalises it (a hero check is scored as an instant showdown,
- *  no river subgame). gradeNode uses this to clamp the penalty into the sound-line
- *  band. Scoped to postflop-model + true air so it never softens a real error (e.g.
- *  checking a made hand that should value-bet keeps its full penalty). */
+ *  solver's best line is a bet is a "declining to bluff" — optional at equilibrium.
+ *  The EV model always rates the bluff ABOVE a check by its fold-equity edge, so
+ *  declining to bluff registers an EV gap even though you're never obliged to bluff.
+ *  gradeNode uses this to clamp that gap into the sound-line band. Scoped to
+ *  postflop-model + true air so it never softens a real error (e.g. checking a made
+ *  hand that should value-bet keeps its full penalty). */
 export function isFreeGiveUp(
   strategy: NodeStrategy,
   chosen: ActionId,
@@ -253,10 +254,11 @@ export function gradeNode(
   // below and the sizing coach further down.
   const hand = ctx ? classifyHandClass(ctx.state.players[ctx.heroIdx].holeCards, ctx.state.board) : null;
 
-  // GTO give-up guard (see isFreeGiveUp): the turn model over-penalises declining to
-  // bluff stone-cold air, because it scores a hero check as an instant showdown. When
-  // it applies, clamp the penalty into the "sound line" band — live AND in the
-  // scorecard, which re-derives the tier from this same evLoss.
+  // GTO give-up guard (see isFreeGiveUp): the EV model rates a bluff strictly above a
+  // check by its fold-equity edge, so declining to bluff stone-cold air always shows
+  // an EV gap — but that's optional value, not a leak. When it applies, clamp the
+  // penalty into the "sound line" band — live AND in the scorecard, which re-derives
+  // the tier from this same evLoss.
   const softenedGiveUp = isFreeGiveUp(strategy, chosen, hand?.strength ?? null) && loss > TIER.correct;
   if (softenedGiveUp) loss = TIER.correct;
 
@@ -296,7 +298,7 @@ export function gradeNode(
 
   let detail: string;
   if (softenedGiveUp) {
-    detail = `Giving up is fine — you're never forced to bluff. The model rates ${bestLabel} higher mainly because it scores a check as an instant turn showdown (no river), which understates a give-up. Checking air is a sound, low-cost line.`;
+    detail = `Giving up is fine — you're never forced to bluff. With stone-cold air a check just gives up your small showdown equity, while ${bestLabel} scores higher only by adding fold-equity EV on top — and that extra value is optional, needing a believable story and the right blockers to collect. Declining it is a sound, low-cost line, not a mistake.`;
   } else if (softenedSizing) {
     detail = `${chosenLabel} and ${bestLabel} are the same decision at a slightly different size — ${rawLoss.toFixed(2)} bb apart, which is inside the model's margin. Bet sizing is a mix and adjacent big sizes are near-equivalent, so this is a sound line, not an error. Pick one size and be consistent — ${bestLabel} edged it here, but that gap isn't something you can read at the table.`;
   } else if (verdict === 'best' || verdict === 'correct') {

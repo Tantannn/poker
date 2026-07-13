@@ -129,7 +129,8 @@
       "Bash(echo \"eslint exit=$?\")",
       "Bash(echo \"build exit=$?\")",
       "Bash(echo \"---TSC DONE \\(rc=$?\\)---\")",
-      "Bash(echo \"rc=$?\")"
+      "Bash(echo \"rc=$?\")",
+      "Bash(grep -vE \"^\\\\s*$\")"
     ]
   }
 }
