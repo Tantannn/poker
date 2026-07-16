@@ -56,6 +56,17 @@ const MW: MwRow[] = [
   { tier: 'Flush draw', hu: 68, w3: 53, w5: 43 },
 ];
 
+// Villain bluff rates — the SAME profiles the drill's opponents use (single source,
+// so the sheet's "~8%" and the read's "~8%" can't drift). A bluff-catcher facing a
+// bet keeps ≈ this, so it belongs on the anchor sheet.
+import { getProfile } from '../ai/profiles';
+const BLUFFERS = [
+  { id: 'lp', label: '🐟 Station' },
+  { id: 'tag', label: '🎯 TAG' },
+  { id: 'gto', label: '⚖ Balanced' },
+  { id: 'maniac', label: '🔥 Maniac' },
+];
+
 // color a cell by equity band, so the sheet is scannable (same thresholds as the
 // position cheat sheet: ≥55 good, ≥45 mid, else behind).
 function cell(e: number): string {
@@ -103,18 +114,53 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
           <table className="cs-table">
             <thead>
               <tr>
-                <th>he bet? subtract…</th>
-                <th>knock off</th>
+                <th>he bet? your hand…</th>
+                <th>facing the bet</th>
               </tr>
             </thead>
             <tbody>
-              <tr><td className="cs-hero">Made hand (one pair / bluff-catcher)</td><td className="cs-bad">−15</td></tr>
+              <tr><td className="cs-hero">Still beats some value (top pair+)</td><td className="cs-bad">base −15</td></tr>
+              <tr><td className="cs-hero">Pure bluff-catcher (weak / 2nd pair, air)</td><td className="cs-bad">≈ his bluff % (table ↓)</td></tr>
               <tr><td className="cs-hero">Draw</td><td className="cs-bad">cut ⅓ (dirty outs)</td></tr>
             </tbody>
           </table>
         </div>
         <p className="modal-note">
           Bigger bet = bigger cut (⅓ pot small · pot+ big). A bet just means <b>"he got tighter."</b>
+        </p>
+
+        <h4 className="cs-subhead">Villain bluff rate — a bluff-catcher's ceiling facing a bet</h4>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr>
+                <th>villain type</th>
+                <th>bluff rate</th>
+                <th>weak pair vs a ⅔ bet ≈</th>
+              </tr>
+            </thead>
+            <tbody>
+              {BLUFFERS.map((b) => {
+                const bf01 = getProfile(b.id).bluffFreq;
+                const bf = Math.round(bf01 * 100);
+                // Mirror the drill's weak-pair-vs-⅔-bet estimate (12 + bluffFreq·40 +
+                // 9 wide-range air) so this column and the read stay one source.
+                const keep = Math.min(99, Math.round(12 + bf01 * 40 + 9));
+                return (
+                  <tr key={b.id}>
+                    <td className="cs-hero">{b.label}</td>
+                    <td className={cell(bf + 30)}>~{bf}%</td>
+                    <td className={cell(keep)}>~{keep}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="modal-note">
+          A <b>pure bluff-catcher</b> (weak/2nd pair, air) beats none of his value, so facing a bet it does NOT take
+          the flat −15 — it holds ≈ <b>his bluff rate + the worse pairs/air he still bets</b>. A <b>station bluffs
+          ~8%</b> → near a fold; a <b>maniac ~70%</b> → you're fine. Smaller bet = wider, thinner range = a touch more.
         </p>
 
         <h4 className="cs-subhead">Made hands (heads-up vs an opening range)</h4>

@@ -284,11 +284,16 @@ function anchorRead(
       // sheet assumes, so ⅔ ≈ no change, ⅓ lifts it, pot/overbet cuts it.
       const sizeAdj = betFrac >= 1.1 ? -9 : betFrac >= 0.85 ? -4 : betFrac <= 0.4 ? 8 : 0;
       const sizeWord = betFrac >= 1.1 ? 'overbet' : betFrac >= 0.85 ? 'pot' : betFrac <= 0.4 ? 'small' : 'medium';
+      const bluffPct = Math.round(bluffFreq * 100);
+      // The anchor row (≈ 50 / 30) is the PRE-BET number vs his whole range. A bet is
+      // value-weighted, so it does NOT subtract a flat cut — it REPLACES that number:
+      // a bluff-catcher only keeps what still beats his BETTING range. Spell that out so
+      // the drop from the anchor isn't a mystery jump.
       if (row === MADE_ANCHORS[0]) {
         // pure AIR: no showdown value beyond catching a bluff → equity ≈ his bluff
         // rate, wider on a small bet. Station 0.08 → ~14 (a fold); maniac 0.70 → ~40.
         est = clamp(10 + bluffFreq * 45 + sizeAdj);
-        step += `, he bet (${sizeWord}) → you only catch BLUFFS → ≈ ${est}`;
+        step += ` — but that's PRE-bet. He bet (${sizeWord}), a value-weighted range, and air beats none of it → you keep ≈ only his bluff rate (~${bluffPct}%) → ≈ ${est}`;
       } else {
         // a WEAK PAIR beats his bluffs AND every missed OVERCARD/air hand — and a wide
         // range is full of those, so it holds well ABOVE a pure bluff-catcher. Bluff
@@ -296,7 +301,8 @@ function anchorRead(
         // tilt. Station on a wide ⅔ bet → ~24; a small bet lifts it, an overbet cuts it.
         const airBeat = width === 'wide' ? 9 : 3;
         est = clamp(12 + bluffFreq * 40 + airBeat + sizeAdj);
-        step += `, he bet (${sizeWord}) → weak pair beats his bluffs + the thinner value/air a ${sizeWord} bet includes → ≈ ${est}`;
+        const beatsBet = clamp(est - bluffPct); // the worse pairs/air he still bets
+        step += ` — but that's PRE-bet. He bet (${sizeWord}), a value-weighted range, so instead of a flat cut a bluff-catcher keeps only what beats his BETTING range: ≈ his bluffs (~${bluffPct}%) + the worse pairs/air a ${sizeWord} bet still includes (~${beatsBet}) → ≈ ${est}`;
       }
     } else {
       if (facingBet) {
