@@ -754,6 +754,29 @@ export function Reference() {
         </div>
 
         <div className="note-block">
+          <h4>Called or raised — do I barrel again?</h4>
+          <p className="sub">
+            A flop c-bet that gets <b>called</b> or <b>raised</b> is normal — don't auto-give-up, and don't
+            auto-fire. The flop bet is only <b>bullet one</b>; whether a second follows depends on <b>equity</b>
+            (can this hand still improve?) and <b>story</b> (does the next card help my range or theirs?). This is
+            why you should <b>pick flop bluffs that can keep barrelling</b> — draws, backdoors, overcards — not
+            random air.
+          </p>
+          <table>
+            <thead><tr><th>Villain does</th><th>You hold air (no equity)</th><th>You hold a draw / equity</th></tr></thead>
+            <tbody>
+              <tr><td><b>Calls</b></td><td>Give up — check/fold. One bullet, done.</td><td><b>Barrel the turn</b>, especially scare cards that favour your range.</td></tr>
+              <tr><td><b>Raises</b></td><td>Fold — a raise is strong &amp; polar.</td><td><b>Continue as a semi-bluff</b> (call, sometimes re-raise): you have outs + fold equity.</td></tr>
+            </tbody>
+          </table>
+          <p className="sub">
+            Hook: <b>bluff with hands that can improve</b> — then a call or raise doesn't kill you, you still have
+            outs. Pure air fires once, then let it go. (Vs a <b>calling station</b> or <b>multiway</b>, don't even
+            fire bullet one — see "When NOT to bluff" above.)
+          </p>
+        </div>
+
+        <div className="note-block">
           <h4>How many bluffs to <i>have</i> — balancing your betting range (GTO)</h4>
           <p className="sub">
             Separate question from "will this one profit". To stay unexploitable, a river bet of size <i>s</i>

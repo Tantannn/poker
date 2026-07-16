@@ -10,7 +10,7 @@
 // the hand never shares a card with the board.
 
 import { useMemo, useState } from 'react';
-import { parseCard, isRed, rankToChar, SUIT_SYMBOLS, type Card } from '../engine/cards';
+import { parseCard, suitClass, rankToChar, SUIT_SYMBOLS, type Card } from '../engine/cards';
 import { rangeFromSet } from '../engine/range';
 import { RFI_RANGES } from '../ai/preflop';
 import { solvePostflop } from '../strategy/postflopModel';
@@ -93,7 +93,7 @@ interface Cell {
 
 function MiniCard({ c }: { c: Card }) {
   return (
-    <span className={`fh-card ${isRed(c) ? 'red' : 'black'}`}>
+    <span className={`fh-card ${suitClass(c.suit)}`}>
       {rankToChar(c.rank)}{SUIT_SYMBOLS[c.suit]}
     </span>
   );

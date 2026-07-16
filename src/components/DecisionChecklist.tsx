@@ -148,6 +148,9 @@ export function DecisionChecklist({
             <button className="btn dc-check" disabled={!allAnswered} onClick={() => setLocked(true)}>
               {allAnswered ? 'Lock answers & check my read' : 'Answer everything first…'}
             </button>
+            <button className="link-btn" onClick={onConfirm}>
+              Skip — just {actionLabel.toLowerCase()}
+            </button>
             <button className="link-btn" onClick={onCancel}>
               Cancel — rethink the action
             </button>

@@ -4,7 +4,7 @@
 // the Rule-of-2-&-4 draw ladder, and the shift rules for facing a bet / going
 // multiway. Rough by design — the drill shows the exact %; this is the gut anchor.
 
-interface MadeRow {
+export interface MadeRow {
   hero: string;
   wide: number;
   tight: number;
@@ -12,7 +12,9 @@ interface MadeRow {
 
 // Made-hand equity heads-up vs a normal opening range. Memorize the WIDE column; a
 // tight range knocks ~15 off. Ballparks, not solver output — anchors to nudge from.
-const MADE: MadeRow[] = [
+// Exported so the equity-drill "💡 Why" can reproduce the 3-step anchor read against
+// the true equity (single source — the sheet and the drill can't drift apart).
+export const MADE: MadeRow[] = [
   { hero: 'Air (no pair, no draw)', wide: 30, tight: 15 },
   { hero: 'Weak / 2nd pair', wide: 50, tight: 35 },
   { hero: 'Top pair', wide: 72, tight: 55 },
@@ -20,14 +22,14 @@ const MADE: MadeRow[] = [
   { hero: 'Set / straight+', wide: 90, tight: 80 },
 ];
 
-interface DrawRow {
+export interface DrawRow {
   draw: string;
   outs: number;
   river: number; // flop→river, Rule of 4
   oneCard: number; // one card, Rule of 2
 }
 
-const DRAWS: DrawRow[] = [
+export const DRAWS: DrawRow[] = [
   { draw: 'Flush draw', outs: 9, river: 35, oneCard: 18 },
   { draw: 'Open-ender', outs: 8, river: 32, oneCard: 16 },
   { draw: 'Two overcards', outs: 6, river: 24, oneCard: 12 },

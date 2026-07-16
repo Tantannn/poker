@@ -37,6 +37,11 @@ export function isRed(c: Card): boolean {
   return c.suit === 1 || c.suit === 2; // diamonds or hearts
 }
 
+/** 4-color deck CSS class: c=green, d=blue, h=red, s=black. Makes ♣/♠ distinct. */
+export function suitClass(suit: number): string {
+  return 'su-' + (SUITS[suit] ?? 's');
+}
+
 /** Build an ordered 52-card deck. */
 export function makeDeck(): Card[] {
   const deck: Card[] = [];

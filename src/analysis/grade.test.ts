@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSizingCoach, isFreeGiveUp, isSizingNearTie } from './grade';
+import { buildCheckLineCoach, buildSizingCoach, isFreeGiveUp, isSizingNearTie } from './grade';
 import type { NodeStrategy } from '../strategy';
 
 // Minimal strategy: a small best size vs a big oversized line, with the
@@ -43,6 +43,46 @@ describe('buildSizingCoach', () => {
     const msg = buildSizingCoach(strat(), 'betpot', 2, 1, 'Two Pair');
     expect(msg).toContain('HAND STRENGTH, not the board');
     expect(msg).not.toContain('medium hand'); // Two Pair isn't the medium one-pair tier
+  });
+});
+
+describe('buildCheckLineCoach — best line is CHECK, hero bet', () => {
+  // Solver node where checking a monster beats any bet (the full-house-OOP spot).
+  const checkBest = (): NodeStrategy => ({
+    source: 'postflop-model',
+    bestEv: 19.92,
+    bestId: 'check',
+    note: '',
+    options: [
+      { id: 'check', label: 'Check', freq: 0.95, ev: 19.92 },
+      { id: 'betpot', label: 'Bet pot', freq: 0.05, ev: 19.83, sizePct: 1.0 },
+      { id: 'bet33', label: 'Bet 33%', freq: 0, ev: 17.54, sizePct: 0.33 },
+    ],
+  });
+
+  it('teaches the near-nut TRAP (not "size down") when hero bet a monster OOP', () => {
+    const msg = buildCheckLineCoach(checkBest(), 'bet33', 2.38, 5, true);
+    expect(msg).toBeDefined();
+    expect(msg).toContain("isn't a smaller bet");
+    expect(msg).toContain('near-nut');
+    expect(msg).toContain('block'); // blocks villain's strong calls
+    expect(msg).toContain('Count your customers'); // build = get HIS chips in
+    expect(msg).toContain('aggressor'); // OOP induce line
+    expect(msg!.toLowerCase()).toContain('check-raise');
+    // never the misleading sizing lesson
+    expect(msg).not.toContain('size-up test');
+  });
+
+  it('gives the pot-control reason for a weaker made hand (strength < 5)', () => {
+    const msg = buildCheckLineCoach(checkBest(), 'bet33', 2.38, 2, false);
+    expect(msg).toContain('control the pot');
+    expect(msg).not.toContain('near-nut');
+  });
+
+  it('does not fire when hero took the check (no leak) or when best is a bet', () => {
+    expect(buildCheckLineCoach(checkBest(), 'check', 0, 5, true)).toBeUndefined();
+    const betBestNode: NodeStrategy = { ...checkBest(), bestId: 'bet50' };
+    expect(buildCheckLineCoach(betBestNode, 'bet33', 2, 5, true)).toBeUndefined();
   });
 });
 

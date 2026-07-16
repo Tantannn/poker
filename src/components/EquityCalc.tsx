@@ -5,7 +5,7 @@
 
 import { useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { RANK_CHARS, SUIT_SYMBOLS, sameCard, isRed } from '../engine/cards';
+import { RANK_CHARS, SUIT_SYMBOLS, sameCard, suitClass } from '../engine/cards';
 import { monteCarloEquity } from '../engine/equity';
 
 const RANKS_DESC = [...RANK_CHARS].reverse(); // A K Q ... 2
@@ -106,7 +106,7 @@ function EquityModal({ onClose }: { onClose: () => void }) {
                   return (
                     <button
                       key={ch}
-                      className={`eq-card ${isRed(card) ? 'red' : 'black'} ${sel ? 'sel' : ''}`}
+                      className={`eq-card ${suitClass(suit)} ${sel ? 'sel' : ''}`}
                       onClick={() => toggle(card)}
                     >
                       {ch}
@@ -163,7 +163,7 @@ function EquityModal({ onClose }: { onClose: () => void }) {
 function Slot({ card }: { card?: Card }) {
   if (!card) return <span className="eq-slot empty" />;
   return (
-    <span className={`eq-slot ${isRed(card) ? 'red' : 'black'}`}>
+    <span className={`eq-slot ${suitClass(card.suit)}`}>
       {RANK_CHARS[card.rank - 2]}
       <span className="eq-card-s">{SUIT_SYMBOLS[card.suit]}</span>
     </span>

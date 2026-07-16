@@ -183,6 +183,69 @@ export function buildSizingCoach(
   return [lead, ...bullets].join(' • ');
 }
 
+/** Hero out of position vs the primary villain? Postflop the lower order-rank
+ *  (closer to left of the button) acts FIRST = out of position. null when there's
+ *  no single villain. Mirrors the position derivation in strategy/index.ts. */
+function heroIsOOP(state: GameState, heroIdx: number): boolean | null {
+  const vIdx = primaryVillainIdx(state, heroIdx);
+  if (vIdx < 0) return null;
+  const np = state.players.length;
+  const orderRank = (seat: number) => (seat - (state.buttonIndex + 1) + np) % np;
+  return orderRank(heroIdx) < orderRank(vIdx);
+}
+
+/** Check-line coach: fires when the solver's best line is to CHECK but hero BET.
+ *  Unlike the sizing coach, the fix here isn't a smaller bet — it's not betting at
+ *  all, so "size down" would mislead (this is the leak the sizing coach used to
+ *  mis-explain). Explains why a check wins: a near-nut hand (strength 5) TRAPS —
+ *  nothing to protect, a lead folds out the worse hands you want called and you
+ *  often block villain's strong continues; OOP, checking lets the aggressor bet
+ *  worse hands for you. A weaker made hand checks for pot control instead.
+ *  `handStrength` is 0..5 (see classifyHandClass); `oop` = hero out of position vs
+ *  the primary villain (null when unknown). Returns undefined when it doesn't apply. */
+export function buildCheckLineCoach(
+  strategy: NodeStrategy,
+  chosen: ActionId,
+  loss: number,
+  handStrength: number | null,
+  oop: boolean | null,
+): string | undefined {
+  if (strategy.source !== 'postflop-model') return undefined;
+  if (strategy.bestId !== 'check' || !isAggro(chosen) || loss <= 0.05) return undefined;
+  const chosenOpt = strategy.options.find((o) => o.id === chosen);
+  if (!chosenOpt) return undefined;
+
+  const lead = `⚠ Betting was the leak — Check beat ${chosenOpt.label} by ${loss.toFixed(2)} bb. The fix isn't a smaller bet, it's checking.`;
+  const bullets: string[] = [];
+  if (handStrength != null && handStrength >= 5) {
+    bullets.push(
+      `With a near-nut hand almost nothing can outdraw you, so there's no draw to protect — the usual reason to bet is gone.`,
+    );
+    bullets.push(
+      `A lead folds out the worse hands you want paying you off and gets called mostly by what ties or beats you — and you often hold the very cards that block his strong calls, so betting has few customers.`,
+    );
+    bullets.push(
+      `"Bet to build the pot" only builds if worse hands CALL — building means getting HIS chips in, not yours. Count your customers: many worse hands call → bet and build across streets; few customers + he bets when checked to → check and let him build it.`,
+    );
+    bullets.push(
+      oop === true
+        ? `Out of position vs the aggressor, checking hands him the lead: he barrels his air and value-bets worse for you. Then check-raise or check-call and win MORE than a bet that only folds worse hands out.`
+        : `Check to trap — keep his weaker hands and bluffs in, then let him pay you off.`,
+    );
+    bullets.push(
+      `Caveat: the trap needs a villain who bets when checked to. In position, or vs a passive player who checks back, LEAD instead — nobody bets it for you.`,
+    );
+  } else {
+    bullets.push(
+      `Betting folds out the worse hands you beat and gets called mostly by better, so a bet here can't make value.`,
+    );
+    bullets.push(
+      `Check to control the pot and keep his bluffs in — you realize your showdown equity without bloating a pot you're not strong enough to build.`,
+    );
+  }
+  return [lead, ...bullets].join(' • ');
+}
+
 /** Build the rich gameplan context from the live state at the hero's decision. */
 export function buildFeedbackContext(state: GameState, heroIdx: number): FeedbackContext {
   const bb = state.bigBlind;
@@ -321,6 +384,16 @@ export function gradeNode(
     : 1;
   const handLabel = hand?.label;
 
+  // Pick the coach by WHAT the best line is. When the solver's best line is to
+  // CHECK, "size down" is the wrong lesson (the fix is not betting at all) — use the
+  // check-line coach, which explains the trap (near-nut) or pot-control (marginal)
+  // reason a check beats the lead. Otherwise the best line is a bet/raise and the
+  // leak is genuinely one of SIZE, so keep the oversizing coach.
+  const coach =
+    strategy.bestId === 'check'
+      ? buildCheckLineCoach(strategy, chosen, loss, hand?.strength ?? null, ctx ? heroIsOOP(ctx.state, ctx.heroIdx) : null)
+      : buildSizingCoach(strategy, chosen, loss, nOpp, handLabel);
+
   return {
     verdict,
     chosen,
@@ -336,7 +409,7 @@ export function gradeNode(
     equity: strategy.equity,
     headline,
     detail,
-    coach: buildSizingCoach(strategy, chosen, loss, nOpp, handLabel),
+    coach,
     strategy,
     context: ctx ? buildFeedbackContext(ctx.state, ctx.heroIdx) : undefined,
   };

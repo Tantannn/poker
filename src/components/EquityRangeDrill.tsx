@@ -20,7 +20,7 @@ import { getProfile } from '../ai/profiles';
 import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
 import { PositionCheatSheet } from './PositionCheatSheet';
-import { EquityAnchors } from './EquityAnchors';
+import { EquityAnchors, MADE as MADE_ANCHORS, type MadeRow } from './EquityAnchors';
 import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 
 interface RangeOpt {
@@ -79,6 +79,21 @@ const GUESS_TOL = 6;
 const RANDOM_ID = 'rand';
 const pickId = <T extends { id: string }>(arr: T[]): string => arr[Math.floor(Math.random() * arr.length)].id;
 
+// Canonical outs for a LABELLED draw, so the read matches the label. countOuts
+// reports every category-improving card — for a gutshot that includes pairing your
+// undercards (~10 "outs"), which are NOT real draw outs. A "Gutshot" is 4, an
+// "Open-Ender" 8, a "Flush Draw" 9, "Two Overcards" 6, a "Combo Draw" ~15. Falls back
+// to the counted number for an unlabelled draw. (Same ladder as the 🎯 anchor sheet.)
+function canonicalDrawOuts(hc: HandClass, counted: number): number {
+  const l = hc.label.toLowerCase();
+  if (/combo draw/.test(l)) return 15; // flush + straight
+  if (/flush draw/.test(l)) return 9;
+  if (/open-end|open-ender|oesd/.test(l)) return 8;
+  if (/two overcards/.test(l)) return 6;
+  if (/gutshot/.test(l)) return 4;
+  return counted;
+}
+
 // Reason for the equity read — now WITH the math, so the number isn't a mystery.
 // Equity vs a range is driven by two things you can eyeball: how strong YOUR hand
 // is, and how WIDE their range is. For draws we show the actual decomposition:
@@ -111,11 +126,13 @@ function whyRange(
       ? `their range is wide — mostly unpaired air and weak hands`
       : `their range is tight — big pairs and strong aces, few weak hands`;
 
+  // draw outs read off the LABEL, not countOuts (which over-counts weak-pair "outs").
+  const drawO = canonicalDrawOuts(hc, outs);
   // THE NUMBER — where this exact % comes from.
   let math: string;
-  if (isPureDraw && outs > 0) {
+  if (isPureDraw && drawO > 0) {
     const mult = street === 'Flop' ? 4 : 2; // Rule of 2 & 4
-    const hit = outs * mult; // % chance you complete by the river
+    const hit = drawO * mult; // % chance you complete by the river
     const bump = eq - hit;
     const bumpTxt =
       bump >= 4
@@ -123,7 +140,7 @@ function whyRange(
         : bump <= -4
         ? `But you must actually hit — their made hands pull it to about ${eq}%.`
         : `That lands right around ${eq}%.`;
-    math = `~${outs} outs → Rule of ${mult}: ${outs}×${mult} ≈ ${hit}% to hit. ${bumpTxt}`;
+    math = `~${drawO} outs → Rule of ${mult}: ${drawO}×${mult} ≈ ${hit}% to hit. ${bumpTxt}`;
   } else if (s === 0) {
     math =
       width === 'wide'
@@ -155,9 +172,14 @@ function whyRange(
   // some of them now lose to the hands that would bet. A value-heavy type (station)
   // discounts hardest; a bluffer (maniac) barely at all.
   if (facingBet) {
+    const rawHit = drawO * (street === 'Flop' ? 4 : 2);
     math +=
-      isPureDraw && outs > 0
-        ? ` He BET (${betTypeLabel}) — value-weighted, so some of your outs are DIRTY (they hit but still lose). Real equity ${eq}%, below the raw ${outs * (street === 'Flop' ? 4 : 2)}%.`
+      isPureDraw && drawO > 0
+        ? ` He BET (${betTypeLabel}) — value-weighted, so some draw outs are DIRTY (they hit but still lose).${
+            eq < rawHit
+              ? ` Real equity ${eq}%, below the raw ${rawHit}%.`
+              : ` Raw draw ≈ ${rawHit}%; pair/air backup lifts the real number to ${eq}%.`
+          }`
         : ` He BET (${betTypeLabel}) — his range narrows to value, dragging you to ${eq}%.`;
   }
 
@@ -187,6 +209,145 @@ function whyMultiway(hc: HandClass, equity: number, opps: number): string {
     ? `A hand that crushes one opponent gets ground down — every extra player is another chance someone already has you beat.`
     : `Weak and multiway is the worst mix — you're behind more ranges at once and rarely win at showdown.`;
   return `${players}-way pot: you must beat ALL ${opps} opponents at once, so equity ≈ your heads-up share to the power of ${opps}. ${hc.label} lands ~${eq}% here. ${lesson} 💡 A dry board stops draws, not the made hands already sitting in ${opps} ranges — that's why one pair sinks multiway.`;
+}
+
+// Map a hand class to its 🎯 anchor-sheet made-hand row. Label-first (top/two pair
+// before the generic strong tier) so a "Top Pair + Flush Draw" lands on Top Pair,
+// not the set row its "flush" substring would otherwise grab. Returns null for a
+// pure draw — those anchor off outs × the Rule of 2 & 4, not a made row.
+function madeAnchorRow(hc: HandClass, isPureDraw: boolean): MadeRow | null {
+  if (isPureDraw) return null;
+  const l = hc.label.toLowerCase();
+  if (hc.strength === 0) return MADE_ANCHORS[0]; // Air
+  if (/two pair|overpair/.test(l)) return MADE_ANCHORS[3]; // Overpair / two pair
+  if (/top pair/.test(l)) return MADE_ANCHORS[2]; // Top pair
+  if (hc.strength >= 4) return MADE_ANCHORS[4]; // Set / straight+
+  return MADE_ANCHORS[1]; // Weak / 2nd pair
+}
+
+// Flush-hazard LEVEL for the anchor: the count (0 / 3 / 4+) of a single suit on the
+// board that hero holds NONE of. On a monotone/3-flush board the villain's betting
+// range is spade-heavy — made flushes + live flush draws — so a hand that does NOT
+// beat a flush (two pair, one pair, set, straight) is worth well below the sheet's
+// dry-board average. Mirrors flushDomLevel in the postflop model. 0 = no hazard.
+function anchorFlushLevel(hero: Card[], board: Card[]): number {
+  const counts = [0, 0, 0, 0];
+  for (const c of board) counts[c.suit]++;
+  let level = 0;
+  for (let s = 0; s < 4; s++) if (counts[s] >= 3 && !hero.some((h) => h.suit === s)) level = Math.max(level, counts[s]);
+  return level;
+}
+
+// The 🎯 Equity-anchors read, worked live for THIS spot and checked against the true
+// equity — so the gut estimate and the real number sit side by side. Mirrors the
+// sheet, then makes its two footnotes concrete:
+//  • BLUFF-CATCHER collapse — a weak made hand (air w/ showdown, 2nd-or-worse pair)
+//    beats worse VALUE almost never, so facing a bet it is NOT "base − 15"; its equity
+//    ≈ how often villain BLUFFS. A value-heavy station (bluffFreq 0.08) crushes it to
+//    ~15%; a maniac (0.70) leaves it ~50%. Only hands that still beat worse value (top
+//    pair+) take the flat size-based cut.
+//  • FLUSH-board hazard — a made hand that can't beat a flush, on a monotone board it
+//    holds none of, drops further (the sheet's "paired/flush board" footnote).
+// The remaining GAP to the truth is the lesson. Heads-up only (multiway is its own
+// table). `betFrac` 0 when not facing a bet; `bluffFreq` = villain type's bluff rate.
+function anchorRead(
+  hc: HandClass,
+  width: 'wide' | 'tight',
+  equity: number,
+  outs: number,
+  street: 'Flop' | 'Turn',
+  facingBet: boolean,
+  betFrac: number,
+  betLabel: string,
+  hero: Card[],
+  board: Card[],
+  bluffFreq: number,
+): string {
+  const eq = Math.round(equity);
+  const col = width === 'wide' ? 'WIDE' : 'TIGHT';
+  const isDrawLabel = /draw|over-ender|open-end|gutshot|overcards/i.test(hc.label);
+  const isPureDraw = isDrawLabel && hc.strength < 4 && !/pair/i.test(hc.label);
+  const clamp = (x: number) => Math.max(1, Math.min(99, Math.round(x)));
+
+  let est: number;
+  let step: string;
+  const row = madeAnchorRow(hc, isPureDraw);
+  if (row) {
+    est = width === 'wide' ? row.wide : row.tight;
+    step = `${row.hero} → vs ${col} ≈ ${est}`;
+    // Air and the Weak/2nd-pair row are bluff-catchers — the top two MADE rows.
+    const isBluffCatcher = row === MADE_ANCHORS[0] || row === MADE_ANCHORS[1];
+    if (facingBet && isBluffCatcher) {
+      // Bet SIZE shifts a bluff-catcher's equity: a small/medium bet is a WIDER, thinner
+      // range (a station "can't fold" and bets worse pairs + air too) so you catch more;
+      // an overbet is polar — only bluffs pay you. Centered on the ⅔-pot baseline the
+      // sheet assumes, so ⅔ ≈ no change, ⅓ lifts it, pot/overbet cuts it.
+      const sizeAdj = betFrac >= 1.1 ? -9 : betFrac >= 0.85 ? -4 : betFrac <= 0.4 ? 8 : 0;
+      const sizeWord = betFrac >= 1.1 ? 'overbet' : betFrac >= 0.85 ? 'pot' : betFrac <= 0.4 ? 'small' : 'medium';
+      if (row === MADE_ANCHORS[0]) {
+        // pure AIR: no showdown value beyond catching a bluff → equity ≈ his bluff
+        // rate, wider on a small bet. Station 0.08 → ~14 (a fold); maniac 0.70 → ~40.
+        est = clamp(10 + bluffFreq * 45 + sizeAdj);
+        step += `, he bet (${sizeWord}) → you only catch BLUFFS → ≈ ${est}`;
+      } else {
+        // a WEAK PAIR beats his bluffs AND every missed OVERCARD/air hand — and a wide
+        // range is full of those, so it holds well ABOVE a pure bluff-catcher. Bluff
+        // slope + the air it out-showdowns (much bigger vs a wide range) + the bet-size
+        // tilt. Station on a wide ⅔ bet → ~24; a small bet lifts it, an overbet cuts it.
+        const airBeat = width === 'wide' ? 9 : 3;
+        est = clamp(12 + bluffFreq * 40 + airBeat + sizeAdj);
+        step += `, he bet (${sizeWord}) → weak pair beats his bluffs + the thinner value/air a ${sizeWord} bet includes → ≈ ${est}`;
+      }
+    } else {
+      if (facingBet) {
+        const cut = betFrac >= 1 ? 20 : betFrac >= 0.6 ? 15 : 10;
+        est = clamp(est - cut);
+        step += `, he bet (${betLabel.toLowerCase()}) → made hand −${cut} ≈ ${est}`;
+      }
+      // Flush-board hazard — only for a made hand that does NOT already beat a flush
+      // (a boat/quads/straight-flush, or hero's own flush, is fine). This is what pulls
+      // two pair / a set on a monotone board down to its true, much lower number.
+      const beatsFlush = /flush|full house|four of a kind/i.test(hc.label) && !/draw/i.test(hc.label);
+      const fLevel = anchorFlushLevel(hero, board);
+      if (!beatsFlush && fLevel >= 3) {
+        const fcut = fLevel >= 4 ? 18 : 8;
+        est = clamp(est - fcut);
+        step += `, ${fLevel}-flush board & you hold none → −${fcut} ≈ ${est}`;
+      }
+    }
+  } else {
+    // pure draw: LABEL outs (canonicalDrawOuts — a gutshot is 4, not the ~10 category
+    // cards countOuts sees) × Rule of 2 & 4, +~4 vs a wide range (you scoop some air),
+    // then cut facing a bet: overcards HALVE (very dirty — you pair and still lose),
+    // a straight/flush draw takes ⅓ (mostly-clean outs, but redraws/reverse-implied).
+    const dOuts = canonicalDrawOuts(hc, outs);
+    const mult = street === 'Flop' ? 4 : 2;
+    const raw = dOuts * mult + (width === 'wide' ? 4 : 0);
+    est = clamp(raw);
+    step = `~${dOuts} outs → ×${mult}${width === 'wide' ? ' +~4 (wide)' : ''} ≈ ${raw}`;
+    if (facingBet) {
+      const overcards = /overcards/i.test(hc.label);
+      const cut = Math.round(overcards ? raw / 2 : raw / 3);
+      est = clamp(raw - cut);
+      step += `, he bet → ${overcards ? 'overcards halve (dirty)' : 'cut ⅓ dirty outs'} (−${cut}) ≈ ${est}`;
+    }
+  }
+
+  const gap = eq - est;
+  // Attribute a gap to the likeliest cause given what we KNOW: a high-bluff type can
+  // lift a bluff-catcher; otherwise a positive gap is usually a wide range's extra air
+  // you out-showdown. Don't blame a "bluffy bettor" when he isn't one (station).
+  const higherReason =
+    bluffFreq >= 0.35
+      ? 'he bluffs more than the sheet assumes, or his range is wider/weaker'
+      : "his range is wider/weaker than the anchor assumes — you out-showdown more of his missed air";
+  const verdict =
+    Math.abs(gap) <= 6
+      ? ` — actual ${eq}%, so the anchor nailed it.`
+      : gap > 0
+        ? ` — actual ${eq}%, ~${gap} higher: ${higherReason}, so you beat more of it.`
+        : ` — actual ${eq}%, ~${-gap} lower: his range is stronger than the anchor assumes — a paired/flush board or a value-heavy bettor puts more hands ahead of you.`;
+  return `🎯 Anchor read: ${step}%${verdict}`;
 }
 
 // Buckets = how you actually think at the table. Boundaries are [lo, hi).
@@ -433,6 +594,9 @@ export function RangeDrill() {
           <div className="drill-hook">
             <span className="drill-hook-tag">💡 Why</span>
             <p>{opps > 1 ? whyMultiway(spot.hc, equity, opps) : whyRange(spot.hc, ropt.width, equity, outs, street, betOpt.facing, typeOpt.label)}</p>
+            {opps === 1 && (
+              <p className="rd-anchor">{anchorRead(spot.hc, ropt.width, equity, outs, street, betOpt.facing, betOpt.frac, betOpt.label, spot.hero, spot.board, getProfile(effTypeId).bluffFreq)}</p>
+            )}
           </div>
           <div className="rd-tip">
             Tip: flip <i>his action</i> (checked → bets pot) or <i>his type</i> (maniac → station) on the same hand — watch a

@@ -473,14 +473,24 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       ? ` (${ip ? 'in position you realise it well — you can check back and take a free card' : 'out of position you realise less — villain can barrel you off it'})`
       : '';
     const checkBase = `Realize your ~${pct(e)} equity in a ${P}-chip pot without risking more${posClause}.`;
+    // A near-unbeatable made hand (full house / set / better ≈ e ≥ 85%) checks for a
+    // DIFFERENT reason than a marginal one: not pot control, but a TRAP. Nothing can
+    // outdraw it (no protection needed) and a lead folds out the worse hands it wants
+    // called — worse, hero often holds the very cards that block villain's strong
+    // continues, so betting has few customers. OOP vs the aggressor, checking hands
+    // him the betting lead: he barrels air / value-bets worse, and hero check-raises
+    // or check-calls to win MORE than a lead that only folds worse hands out.
+    const nearNut = hasMade && e >= 0.85;
     // Reason to check depends on WHY betting is worse — a strong made hand can be
     // best-checked on a dangerous board, which is NOT the same as "no edge".
     const checkWhy =
       flushDom && e >= 0.5
         ? `${checkBase} You're AHEAD now — but the board is flush-heavy and you hold NONE of that suit, so you have no redraw. Betting folds out the hands you beat and gets called or raised by the made flushes & flush draws that crush or outdraw you. Check to pot-control, keep his bluffs in, and don't bloat a pot you can't safely build with a no-flush hand.`
-        : e >= 0.6
-          ? `${checkBase} You're ahead, but betting here mostly folds out the worse hands you beat and bloats the pot against the part of his range that continues. Checking captures more by keeping his weaker hands and bluffs in while you control the pot.`
-          : `${checkBase} Best when you're not ahead enough to bet for value or to profitably pressure.`;
+        : nearNut
+          ? `${checkBase} Your hand is near-unbeatable — almost nothing can outdraw you, so there's no draw to protect and no reason to charge the board. Betting to "build the pot" only works when worse hands CALL — building means getting HIS chips in, not yours, and a lead he folds to builds nothing. Here you often hold the very cards that block his strong continues, so a lead has few customers and mostly folds out the hands you want paying you off. Checking is a TRAP: keep his weaker hands and bluffs in${oop ? ', and out of position it hands the betting lead to the aggressor — he barrels his air and value-bets worse, so you check-raise or check-call and put MORE of his chips in than a lead would' : ''}. Lead to build only when worse hands actually call (a passive player, or a range with hands that can't fold); vs an aggressor who bets when checked to, checking builds the bigger pot.`
+          : e >= 0.6
+            ? `${checkBase} You're ahead, but betting here mostly folds out the worse hands you beat and bloats the pot against the part of his range that continues. Checking captures more by keeping his weaker hands and bluffs in while you control the pot.`
+            : `${checkBase} Best when you're not ahead enough to bet for value or to profitably pressure.`;
     cands.push({
       id: 'check',
       label: 'Check',

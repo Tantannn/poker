@@ -232,10 +232,24 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
         // hero holds NEITHER pair rank → both pairs are the board's (double-paired
         // board) and hero is really unpaired: classify the draw/air instead.
         if (own == null) return classifyDrawOrAir(`two pair (${RC(pairRanks[0])}s and ${RC(pairRanks[1])}s)`);
+        // The board pair is shared by everyone, so hero's REAL edge is only his own
+        // pair. If that pair is the TOP unpaired board card (a 7 on 766, a T on T88)
+        // hero has TOP PAIR on a paired board — he beats all air and every WORSE pair,
+        // so it is a genuine value hand; only overpairs, trips and better kickers get
+        // there. A pair BELOW a higher board card (a 6 on 776, 99 on AAQT) has that
+        // overcard AND the shared pair against it — the real bluff-catcher.
+        if (own >= topBoard) {
+          return {
+            label: `Top Pair + Board Pair`,
+            blurb:
+              'Top pair on a paired board — you beat all air and every worse pair, so this is a value hand, not a pure bluff-catcher. But the shared board pair counterfeits your kicker and any overpair or trips still has you: bet thinly, keep the pot medium, and don\'t stack off.',
+            strength: 3,
+          };
+        }
         return {
           label: `Pair of ${RC(own)}s + Board Pair`,
           blurb:
-            'Half this "two pair" sits on the board and belongs to everyone — it plays like ONE pair: a bluff-catcher. Keep the pot small, don\'t stack off, and beware higher cards counterfeiting your pair.',
+            'A pair below a higher board card, plus the board\'s own pair that everyone shares — it plays like ONE weak pair: a bluff-catcher. Keep the pot small, don\'t stack off, and beware higher cards counterfeiting your pair.',
           strength: 2,
         };
       }

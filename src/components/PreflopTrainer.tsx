@@ -8,6 +8,7 @@ import { PlayingCard } from './PlayingCard';
 import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR } from './chartColors';
 import { playGrade } from '../sound';
+import { OPEN_SIZE_ROWS, OPEN_SIZE_HOOK } from '../strategy/openSizing';
 
 // Trainer modes map onto the chart's `facing` types. RFI = open or fold; the
 // rest face a raise, so the answer is 3-bet / call / fold (4-bet vs a 3-bet).
@@ -244,6 +245,21 @@ export function PreflopTrainer() {
       </div>
 
       <p className="sub trainer-size-note">{sizeNote}</p>
+
+      {/* Charts show WHICH hands to open; this shows how BIG — size is set by stack
+          depth, not the hand. Shared with the Reference sizing cheat sheet. */}
+      <details className="equity-explain trainer-open-size">
+        <summary>💡 Open size — by stack depth (not habit)</summary>
+        <p className="modal-note">{OPEN_SIZE_HOOK}</p>
+        <dl className="cheat-rows">
+          {OPEN_SIZE_ROWS.map(([k, v]) => (
+            <div key={k} className="cheat-row">
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
 
       <div className="trainer-filter">
         {MODES.map((m) => (

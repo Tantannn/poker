@@ -2,8 +2,14 @@
 // Rendered in three places (one source of truth): a toggle in the live Situation panel,
 // a toggle in the Feedback panel (while drilling), and a section in the Reference tab.
 import { useState } from 'react';
+import { OPEN_SIZE_ROWS } from '../strategy/openSizing';
 
 const BLOCKS: { n: string; title: string; rows: [string, string][] }[] = [
+  {
+    n: '0',
+    title: 'Preflop open size — by STACK DEPTH (not habit)',
+    rows: OPEN_SIZE_ROWS,
+  },
   {
     n: '1',
     title: 'SPR — are you committed?',

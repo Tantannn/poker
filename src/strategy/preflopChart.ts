@@ -442,6 +442,47 @@ export const SCENARIOS: PreflopScenario[] = [
     bluff: S(['A5s', 'A4s', 'A3s', 'K9s']),
     call: S(['77-99', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs', 'JTs', 'T9s', 'AQo', 'KQo', 'AJo']),
   },
+  // BB facing an SB LIMP — the button showed weakness by limping instead of
+  // raising. It is FREE to see a flop, so the big blind never folds: iso-raise
+  // (~3.5bb) the strong half for value + thin value, attack wide with suited/ace
+  // bluffs (the limp range is capped), and CHECK back everything else.
+  {
+    id: 'hu-bb-vs-limp',
+    label: 'Heads-up — BB vs SB limp (iso / check)',
+    short: 'HU v Limp',
+    mnemonic: 'The button LIMPED = weakness. Iso-raise (~3.5bb) pairs 44+, suited aces A7s+, K9s+/Q9s+ and broadways/connectors for value; attack wide with suited-wheel aces and low suited/offsuit bluffs. Everything else CHECKS — it is free, so never fold the BB to a limp.',
+    facing: 'vslimp',
+    heroPos: 'BB',
+    villainPos: 'SB',
+    bluffFreq: 0.5,
+    value: S(['44+', 'A7s+', 'K9s+', 'Q9s+', 'J9s+', 'T8s+', '98s', '87s', '76s', 'ATo+', 'KJo+', 'QJo']),
+    bluff: S([
+      'A2s-A6s', 'K7s', 'K8s', 'Q8s', 'J8s', 'T7s', '97s', '86s', '75s', '65s', '54s',
+      'A9o', 'KTo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o',
+    ]),
+    // check back (free flop) — small pairs + the weak suited/offsuit remainder.
+    call: S([
+      '22-33',
+      'K2s-K6s', 'Q2s-Q7s', 'J2s-J7s', 'T2s-T6s', '92s-96s', '82s-85s', '72s-74s', '62s-64s', '52s-53s', '42s-43s', '32s',
+      'A2o-A8o', 'K2o-K9o', 'Q2o-Q8o', 'J2o-J8o', 'T2o-T8o', '92o-98o', '82o-87o', '72o-76o', '62o-65o', '52o-54o', '42o-43o', '32o',
+    ]),
+  },
+  // BB 3-bet the button and got 4-BET — stacks are committing HU, so the wide
+  // 3-bet range collapses to premiums: jam value + ace-blocker bluffs, flat a
+  // sliver, fold the rest of the 3-bet bluffs.
+  {
+    id: 'hu-bb-vs-4bet',
+    label: 'Heads-up — BB 3-bet vs a 4-bet',
+    short: 'HU BB v 4B',
+    mnemonic: 'You 3-bet the button, he 4-bet — stacks committing. Jam QQ+/AK for value + A5s/A4s as ace-blocker bluffs; flat JJ/TT/AQs; fold the rest of your 3-bet bluffs.',
+    facing: 'vs4bet',
+    heroPos: 'BB',
+    villainPos: 'SB',
+    bluffFreq: 0.5,
+    value: S(['QQ+', 'AKs', 'AKo']),
+    bluff: S(['A5s', 'A4s']),
+    call: S(['JJ', 'TT', 'AQs']),
+  },
 ];
 
 const SEAT_ORDER: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];

@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
-import { RANK_CHARS, SUIT_SYMBOLS, sameCard, isRed } from '../engine/cards';
+import { RANK_CHARS, SUIT_SYMBOLS, sameCard, suitClass } from '../engine/cards';
 import { rangeFromSet } from '../engine/range';
 import type { WeightedRange } from '../engine/range';
 import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE } from '../ai/preflop';
@@ -144,7 +144,7 @@ export function SpotDebugger() {
               return (
                 <button
                   key={ch}
-                  className={`eq-card ${isRed(card) ? 'red' : 'black'} ${isSel(card) ? 'sel' : ''}`}
+                  className={`eq-card ${suitClass(suit)} ${isSel(card) ? 'sel' : ''}`}
                   onClick={() => toggle(card)}
                 >
                   {ch}<span className="eq-card-s">{SUIT_SYMBOLS[suit]}</span>
@@ -253,7 +253,7 @@ export function SpotDebugger() {
 function Slot({ card }: { card?: Card }) {
   if (!card) return <span className="eq-slot empty" />;
   return (
-    <span className={`eq-slot ${isRed(card) ? 'red' : 'black'}`}>
+    <span className={`eq-slot ${suitClass(card.suit)}`}>
       {RANK_CHARS[card.rank - 2]}<span className="eq-card-s">{SUIT_SYMBOLS[card.suit]}</span>
     </span>
   );

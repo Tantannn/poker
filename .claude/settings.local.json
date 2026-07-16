@@ -130,7 +130,14 @@
       "Bash(echo \"build exit=$?\")",
       "Bash(echo \"---TSC DONE \\(rc=$?\\)---\")",
       "Bash(echo \"rc=$?\")",
-      "Bash(grep -vE \"^\\\\s*$\")"
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "PowerShell(npx vitest run src/analysis/grade.test.ts src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/analysis/grade.test.ts 2>&1 | Select-Object -Last 8)",
+      "PowerShell(npx vitest run src/analysis/grade.test.ts 2>&1 | Select-Object -Last 6; npx tsc --noEmit 2>&1 | Select-Object -First 10)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20; Write-Output \"---TESTS---\"; npx vitest run 2>&1 | Select-Object -Last 6)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 15; Write-Output \"---\"; npx vitest run 2>&1 | Select-Object -Last 5)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 15; Write-Output \"---\"; npx vitest run src/strategy/preflopChart.test.ts 2>&1 | Select-Object -Last 8)",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 5)"
     ]
   }
 }

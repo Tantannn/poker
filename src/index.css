@@ -1536,6 +1536,10 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 }
 .drill-hook-tag { font-size: 12px; font-weight: 700; color: var(--gold); }
 .drill-hook p { margin: 4px 0 0; color: var(--txt); font-size: 14px; line-height: 1.5; }
+.drill-hook p.rd-anchor {
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line);
+  color: var(--muted); font-size: 13px;
+}
 
 /* ---- Equity vs range drill ---- */
 .rd-ranges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
@@ -1850,3 +1854,10 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .dc-check:disabled { opacity: 0.5; cursor: default; }
 .dc-score { text-align: center; font-size: 13px; color: var(--muted); }
 .dc-score b { color: var(--txt); font-size: 15px; }
+
+/* ---------- 4-color deck: makes ♣ and ♠ easy to tell apart ---------- */
+/* Placed last so these win specificity ties over base card color rules. */
+.su-c { color: #0e8a3c; } /* clubs   — green */
+.su-d { color: #1668d8; } /* diamond — blue  */
+.su-h { color: #cc1f3a; } /* hearts  — red   */
+.su-s { color: #14181c; } /* spades  — black */

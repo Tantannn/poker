@@ -3,6 +3,7 @@ import type { HudInfo } from '../hooks/useGame';
 import type { NodeStrategy, ActionOption } from '../strategy/types';
 import { CalcLabel, Tooltip } from './CalcTip';
 import { CALC } from './CalConstant';
+import { suitClass } from '../engine/cards';
 
 interface Props {
   hud: HudInfo | null;
@@ -275,7 +276,7 @@ export function Hud({ hud, loading, street, enabled, onToggle, strategy, hideAns
                       </div>
                       <div className="out-cards">
                         {grp.cards.map((c, i) => (
-                          <span key={i} className={`out-pill ${c.suit === 1 || c.suit === 2 ? 'red' : ''}`}>
+                          <span key={i} className={`out-pill ${suitClass(c.suit)}`}>
                             {'23456789TJQKA'[c.rank - 2]}
                             {['♣', '♦', '♥', '♠'][c.suit]}
                           </span>
