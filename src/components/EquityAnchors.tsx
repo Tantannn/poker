@@ -80,15 +80,99 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal cs-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span>🎯 Equity anchors</span>
+          <span>🎯 How to measure your equity</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <p className="modal-note">
-          Don't guess blind — anchor, then nudge. Numbers are ballparks; the drill shows the exact %.
+          Measuring equity = 3 moves: <b>① build his range → ② count what you beat → ③ compare to the pot-odds line.</b>
+          Work them in order.
         </p>
 
-        <h4 className="cs-subhead">The 3-step read</h4>
+        <h4 className="cs-subhead">① Build his range — 3 questions</h4>
+        <p className="modal-note">
+          Before you can measure, you need his hands. Don't invent them — read them off 3 things:
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>ask…</th><th>what it tells you</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">1. Where's he sitting?</td><td>BTN / CO / BB = <b>wide</b> (weaker) · UTG / MP = <b>tight</b> (strong). <span className="muted">memorise a preflop chart once</span></td></tr>
+              <tr><td className="cs-hero">2. What did he do?</td><td>called pre = medium hands · called flop = has a piece · <b>bets = strong + draws</b></td></tr>
+              <tr><td className="cs-hero">3. What does the board give that range?</td><td>which cards he <b>paired</b> · what <b>draws</b> fit · the rest = <b>air</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="cs-gut">
+          💡 You only need the SHAPE — "mostly pairs + some draws + a little air" — not exact combos. Then list one hand
+          from each category and tick it (step ②). <b>10-sec shortcut:</b> "what does he have MOST often — do I beat it?"
+        </p>
+        <p className="cs-gut">
+          Ex — <b>T♣ 7♥ 5♣ 2♥</b>, he's BB &amp; bets the turn: wide range → paired cards (Tx, 7x, 5x, small pockets) +
+          club/straight draws + missed AK/KQ air. Shape = <b>mostly pairs, some draws, a little air</b>.
+        </p>
+
+        <h4 className="cs-subhead">② Measure YOUR equity — the tick method</h4>
+        <p className="modal-note">
+          Your equity = <b>how many of his hands you beat.</b> Picture the hands he'd bet, and go by feel:
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>of his betting hands, I beat…</th><th>my equity ≈</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">most of them</td><td className="cs-good">~75%</td></tr>
+              <tr><td className="cs-hero">about half</td><td className="cs-mid">~50%</td></tr>
+              <tr><td className="cs-hero">only a few (he mostly has me)</td><td className="cs-bad">~25%</td></tr>
+              <tr><td className="cs-hero">almost none (I'm drawing)</td><td className="cs-bad">~15%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p className="cs-step"><b>Unsure? Tick it out.</b> List ~6 hands he'd bet, mark each beat ✓ / lose ✗ / flip ~, then count. <span className="muted">equity ≈ (✓ + ½·~) ÷ total</span></p>
+        <p className="cs-gut">
+          <b>Ex — you hold 9♠6♣ on Q♣ 6♦ 2♠ (middle pair), he bets:</b><br />
+          AQ ✗ · KQ ✗ · JJ ✗ · TT ✗ · A-high bluff ✓ · 55/44 ✓ · 32 bluff ✓<br />
+          Beat 3, lose 4, flip 0 → <b>3 of 7 ≈ ~35%.</b> Middle pair = bluff-catcher: you beat his air + worse pairs,
+          lose to every Q and overpair.
+        </p>
+        <p className="modal-note">
+          Two rules: <b>(1) list the COMMON hands, skip the rare monsters</b> — he <i>could</i> have a set, but that's
+          1 hand of many; don't fold scared. <b>(2) a draw = half a tick</b> (wins ~half the time). Then compare to
+          what you need to call ↓.
+        </p>
+
+        <h4 className="cs-subhead">③ What do you NEED? (pot odds)</h4>
+        <p className="modal-note">
+          Compare your equity to what the bet lays you: <b>equity ≥ the number below → call</b>, under → fold.
+          <span className="muted"> need = bet ÷ (pot + 2·bet)</span>
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>he bets…</th><th>you need to call</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">¼ pot</td><td className="cs-good">17%</td></tr>
+              <tr><td className="cs-hero">⅓ pot</td><td className="cs-good">20%</td></tr>
+              <tr><td className="cs-hero">½ pot</td><td className="cs-good">25%</td></tr>
+              <tr><td className="cs-hero">⅔ pot</td><td className="cs-mid">29%</td></tr>
+              <tr><td className="cs-hero">¾ pot</td><td className="cs-mid">30%</td></tr>
+              <tr><td className="cs-hero">pot</td><td className="cs-mid">33%</td></tr>
+              <tr><td className="cs-hero">1½ pot</td><td className="cs-bad">37%</td></tr>
+              <tr><td className="cs-hero">2× pot (overbet)</td><td className="cs-bad">40%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="cs-gut">
+          💡 Putting it together — your 9♠6♣ read (~35%): he bets ⅓ (need 20) → <b>call</b>. He bets ⅔ (need 29) →
+          close; <b>fold</b> vs a value-heavy bettor, call vs a bluffy one (his bluffs swell the hands you beat).
+        </p>
+
+        <h4 className="cs-subhead">The bucket anchor <span className="cs-width">rough gut-check — the tick method above is the real one</span></h4>
         <ol className="cs-rules">
           <li><b>Your hand</b> → find its row below (top pair, draw…) = your base %.</li>
           <li><b>Wide or tight?</b> → pick the column (seat table ↓).</li>

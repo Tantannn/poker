@@ -1536,10 +1536,19 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 }
 .drill-hook-tag { font-size: 12px; font-weight: 700; color: var(--gold); }
 .drill-hook p { margin: 4px 0 0; color: var(--txt); font-size: 14px; line-height: 1.5; }
+.drill-hook .rd-breakdown {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+  background: rgba(46, 194, 126, 0.10); border: 1px solid rgba(46, 194, 126, 0.35);
+  font-size: 13.5px; color: var(--txt); line-height: 1.5;
+}
+.rd-tick { margin: 6px 0; display: flex; flex-direction: column; gap: 3px; }
+.rd-tick > div { font-size: 13px; font-family: ui-monospace, monospace; }
+.rd-tick b { font-family: var(--font, inherit); margin-right: 4px; }
 .drill-hook p.rd-anchor {
   margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line);
   color: var(--muted); font-size: 13px;
 }
+.drill-hook p.rd-anchor-rough { opacity: 0.7; font-size: 12px; }
 
 /* ---- Equity vs range drill ---- */
 .rd-ranges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
@@ -1571,6 +1580,8 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .cs-mid  { color: #d9b65a; font-weight: 700; }
 .cs-bad  { color: #d56a6a; font-weight: 700; }
 
+.cs-step { margin: 10px 0 4px; font-size: 13px; color: var(--txt); }
+.cs-step .muted { font-size: 11px; }
 .cs-rules { margin: 0 0 12px; padding-left: 20px; font-size: 12.5px; color: var(--muted); }
 .cs-rules li { margin: 4px 0; }
 .cs-rules b { color: var(--txt); }

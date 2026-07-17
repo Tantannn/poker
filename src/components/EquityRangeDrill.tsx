@@ -8,8 +8,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
+import { rankToChar, SUIT_SYMBOLS } from '../engine/cards';
 import { randomFlop, randomCard } from '../engine/board';
-import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
+import { equityVsRange, equityVsField, countOuts, rangeBreakdown } from '../engine/equity';
 import { rangeFromSet } from '../engine/range';
 import type { ComboWeight, WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
@@ -70,9 +71,11 @@ const TYPE_OPTS: { id: string; label: string }[] = [
   { id: 'maniac', label: '🔥 Maniac' },
 ];
 
-// how close your % guess must be to count as calibrated. 2500-iter MC noise is ~±1pt,
-// so ±6 rewards a genuine read without demanding solver precision.
-const GUESS_TOL = 6;
+// how close your % guess must be to count as calibrated. This is a GUT trainer for the
+// table, not a solver — in a real game ±10 is as precise as a read ever needs to be (call
+// vs fold rarely hinges on finer), and the anchor heuristic itself is only ~±10. So ±10
+// rewards a genuine read without chasing precision no human hits live.
+const GUESS_TOL = 10;
 
 // "🎲 Random" villain: reroll a concrete range/type each spot so you train across the
 // whole cast instead of one fixed opponent. Not a real archetype — a mode flag.
@@ -421,7 +424,7 @@ function anchorRead(
       ? 'he bluffs more than the sheet assumes, or his range is wider/weaker'
       : "his range is wider/weaker than the anchor assumes — you out-showdown more of his missed air";
   const verdict =
-    Math.abs(gap) <= 6
+    Math.abs(gap) <= GUESS_TOL
       ? ` — actual ${eq}%, so the anchor nailed it.`
       : gap > 0
         ? ` — actual ${eq}%, ~${gap} higher: ${higherReason}, so you beat more of it.`
@@ -444,6 +447,12 @@ function bandOf(e: number): number {
   if (e < 70) return 3;
   return 4;
 }
+
+// Format example combos for the tick walkthrough: "5♦5♣ · A♠K♦", or "—" if none.
+const fmtHands = (combos: [Card, Card][]): string =>
+  combos.length
+    ? combos.map((c) => c.map((card) => rankToChar(card.rank) + SUIT_SYMBOLS[card.suit]).join('')).join('  ·  ')
+    : '—';
 
 function dealHero(): Card[] {
   const a = randomCard([]);
@@ -513,6 +522,12 @@ export function RangeDrill() {
   const trueBand = bandOf(equity);
   const outs = useMemo(() => countOuts(spot.hero, spot.board).outs, [spot]);
   const drawO = useMemo(() => canonicalDrawOuts(spot.hero, spot.board, spot.hc, outs), [spot, outs]);
+  // Accurate range decomposition — computed from the REAL range only after the guess is
+  // locked (it's heavier than the MC), so it can't leak the answer and doesn't run per keystroke.
+  const breakdown = useMemo(
+    () => (locked && opps <= 1 ? rangeBreakdown(spot.hero, spot.board, ropt.range, comboWeight) : null),
+    [locked, opps, spot, ropt, comboWeight],
+  );
 
   const err = Math.abs(guess - equity);
   const correct = locked && err <= GUESS_TOL;
@@ -567,8 +582,8 @@ export function RangeDrill() {
         <button className={`rd-range ${rangeId === RANDOM_ID ? 'active' : ''}`} onClick={() => switchRange(RANDOM_ID)} title="Face a random position range, rerolled every spot">
           🎲 Random
         </button>
-        <button className="rd-cheat" onClick={() => setShowAnchors(true)} title="Equity anchor numbers to calibrate from">
-          🎯 anchors
+        <button className="rd-cheat" onClick={() => setShowAnchors(true)} title="How to measure your equity — build the range, tick what you beat, compare to pot odds">
+          🎯 how to measure
         </button>
         <button className="rd-cheat" onClick={() => setShowCheat(true)} title="How position swings your equity">
           📊 cheat sheet
@@ -674,8 +689,23 @@ export function RangeDrill() {
           <div className="drill-hook">
             <span className="drill-hook-tag">💡 Why</span>
             <p>{opps > 1 ? whyMultiway(spot.hc, equity, opps) : whyRange(spot.hc, ropt.width, equity, outs, drawO, street, betOpt.facing, typeOpt.label)}</p>
+            {opps === 1 && breakdown && breakdown.combos > 0 && (
+              <div className="rd-breakdown">
+                🎯 <b>Measure THIS — tick it.</b> You have <b>{spot.hc.label}</b>. Of his {breakdown.combos} hands:
+                <div className="rd-tick">
+                  <div><b className="good">BEAT {Math.round(breakdown.ahead * 100)}%</b> ✓ &nbsp;{fmtHands(breakdown.examples.ahead)}</div>
+                  <div><b className="bad">LOSE {Math.round(breakdown.behind * 100)}%</b> ✗ &nbsp;{fmtHands(breakdown.examples.behind)}</div>
+                  <div><b className="okv">FLIP {Math.round(breakdown.flip * 100)}%</b> ~ &nbsp;{fmtHands(breakdown.examples.flip)}</div>
+                </div>
+                Count the piles → equity ≈ <b>{Math.round(breakdown.equity * 100)}%</b> &nbsp;
+                <span className="muted">(beat + ½·flip)</span>
+              </div>
+            )}
             {opps === 1 && (
-              <p className="rd-anchor">{anchorRead(spot.hc, ropt.width, equity, outs, street, betOpt.facing, betOpt.frac, betOpt.label, spot.hero, spot.board, getProfile(effTypeId).bluffFreq)}</p>
+              <p className="rd-anchor rd-anchor-rough">
+                <i>gut-shortcut (rough, often ±10-15):</i>{' '}
+                {anchorRead(spot.hc, ropt.width, equity, outs, street, betOpt.facing, betOpt.frac, betOpt.label, spot.hero, spot.board, getProfile(effTypeId).bluffFreq)}
+              </p>
             )}
           </div>
           <div className="rd-tip">

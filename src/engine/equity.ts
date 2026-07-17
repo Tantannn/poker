@@ -1,7 +1,7 @@
 // Equity (Monte Carlo) + outs estimation for the training HUD.
 
 import type { Card } from './cards';
-import { makeDeck, sameCard } from './cards';
+import { makeDeck, sameCard, rankToChar } from './cards';
 import { evaluate7, HAND_CATEGORIES } from './evaluator';
 import type { HandCategory } from './evaluator';
 import type { WeightedRange, ComboWeight } from './range';
@@ -143,6 +143,129 @@ export function equityVsRange(
   return {
     win: w, tie: t, equity: w + t / 2, iterations: valid,
     trials: valid, wins: win, ties: tie, losses: valid - win - tie,
+  };
+}
+
+/**
+ * Range DECOMPOSITION — the honest "measure your own equity" tool. Instead of a
+ * lossy bucket-minus-cut heuristic, this reads the villain's ACTUAL range and
+ * splits it into the three piles a player eyeballs at the table:
+ *   • AHEAD  — combos hero crushes (hero ≥ 70% vs that exact hand)
+ *   • BEHIND — combos that crush hero (hero ≤ 30%)
+ *   • FLIP   — everything between: coinflips and live draws
+ * plus the overall equity (weighted average of per-combo equity, ≈ the MC number).
+ * Each concrete combo's equity is computed vs the real runout (exhaustive on the
+ * turn, sampled on the flop), so the split is accurate — never 15% off — and it
+ * teaches exactly what to estimate live: how much of his range you beat.
+ */
+export interface RangeBreakdown {
+  ahead: number; // weighted fraction of the range
+  flip: number;
+  behind: number;
+  equity: number; // overall pot-share fraction (win + tie/2)
+  combos: number; // distinct concrete combos considered
+  // a few representative combos per pile, heaviest first, deduped by hand-type — so
+  // the drill can show the tick worked on real example hands ("beat 55, A5 · lose AQ").
+  examples: { ahead: [Card, Card][]; behind: [Card, Card][]; flip: [Card, Card][] };
+}
+
+/** 169-style code for a concrete combo (AKs / AKo / 77) — to dedupe example hands. */
+function comboCode(a: Card, b: Card): string {
+  const hi = a.rank >= b.rank ? a : b;
+  const lo = a.rank >= b.rank ? b : a;
+  const base = rankToChar(hi.rank) + rankToChar(lo.rank);
+  return hi.rank === lo.rank ? base : base + (a.suit === b.suit ? 's' : 'o');
+}
+
+/** Heaviest-weight, distinct-type example combos from a bucket (up to `n`). */
+function pickExamples(arr: { c: [Card, Card]; w: number }[], n: number): [Card, Card][] {
+  arr.sort((x, y) => y.w - x.w);
+  const seen = new Set<string>();
+  const out: [Card, Card][] = [];
+  for (const { c } of arr) {
+    const code = comboCode(c[0], c[1]);
+    if (seen.has(code)) continue;
+    seen.add(code);
+    out.push(c);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+/** Hero's exact equity vs ONE opponent combo over the remaining board. */
+function comboEquity(hero: Card[], board: Card[], opp: [Card, Card], needBoard: number, rng: () => number): number {
+  if (needBoard <= 0) {
+    const hs = evaluate7([...hero, ...board]).score;
+    const os = evaluate7([opp[0], opp[1], ...board]).score;
+    return hs > os ? 1 : hs === os ? 0.5 : 0;
+  }
+  const used = [...hero, ...board, opp[0], opp[1]];
+  const deck = makeDeck().filter((d) => !used.some((u) => sameCard(u, d)));
+  let win = 0;
+  let tie = 0;
+  let n = 0;
+  if (needBoard === 1) {
+    for (const c of deck) {
+      const fb = [...board, c];
+      const hs = evaluate7([...hero, ...fb]).score;
+      const os = evaluate7([opp[0], opp[1], ...fb]).score;
+      if (hs > os) win++;
+      else if (hs === os) tie++;
+      n++;
+    }
+  } else {
+    const K = 120; // flop: two cards to come — sample runouts
+    for (let k = 0; k < K; k++) {
+      const i = Math.floor(rng() * deck.length);
+      let j = Math.floor(rng() * deck.length);
+      while (j === i) j = Math.floor(rng() * deck.length);
+      const fb = [...board, deck[i], deck[j]];
+      const hs = evaluate7([...hero, ...fb]).score;
+      const os = evaluate7([opp[0], opp[1], ...fb]).score;
+      if (hs > os) win++;
+      else if (hs === os) tie++;
+      n++;
+    }
+  }
+  return n ? (win + tie * 0.5) / n : 0;
+}
+
+export function rangeBreakdown(
+  hero: Card[],
+  board: Card[],
+  oppRange: WeightedRange,
+  comboWeight?: ComboWeight,
+  rng: () => number = Math.random,
+): RangeBreakdown {
+  const empty: RangeBreakdown = { ahead: 0, flip: 0, behind: 0, equity: 0, combos: 0, examples: { ahead: [], behind: [], flip: [] } };
+  if (hero.length < 2) return empty;
+  const dead = [...hero, ...board];
+  const table = buildSampleTable(oppRange, dead, comboWeight);
+  const n = table.combos.length;
+  if (table.total <= 0 || n === 0) return empty;
+  const needBoard = 5 - board.length;
+  let aheadW = 0;
+  let flipW = 0;
+  let behindW = 0;
+  let eqW = 0;
+  let prev = 0;
+  const rawAhead: { c: [Card, Card]; w: number }[] = [];
+  const rawBehind: { c: [Card, Card]; w: number }[] = [];
+  const rawFlip: { c: [Card, Card]; w: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const w = table.cum[i] - prev; // per-combo weight from the cumulative array
+    prev = table.cum[i];
+    const combo = table.combos[i];
+    const e = comboEquity(hero, board, combo, needBoard, rng);
+    eqW += e * w;
+    if (e >= 0.7) { aheadW += w; rawAhead.push({ c: combo, w }); }
+    else if (e <= 0.3) { behindW += w; rawBehind.push({ c: combo, w }); }
+    else { flipW += w; rawFlip.push({ c: combo, w }); }
+  }
+  const T = table.total;
+  return {
+    ahead: aheadW / T, flip: flipW / T, behind: behindW / T, equity: eqW / T, combos: n,
+    examples: { ahead: pickExamples(rawAhead, 3), behind: pickExamples(rawBehind, 3), flip: pickExamples(rawFlip, 3) },
   };
 }
 
