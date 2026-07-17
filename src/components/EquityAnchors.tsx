@@ -80,15 +80,99 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal cs-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span>🎯 Equity anchors</span>
+          <span>🎯 How to measure your equity</span>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
 
         <p className="modal-note">
-          Don't guess blind — anchor, then nudge. Numbers are ballparks; the drill shows the exact %.
+          Measuring equity = 3 moves: <b>① build his range → ② count what you beat → ③ compare to the pot-odds line.</b>
+          Work them in order.
         </p>
 
-        <h4 className="cs-subhead">The 3-step read</h4>
+        <h4 className="cs-subhead">① Build his range — 3 questions</h4>
+        <p className="modal-note">
+          Before you can measure, you need his hands. Don't invent them — read them off 3 things:
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>ask…</th><th>what it tells you</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">1. Where's he sitting?</td><td>BTN / CO / BB = <b>wide</b> (weaker) · UTG / MP = <b>tight</b> (strong). <span className="muted">memorise a preflop chart once</span></td></tr>
+              <tr><td className="cs-hero">2. What did he do?</td><td>called pre = medium hands · called flop = has a piece · <b>bets = strong + draws</b></td></tr>
+              <tr><td className="cs-hero">3. What does the board give that range?</td><td>which cards he <b>paired</b> · what <b>draws</b> fit · the rest = <b>air</b></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="cs-gut">
+          💡 You only need the SHAPE — "mostly pairs + some draws + a little air" — not exact combos. Then list one hand
+          from each category and tick it (step ②). <b>10-sec shortcut:</b> "what does he have MOST often — do I beat it?"
+        </p>
+        <p className="cs-gut">
+          Ex — <b>T♣ 7♥ 5♣ 2♥</b>, he's BB &amp; bets the turn: wide range → paired cards (Tx, 7x, 5x, small pockets) +
+          club/straight draws + missed AK/KQ air. Shape = <b>mostly pairs, some draws, a little air</b>.
+        </p>
+
+        <h4 className="cs-subhead">② Measure YOUR equity — the tick method</h4>
+        <p className="modal-note">
+          Your equity = <b>how many of his hands you beat.</b> Picture the hands he'd bet, and go by feel:
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>of his betting hands, I beat…</th><th>my equity ≈</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">most of them</td><td className="cs-good">~75%</td></tr>
+              <tr><td className="cs-hero">about half</td><td className="cs-mid">~50%</td></tr>
+              <tr><td className="cs-hero">only a few (he mostly has me)</td><td className="cs-bad">~25%</td></tr>
+              <tr><td className="cs-hero">almost none (I'm drawing)</td><td className="cs-bad">~15%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p className="cs-step"><b>Unsure? Tick it out.</b> List ~6 hands he'd bet, mark each beat ✓ / lose ✗ / flip ~, then count. <span className="muted">equity ≈ (✓ + ½·~) ÷ total</span></p>
+        <p className="cs-gut">
+          <b>Ex — you hold 9♠6♣ on Q♣ 6♦ 2♠ (middle pair), he bets:</b><br />
+          AQ ✗ · KQ ✗ · JJ ✗ · TT ✗ · A-high bluff ✓ · 55/44 ✓ · 32 bluff ✓<br />
+          Beat 3, lose 4, flip 0 → <b>3 of 7 ≈ ~35%.</b> Middle pair = bluff-catcher: you beat his air + worse pairs,
+          lose to every Q and overpair.
+        </p>
+        <p className="modal-note">
+          Two rules: <b>(1) list the COMMON hands, skip the rare monsters</b> — he <i>could</i> have a set, but that's
+          1 hand of many; don't fold scared. <b>(2) a draw = half a tick</b> (wins ~half the time). Then compare to
+          what you need to call ↓.
+        </p>
+
+        <h4 className="cs-subhead">③ What do you NEED? (pot odds)</h4>
+        <p className="modal-note">
+          Compare your equity to what the bet lays you: <b>equity ≥ the number below → call</b>, under → fold.
+          <span className="muted"> need = bet ÷ (pot + 2·bet)</span>
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>he bets…</th><th>you need to call</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">¼ pot</td><td className="cs-good">17%</td></tr>
+              <tr><td className="cs-hero">⅓ pot</td><td className="cs-good">20%</td></tr>
+              <tr><td className="cs-hero">½ pot</td><td className="cs-good">25%</td></tr>
+              <tr><td className="cs-hero">⅔ pot</td><td className="cs-mid">29%</td></tr>
+              <tr><td className="cs-hero">¾ pot</td><td className="cs-mid">30%</td></tr>
+              <tr><td className="cs-hero">pot</td><td className="cs-mid">33%</td></tr>
+              <tr><td className="cs-hero">1½ pot</td><td className="cs-bad">37%</td></tr>
+              <tr><td className="cs-hero">2× pot (overbet)</td><td className="cs-bad">40%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="cs-gut">
+          💡 Putting it together — your 9♠6♣ read (~35%): he bets ⅓ (need 20) → <b>call</b>. He bets ⅔ (need 29) →
+          close; <b>fold</b> vs a value-heavy bettor, call vs a bluffy one (his bluffs swell the hands you beat).
+        </p>
+
+        <h4 className="cs-subhead">The bucket anchor <span className="cs-width">rough gut-check — the tick method above is the real one</span></h4>
         <ol className="cs-rules">
           <li><b>Your hand</b> → find its row below (top pair, draw…) = your base %.</li>
           <li><b>Wide or tight?</b> → pick the column (seat table ↓).</li>
@@ -119,14 +203,44 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
               </tr>
             </thead>
             <tbody>
-              <tr><td className="cs-hero">Still beats some value (top pair+)</td><td className="cs-bad">base −15</td></tr>
+              <tr><td className="cs-hero">Strong made (two pair+, overpair, top pair TOP kicker)</td><td className="cs-bad">−15 · only −½ vs a WIDE range</td></tr>
+              <tr><td className="cs-hero">Marginal made (weak-kicker top pair, 2nd pair on a pair)</td><td className="cs-bad">FULL −15 — dominated, even vs WIDE</td></tr>
               <tr><td className="cs-hero">Pure bluff-catcher (weak / 2nd pair, air)</td><td className="cs-bad">≈ his bluff % (table ↓)</td></tr>
               <tr><td className="cs-hero">Draw</td><td className="cs-bad">cut ⅓ (dirty outs)</td></tr>
             </tbody>
           </table>
         </div>
         <p className="modal-note">
-          Bigger bet = bigger cut (⅓ pot small · pot+ big). A bet just means <b>"he got tighter."</b>
+          Bigger bet = bigger cut (⅓ pot small · pot+ big). A bet just means <b>"he got tighter."</b> The <b>−½ vs WIDE</b>
+          discount is for <b>STRONG</b> hands only — two pair beats a wide range's weak value, so it barely drops (a station's
+          wide ⅔ bet takes two pair down just ~4, not 15). A <b>marginal</b> hand (weak-kicker top pair, 2nd pair) is
+          <b>dominated</b> by the better kickers/pairs he value-bets, so it takes the <b>FULL</b> cut even vs a wide range.
+          A <b>bluffy villain</b> (maniac) narrows less → cut less.
+        </p>
+
+        <h4 className="cs-subhead">Made-hand cut, exact — base × width × (1−bluff)</h4>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr>
+                <th>factor</th>
+                <th>value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">base — bet ⅓ / ⅔ / pot+</td><td>10 / 15 / 20</td></tr>
+              <tr><td className="cs-hero">× width — WIDE / TIGHT <span className="cs-width">STRONG hands only; marginal = ×1</span></td><td className="cs-mid">×0.5 / ×1.0</td></tr>
+              <tr>
+                <td className="cs-hero">× (1−bluff) — {BLUFFERS.map((b) => b.label.split(' ')[0]).join(' / ')}</td>
+                <td className="cs-mid">{BLUFFERS.map((b) => `×${(1 - getProfile(b.id).bluffFreq).toFixed(2)}`).join(' / ')}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="modal-note">
+          Ex (strong): two pair vs a <b>WIDE</b> range = 80, 🐟 station bets ⅔ → cut = <b>15 × 0.5 × 0.92 ≈ 7</b> → <b>73</b>.
+          Ex (marginal): weak-kicker top pair = 72, same bet → NO ½ → cut = <b>15 × 1 × 0.92 ≈ 14</b> → <b>58</b>.
+          Round each factor — it's a gut anchor. (Bluff-catchers skip this — they keep ≈ his bluff %, table above.)
         </p>
 
         <h4 className="cs-subhead">Villain bluff rate — a bluff-catcher's ceiling facing a bet</h4>
@@ -185,6 +299,35 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
           </table>
         </div>
         <p className="modal-note">Memorize the <b>WIDE</b> column; a tight range → knock ~15 off.</p>
+
+        <h4 className="cs-subhead">Board texture — the made-hand rows assume a DRY board</h4>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr>
+                <th>board (hand doesn't beat it)</th>
+                <th>knock off</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">Connected — straight ONE card away (3-4-5-7, 6-7-8-T)</td><td className="cs-bad">−22 (a set −11)</td></tr>
+              <tr><td className="cs-hero">Connected — 2-card straights live (3 in a 5-span)</td><td className="cs-bad">−10 (a set −5)</td></tr>
+              <tr><td className="cs-hero">3-flush board you hold no card of</td><td className="cs-bad">−8</td></tr>
+              <tr><td className="cs-hero">4-flush board you hold no card of</td><td className="cs-bad">−18</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="modal-note">
+          The made-hand rows are <b>dry-board</b> numbers. On a wet board a hand that can't beat a straight/flush (two pair,
+          one pair, even a set) is worth far less — a wide range holds the straight/flush cards. <b>Facing a bet, scale the
+          hazard by (1−bluff)</b> — only a value bettor's range is loaded with the nut hands; a bluffy villain bets air you
+          beat, so cut less. Checked = full hazard.
+        </p>
+        <p className="modal-note">
+          Ex: 7-4 two pair on <b>4-3-7-5</b> (any 6 = a straight), ⅔ bet. vs 🐟 <b>station</b> (bluff 8%): −7 bet, connected
+          −22×0.92 ≈ −20 → ~53. vs ⚖ <b>balanced</b> (bluff 33%): −5 bet, connected −22×0.67 ≈ −15 → ~60. The bluffs he adds
+          are the ~11 pts of equity you gain.
+        </p>
 
         <h4 className="cs-subhead">Draws (Rule of 2 &amp; 4)</h4>
         <div className="cs-tablewrap">

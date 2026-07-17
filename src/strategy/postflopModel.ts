@@ -522,7 +522,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
         evCall > 0.05
           ? e >= need
             ? `You need ${pct(need)} equity and have ~${pct(e)} — the price is met, so folding surrenders a profitable call. Fold only with a strong read that this opponent never bluffs here.`
-            : `The raw price isn't met (~${pct(e)} vs ${pct(need)} needed), but implied odds make calling profitable — folding still surrenders EV.`
+            : `Folding is 0 EV — but calling is +EV here: the raw price is short (~${pct(e)} vs ${pct(need)}), and ${implied > 0 ? 'implied odds' : 'position / realisation'} carry it, so folding leaves ~${evCall.toFixed(2)}bb behind.`
           : e >= need
             ? `~${pct(e)} vs ${pct(need)} needed — technically enough, but the call is about break-even at best once realisation is counted, so folding gives up almost nothing.`
             : `You need ${pct(need)} equity to call but only have ~${pct(e)}. Folding forfeits the pot but loses the least.`,
@@ -533,7 +533,13 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       label: `Call ${C}`,
       ev: evCall,
       kind: 'passive',
-      why: `Pot odds require ${pct(need)}; you have ~${pct(e)}, so calling is ${evCall > 0.05 ? 'profitable' : evCall > -0.05 ? 'about break-even' : '-EV'}.${
+      why: `${
+        e >= need
+          ? `Pot odds: need ${pct(need)}, you have ~${pct(e)} — the raw price is met, so calling is ${evCall > 0.05 ? 'profitable' : evCall > -0.05 ? 'about break-even' : '-EV'}.`
+          : evCall > 0.05
+            ? `Raw pot odds need ${pct(need)} but you have only ~${pct(e)} — short on its own, so the call is +EV ONLY because ${implied > 0 ? 'implied odds' : 'position / realisation'} carry it (below).`
+            : `Pot odds need ${pct(need)}, you have only ~${pct(e)} — the price isn't met, so calling is ${evCall > -0.05 ? 'about break-even' : '-EV'}.`
+      }${
         !isRiver && oop ? ' Out of position you realise less of that equity, so call tighter.' : !isRiver && ip ? ' In position you realise it well.' : ''
       }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}${riverCallNote(isRiver, e, need)}`,
       math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(callEq)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(callEq * (P + C) - C + implied).toFixed(1)} chips ≈ ${((callEq * (P + C) - C + implied) / bb).toFixed(2)} bb`,

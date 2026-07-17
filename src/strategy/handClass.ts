@@ -48,35 +48,53 @@ function nutFlush(hero: Card[], board: Card[]): boolean {
   return false;
 }
 
-/** Open-ended / double-gutshot vs gutshot vs none, from the full rank set. */
-function straightDraw(ranks: number[]): 'oesd' | 'gutshot' | 'none' {
-  const present = new Array(16).fill(false);
+// present[] rank-set (1..14), ace also low at index 1.
+function rankSet(ranks: number[]): boolean[] {
+  const p = new Array(16).fill(false);
   for (const r of ranks) {
-    present[r] = true;
-    if (r === 14) present[1] = true; // ace plays low
+    p[r] = true;
+    if (r === 14) p[1] = true; // ace plays low
   }
-  const isMade = (p: boolean[]): boolean => {
-    let run = 0;
-    for (let r = 1; r <= 14; r++) {
-      if (p[r]) {
-        run++;
-        if (run >= 5) return true;
-      } else run = 0;
-    }
-    return false;
-  };
-  if (isMade(present)) return 'none'; // already a straight — handled as a made hand
+  return p;
+}
+// highest top-card of a made 5-straight in a rank-set, else 0.
+function bestStraightTop(p: boolean[]): number {
+  for (let top = 14; top >= 5; top--) {
+    let ok = true;
+    for (let k = 0; k < 5; k++) if (!p[top - k]) { ok = false; break; }
+    if (ok) return top;
+  }
+  return 0;
+}
+
+/** Open-ended / gutshot / none. BOARD-AWARE: a completing rank that only makes a
+ *  straight lying entirely on the board is a CHOP (everyone plays it), not a real
+ *  out, so it's excluded. E.g. K5 on 9-6-7-T: an 8 makes 6-7-8-9-T on the board,
+ *  a chop — hero has no straight draw, only a flush draw. Counts a completer only
+ *  when hero's resulting straight tops the board's. */
+function straightDraw(hero: Card[], board: Card[]): 'oesd' | 'gutshot' | 'none' {
+  const heroRanks = [...hero, ...board].map((c) => c.rank);
+  const boardRanks = board.map((c) => c.rank);
+  if (bestStraightTop(rankSet(heroRanks)) > 0) return 'none'; // already a straight
   const completers = new Set<number>();
-  for (let c = 1; c <= 14; c++) {
-    if (present[c]) continue;
-    const p2 = present.slice();
-    p2[c] = true;
-    if (c === 1) p2[14] = true;
-    if (isMade(p2)) completers.add(c === 1 ? 14 : c);
+  for (let c = 2; c <= 14; c++) {
+    if (heroRanks.includes(c)) continue;
+    const heroTop = bestStraightTop(rankSet([...heroRanks, c]));
+    if (heroTop === 0) continue; // c doesn't complete hero's straight
+    if (heroTop <= bestStraightTop(rankSet([...boardRanks, c]))) continue; // board straight = chop
+    completers.add(c);
   }
   if (completers.size >= 2) return 'oesd'; // two+ ranks complete it ≈ 8 outs
   if (completers.size === 1) return 'gutshot';
   return 'none';
+}
+
+/** Draw components, board-aware — shared with the equity drill so its out-count
+ *  matches this label (flush 9 · OESD 8 · gutshot 4 · flush+OESD 15 · flush+gutshot
+ *  12). Flop/turn only; no draws pre-flop or on the river. */
+export function drawProfile(hero: Card[], board: Card[]): { flush: boolean; straight: 'oesd' | 'gutshot' | 'none' } {
+  if (board.length < 3 || board.length >= 5) return { flush: false, straight: 'none' };
+  return { flush: flushDraw(hero, board).draw, straight: straightDraw(hero, board) };
 }
 
 export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
@@ -104,10 +122,9 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
   const topBoard = boardRanks[0];
   const secondBoard = boardRanks[1];
   const pocket = hero[0].rank === hero[1].rank;
-  const allRanks = [...hero, ...board].map((c) => c.rank);
 
   const fd = board.length < 5 ? flushDraw(hero, board) : { draw: false, nut: false };
-  const sd = board.length < 5 ? straightDraw(allRanks) : 'none';
+  const sd = board.length < 5 ? straightDraw(hero, board) : 'none';
   const drawTag = (base: string) => {
     if (fd.draw && (sd === 'oesd' || sd === 'gutshot')) return `${base} + Combo Draw`;
     if (fd.draw) return `${base} + Flush Draw`;
