@@ -13,7 +13,7 @@ import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
 import { rangeFromSet } from '../engine/range';
 import type { ComboWeight, WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
-import { classifyHandClass } from '../strategy/handClass';
+import { classifyHandClass, drawProfile } from '../strategy/handClass';
 import type { HandClass } from '../strategy/handClass';
 import { betConditionedWeight } from '../strategy';
 import { getProfile } from '../ai/profiles';
@@ -79,18 +79,20 @@ const GUESS_TOL = 6;
 const RANDOM_ID = 'rand';
 const pickId = <T extends { id: string }>(arr: T[]): string => arr[Math.floor(Math.random() * arr.length)].id;
 
-// Canonical outs for a LABELLED draw, so the read matches the label. countOuts
-// reports every category-improving card — for a gutshot that includes pairing your
-// undercards (~10 "outs"), which are NOT real draw outs. A "Gutshot" is 4, an
-// "Open-Ender" 8, a "Flush Draw" 9, "Two Overcards" 6, a "Combo Draw" ~15. Falls back
-// to the counted number for an unlabelled draw. (Same ladder as the 🎯 anchor sheet.)
-function canonicalDrawOuts(hc: HandClass, counted: number): number {
-  const l = hc.label.toLowerCase();
-  if (/combo draw/.test(l)) return 15; // flush + straight
-  if (/flush draw/.test(l)) return 9;
-  if (/open-end|open-ender|oesd/.test(l)) return 8;
-  if (/two overcards/.test(l)) return 6;
-  if (/gutshot/.test(l)) return 4;
+// Canonical outs for a draw, from the BOARD-AWARE drawProfile (not the label), so the
+// number is honest: a "Combo Draw" whose straight lies on the board is really just a
+// flush draw. countOuts over-counts (it credits pairing your undercards, and shared
+// board straights), so we use the memorized ladder keyed to the actual draw: flush 9,
+// OESD 8, gutshot 4, flush+OESD 15, flush+gutshot 12, two overcards 6. Falls back to
+// the counted number for anything else. (Same ladder as the 🎯 anchor sheet.)
+function canonicalDrawOuts(hero: Card[], board: Card[], hc: HandClass, counted: number): number {
+  const { flush, straight } = drawProfile(hero, board);
+  if (flush && straight === 'oesd') return 15;
+  if (flush && straight === 'gutshot') return 12;
+  if (flush) return 9;
+  if (straight === 'oesd') return 8;
+  if (straight === 'gutshot') return 4;
+  if (/two overcards/i.test(hc.label)) return 6;
   return counted;
 }
 
@@ -104,6 +106,7 @@ function whyRange(
   width: 'wide' | 'tight',
   equity: number,
   outs: number,
+  drawO: number,
   street: 'Flop' | 'Turn',
   facingBet = false,
   betTypeLabel = '',
@@ -126,8 +129,6 @@ function whyRange(
       ? `their range is wide — mostly unpaired air and weak hands`
       : `their range is tight — big pairs and strong aces, few weak hands`;
 
-  // draw outs read off the LABEL, not countOuts (which over-counts weak-pair "outs").
-  const drawO = canonicalDrawOuts(hc, outs);
   // THE NUMBER — where this exact % comes from.
   let math: string;
   if (isPureDraw && drawO > 0) {
@@ -149,7 +150,9 @@ function whyRange(
   } else if (s >= 4) {
     math =
       width === 'wide'
-        ? `You beat almost their whole range → ~${eq}%.`
+        ? eq >= 68
+          ? `You beat almost their whole range → ~${eq}%.`
+          : `Two pair/overpair usually crushes a wide range — but this board is dangerous (connected or paired), so you're only ~${eq}%.`
         : eq >= 62
           ? `A monster stays ahead of even a tight value range → ~${eq}%.`
           : `Strong, but a tight value range fights back — you're ahead of only part of it → ~${eq}%.`;
@@ -180,7 +183,13 @@ function whyRange(
               ? ` Real equity ${eq}%, below the raw ${rawHit}%.`
               : ` Raw draw ≈ ${rawHit}%; pair/air backup lifts the real number to ${eq}%.`
           }`
-        : ` He BET (${betTypeLabel}) — his range narrows to value, dragging you to ${eq}%.`;
+        : ` He BET (${betTypeLabel}) — ${
+            s <= 3
+              ? `and a marginal made hand like this is dominated by the better pairs/kickers he value-bets → drops to ~${eq}%.`
+              : width === 'wide'
+                ? `but a wide range's "value" is weak (any pair/ace), so a strong hand barely drops → still ~${eq}%.`
+                : `his range narrows to real value, pulling you to ~${eq}%.`
+          }`;
   }
 
   const hook =
@@ -188,10 +197,14 @@ function whyRange(
       ? `💡 Draw% ≈ outs × ${street === 'Flop' ? 4 : 2}; a wide range adds a few points.`
     : s === 0
       ? `💡 No pair, no draw = behind.`
-    : s >= 3
+    : s >= 4
       ? (width === 'wide'
-          ? `💡 Strong hand + wide range = crushing.`
+          ? (eq >= 68 ? `💡 Strong hand + wide range = crushing.` : `💡 A wet, connected board pulls even two pair back to earth.`)
           : `💡 Tighter range → less equity for you.`)
+    : s >= 3
+      ? (facingBet
+          ? `💡 Marginal made hand + a bet = watch for domination.`
+          : `💡 A made hand vs a wide range ≈ ahead, but not crushing.`)
     : (width === 'wide'
         ? `💡 Any pair vs a wide range ≈ ahead but thin.`
         : `💡 Weak hand + tight range = behind.`);
@@ -236,6 +249,30 @@ function anchorFlushLevel(hero: Card[], board: Card[]): number {
   let level = 0;
   for (let s = 0; s < 4; s++) if (counts[s] >= 3 && !hero.some((h) => h.suit === s)) level = Math.max(level, counts[s]);
   return level;
+}
+
+// Straight-hazard LEVEL for the anchor: how connected the BOARD is. The most distinct
+// board ranks that fall inside any 5-rank window (ace counts high AND low). 4 in a
+// window = a straight is ONE card away for villain (e.g. 3-4-5-7: any 6 makes a
+// straight) — a wide range is full of that card, so a hand that does NOT beat a
+// straight (two pair, one pair, a set) is worth far below the dry-board anchor. 3 in a
+// window = two-card straights are live (a milder hazard). ≤2 = dry. Mirrors the flush
+// hazard; the "connected board" companion to the paired/flush footnote.
+function boardStraightHazard(board: Card[]): number {
+  const present = new Set<number>();
+  for (const c of board) {
+    present.add(c.rank);
+    if (c.rank === 14) present.add(1); // ace plays low
+  }
+  let maxIn = 0;
+  for (let lo = 1; lo <= 10; lo++) {
+    let cnt = 0;
+    for (let r = lo; r <= lo + 4; r++) if (present.has(r)) cnt++;
+    maxIn = Math.max(maxIn, cnt);
+  }
+  if (maxIn >= 4) return 2; // straight one card away for villain
+  if (maxIn >= 3) return 1; // two-card straights live
+  return 0;
 }
 
 // The 🎯 Equity-anchors read, worked live for THIS spot and checked against the true
@@ -306,19 +343,48 @@ function anchorRead(
       }
     } else {
       if (facingBet) {
-        const cut = betFrac >= 1 ? 20 : betFrac >= 0.6 ? 15 : 10;
+        // A bet narrows to value — how MUCH depends on your hand, width, and the bettor.
+        // A STRONG made hand (two pair+, overpair, top pair TOP kicker: strength ≥ 4) beats
+        // a wide range's weak "value" (any ace/pair), so vs WIDE the cut roughly halves. A
+        // MARGINAL made hand (weak-kicker top pair, top-pair-on-a-paired-board: strength ≤ 3)
+        // is DOMINATED by the better pairs/kickers he value-bets, so it takes the FULL cut
+        // even vs a wide range. A bluffy bettor (maniac) narrows less → his bluff rate shrinks
+        // the cut; a tight low-bluff value bettor (TAG / 3-bet) takes the full cut.
+        const strong = hc.strength >= 4;
+        const base = betFrac >= 1 ? 20 : betFrac >= 0.6 ? 15 : 10;
+        const cut = Math.max(0, Math.round(base * (width === 'wide' && strong ? 0.5 : 1) * (1 - bluffFreq)));
         est = clamp(est - cut);
-        step += `, he bet (${betLabel.toLowerCase()}) → made hand −${cut} ≈ ${est}`;
+        const how = width === 'wide' && strong ? ' (wide value is weak)' : !strong ? ' (dominated — full cut)' : bluffFreq >= 0.35 ? ' (bluffy)' : '';
+        step += `, he bet (${betLabel.toLowerCase()}) → made hand −${cut}${how} ≈ ${est}`;
       }
+      // Board hazards scale with how VALUE-HEAVY the bet is: only a value bettor's range is
+      // actually loaded with the flushes/straights. Facing a BLUFFY bet (balanced, maniac)
+      // his betting range is full of air a made hand beats, so the hazard shrinks by his
+      // bluff rate. Checked (no bet) = the whole range → full hazard. This is why two pair
+      // on 3-4-5-7 is ~48% vs a station's ⅔ but ~64% vs a balanced villain's ⅔.
+      const valueWeight = facingBet ? 1 - bluffFreq : 1;
       // Flush-board hazard — only for a made hand that does NOT already beat a flush
       // (a boat/quads/straight-flush, or hero's own flush, is fine). This is what pulls
       // two pair / a set on a monotone board down to its true, much lower number.
       const beatsFlush = /flush|full house|four of a kind/i.test(hc.label) && !/draw/i.test(hc.label);
       const fLevel = anchorFlushLevel(hero, board);
       if (!beatsFlush && fLevel >= 3) {
-        const fcut = fLevel >= 4 ? 18 : 8;
+        const fcut = Math.round((fLevel >= 4 ? 18 : 8) * valueWeight);
         est = clamp(est - fcut);
         step += `, ${fLevel}-flush board & you hold none → −${fcut} ≈ ${est}`;
+      }
+      // Connected-board hazard — a made hand that does NOT beat a straight (two pair, one
+      // pair, a set), on a connected board where a straight is live or one card away, is
+      // worth far below the dry anchor: a wide range holds the straight cards. A SET keeps
+      // more (it out-flops most and redraws to a boat) so it takes half. Scaled by valueWeight
+      // — a bluffy bettor has fewer of the straights. This pulls two pair on 3-4-5-7 to ~50.
+      const beatsStraight = /straight|flush|full house|four of a kind/i.test(hc.label) && !/draw/i.test(hc.label);
+      const sLevel = boardStraightHazard(board);
+      if (!beatsStraight && sLevel >= 1) {
+        const isSet = row === MADE_ANCHORS[4]; // a set redraws & out-flops most → smaller cut
+        const scut = Math.round((sLevel >= 2 ? 22 : 10) * (isSet ? 0.5 : 1) * valueWeight);
+        est = clamp(est - scut);
+        step += `, connected board (straight ${sLevel >= 2 ? 'one card away' : 'live'}) → −${scut} ≈ ${est}`;
       }
     }
   } else {
@@ -326,16 +392,23 @@ function anchorRead(
     // cards countOuts sees) × Rule of 2 & 4, +~4 vs a wide range (you scoop some air),
     // then cut facing a bet: overcards HALVE (very dirty — you pair and still lose),
     // a straight/flush draw takes ⅓ (mostly-clean outs, but redraws/reverse-implied).
-    const dOuts = canonicalDrawOuts(hc, outs);
+    const dOuts = canonicalDrawOuts(hero, board, hc, outs);
     const mult = street === 'Flop' ? 4 : 2;
     const raw = dOuts * mult + (width === 'wide' ? 4 : 0);
     est = clamp(raw);
     step = `~${dOuts} outs → ×${mult}${width === 'wide' ? ' +~4 (wide)' : ''} ≈ ${raw}`;
     if (facingBet) {
+      // Facing a value bet, outs get "dirty" (they hit but still lose). Overcards are the
+      // dirtiest — you pair and are still outkicked (halve). Flush / combo outs are mostly
+      // clean (you usually win when you hit) → only a small cut. Bare straight draws sit in
+      // between (redraws / reverse-implied on a flush-y board) → cut ⅓.
       const overcards = /overcards/i.test(hc.label);
-      const cut = Math.round(overcards ? raw / 2 : raw / 3);
+      const flushy = /flush|combo/i.test(hc.label);
+      const divisor = overcards ? 2 : flushy ? 5 : 3;
+      const cut = Math.round(raw / divisor);
       est = clamp(raw - cut);
-      step += `, he bet → ${overcards ? 'overcards halve (dirty)' : 'cut ⅓ dirty outs'} (−${cut}) ≈ ${est}`;
+      const how = overcards ? 'overcards halve (dirty)' : flushy ? 'flush outs mostly clean, small cut' : 'cut ⅓ dirty outs';
+      step += `, he bet → ${how} (−${cut}) ≈ ${est}`;
     }
   }
 
@@ -352,7 +425,7 @@ function anchorRead(
       ? ` — actual ${eq}%, so the anchor nailed it.`
       : gap > 0
         ? ` — actual ${eq}%, ~${gap} higher: ${higherReason}, so you beat more of it.`
-        : ` — actual ${eq}%, ~${-gap} lower: his range is stronger than the anchor assumes — a paired/flush board or a value-heavy bettor puts more hands ahead of you.`;
+        : ` — actual ${eq}%, ~${-gap} lower: his range is stronger than the anchor assumes — a connected/paired/flush board or a value-heavy bettor puts more hands ahead of you.`;
   return `🎯 Anchor read: ${step}%${verdict}`;
 }
 
@@ -439,6 +512,7 @@ export function RangeDrill() {
   );
   const trueBand = bandOf(equity);
   const outs = useMemo(() => countOuts(spot.hero, spot.board).outs, [spot]);
+  const drawO = useMemo(() => canonicalDrawOuts(spot.hero, spot.board, spot.hc, outs), [spot, outs]);
 
   const err = Math.abs(guess - equity);
   const correct = locked && err <= GUESS_TOL;
@@ -599,7 +673,7 @@ export function RangeDrill() {
           </div>
           <div className="drill-hook">
             <span className="drill-hook-tag">💡 Why</span>
-            <p>{opps > 1 ? whyMultiway(spot.hc, equity, opps) : whyRange(spot.hc, ropt.width, equity, outs, street, betOpt.facing, typeOpt.label)}</p>
+            <p>{opps > 1 ? whyMultiway(spot.hc, equity, opps) : whyRange(spot.hc, ropt.width, equity, outs, drawO, street, betOpt.facing, typeOpt.label)}</p>
             {opps === 1 && (
               <p className="rd-anchor">{anchorRead(spot.hc, ropt.width, equity, outs, street, betOpt.facing, betOpt.frac, betOpt.label, spot.hero, spot.board, getProfile(effTypeId).bluffFreq)}</p>
             )}

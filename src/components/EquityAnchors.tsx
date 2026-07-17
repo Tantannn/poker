@@ -119,14 +119,44 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
               </tr>
             </thead>
             <tbody>
-              <tr><td className="cs-hero">Still beats some value (top pair+)</td><td className="cs-bad">base −15</td></tr>
+              <tr><td className="cs-hero">Strong made (two pair+, overpair, top pair TOP kicker)</td><td className="cs-bad">−15 · only −½ vs a WIDE range</td></tr>
+              <tr><td className="cs-hero">Marginal made (weak-kicker top pair, 2nd pair on a pair)</td><td className="cs-bad">FULL −15 — dominated, even vs WIDE</td></tr>
               <tr><td className="cs-hero">Pure bluff-catcher (weak / 2nd pair, air)</td><td className="cs-bad">≈ his bluff % (table ↓)</td></tr>
               <tr><td className="cs-hero">Draw</td><td className="cs-bad">cut ⅓ (dirty outs)</td></tr>
             </tbody>
           </table>
         </div>
         <p className="modal-note">
-          Bigger bet = bigger cut (⅓ pot small · pot+ big). A bet just means <b>"he got tighter."</b>
+          Bigger bet = bigger cut (⅓ pot small · pot+ big). A bet just means <b>"he got tighter."</b> The <b>−½ vs WIDE</b>
+          discount is for <b>STRONG</b> hands only — two pair beats a wide range's weak value, so it barely drops (a station's
+          wide ⅔ bet takes two pair down just ~4, not 15). A <b>marginal</b> hand (weak-kicker top pair, 2nd pair) is
+          <b>dominated</b> by the better kickers/pairs he value-bets, so it takes the <b>FULL</b> cut even vs a wide range.
+          A <b>bluffy villain</b> (maniac) narrows less → cut less.
+        </p>
+
+        <h4 className="cs-subhead">Made-hand cut, exact — base × width × (1−bluff)</h4>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr>
+                <th>factor</th>
+                <th>value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">base — bet ⅓ / ⅔ / pot+</td><td>10 / 15 / 20</td></tr>
+              <tr><td className="cs-hero">× width — WIDE / TIGHT <span className="cs-width">STRONG hands only; marginal = ×1</span></td><td className="cs-mid">×0.5 / ×1.0</td></tr>
+              <tr>
+                <td className="cs-hero">× (1−bluff) — {BLUFFERS.map((b) => b.label.split(' ')[0]).join(' / ')}</td>
+                <td className="cs-mid">{BLUFFERS.map((b) => `×${(1 - getProfile(b.id).bluffFreq).toFixed(2)}`).join(' / ')}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="modal-note">
+          Ex (strong): two pair vs a <b>WIDE</b> range = 80, 🐟 station bets ⅔ → cut = <b>15 × 0.5 × 0.92 ≈ 7</b> → <b>73</b>.
+          Ex (marginal): weak-kicker top pair = 72, same bet → NO ½ → cut = <b>15 × 1 × 0.92 ≈ 14</b> → <b>58</b>.
+          Round each factor — it's a gut anchor. (Bluff-catchers skip this — they keep ≈ his bluff %, table above.)
         </p>
 
         <h4 className="cs-subhead">Villain bluff rate — a bluff-catcher's ceiling facing a bet</h4>
@@ -185,6 +215,35 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
           </table>
         </div>
         <p className="modal-note">Memorize the <b>WIDE</b> column; a tight range → knock ~15 off.</p>
+
+        <h4 className="cs-subhead">Board texture — the made-hand rows assume a DRY board</h4>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr>
+                <th>board (hand doesn't beat it)</th>
+                <th>knock off</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">Connected — straight ONE card away (3-4-5-7, 6-7-8-T)</td><td className="cs-bad">−22 (a set −11)</td></tr>
+              <tr><td className="cs-hero">Connected — 2-card straights live (3 in a 5-span)</td><td className="cs-bad">−10 (a set −5)</td></tr>
+              <tr><td className="cs-hero">3-flush board you hold no card of</td><td className="cs-bad">−8</td></tr>
+              <tr><td className="cs-hero">4-flush board you hold no card of</td><td className="cs-bad">−18</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="modal-note">
+          The made-hand rows are <b>dry-board</b> numbers. On a wet board a hand that can't beat a straight/flush (two pair,
+          one pair, even a set) is worth far less — a wide range holds the straight/flush cards. <b>Facing a bet, scale the
+          hazard by (1−bluff)</b> — only a value bettor's range is loaded with the nut hands; a bluffy villain bets air you
+          beat, so cut less. Checked = full hazard.
+        </p>
+        <p className="modal-note">
+          Ex: 7-4 two pair on <b>4-3-7-5</b> (any 6 = a straight), ⅔ bet. vs 🐟 <b>station</b> (bluff 8%): −7 bet, connected
+          −22×0.92 ≈ −20 → ~53. vs ⚖ <b>balanced</b> (bluff 33%): −5 bet, connected −22×0.67 ≈ −15 → ~60. The bluffs he adds
+          are the ~11 pts of equity you gain.
+        </p>
 
         <h4 className="cs-subhead">Draws (Rule of 2 &amp; 4)</h4>
         <div className="cs-tablewrap">
