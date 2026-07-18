@@ -1,27 +1,37 @@
 import { useState, type ReactNode } from 'react';
 import { SizingCheatSheet } from './SizingCheatSheet';
 
-// Section table-of-contents — drives the sticky jump nav and the collapse-all
-// control. Order here = render order below; each id matches a <Section id>.
-const SECTIONS: { id: string; title: string }[] = [
-  { id: 'tilt', title: '🧊 Tilt control — protect your stack' },
-  { id: 'rankings', title: 'Hand rankings & all-in match-ups' },
-  { id: 'equity', title: 'Reading equity fast' },
-  { id: 'memorize', title: 'Memorizing the charts by position' },
-  { id: 'shorthanded', title: 'Short-handed: one ladder' },
-  { id: 'position', title: 'Why position wins' },
-  { id: 'threebet', title: '3-betting & facing a 3-bet' },
-  { id: 'blinds', title: 'Blind defense, multiway & short stacks' },
-  { id: 'postflop', title: 'Postflop fundamentals & glossary' },
-  { id: 'cheatsheet', title: '📐 Postflop decision cheat sheet' },
-  { id: 'texture', title: 'Board texture playbook' },
-  { id: 'turn', title: 'The turn: pivot street' },
-  { id: 'river', title: 'River: value, bluff, or fold' },
-  { id: 'bluffing', title: '🃏 How to bluff — semi-bluff, fold equity & blockers' },
-  { id: 'coolers', title: 'Coolers: one pair in trouble' },
-  { id: 'reverse', title: 'Reverse implied odds' },
-  { id: 'shape', title: 'Range shape, capping & foundations' },
-  { id: 'bots', title: 'How the bots play' },
+// Section table-of-contents — drives the collapsible jump nav and the
+// collapse-all control. Order here = render order below; each id matches a
+// <Section id>. `group` buckets the entry under a header in the jump menu;
+// `title` is the short nav label (the section's own <h2> carries the long one).
+type NavGroup = 'Core' | 'Preflop' | 'Postflop' | 'Opponents';
+const GROUP_ORDER: NavGroup[] = ['Core', 'Preflop', 'Postflop', 'Opponents'];
+const SECTIONS: { id: string; title: string; group: NavGroup }[] = [
+  { id: 'tilt', title: '🧊 Tilt control', group: 'Core' },
+  { id: 'rankings', title: 'Hand rankings', group: 'Core' },
+  { id: 'equity', title: 'Reading equity', group: 'Core' },
+  { id: 'memorize', title: 'Charts by position', group: 'Core' },
+  { id: 'shorthanded', title: 'Short-handed', group: 'Core' },
+  { id: 'position', title: 'Why position wins', group: 'Core' },
+  { id: 'threebet', title: '3-betting', group: 'Preflop' },
+  { id: 'blinds', title: 'Blinds & short stacks', group: 'Preflop' },
+  { id: 'postflop', title: 'Postflop fundamentals', group: 'Postflop' },
+  { id: 'cheatsheet', title: '📐 Decision cheat sheet', group: 'Postflop' },
+  { id: 'texture', title: 'Board texture', group: 'Postflop' },
+  { id: 'turn', title: 'The turn', group: 'Postflop' },
+  { id: 'river', title: 'The river', group: 'Postflop' },
+  { id: 'bluffing', title: '🃏 How to bluff', group: 'Postflop' },
+  { id: 'coolers', title: 'Coolers', group: 'Postflop' },
+  { id: 'reverse', title: 'Reverse implied odds', group: 'Postflop' },
+  { id: 'shape', title: 'Range shape', group: 'Postflop' },
+  { id: 'reading', title: '👁 Reading people', group: 'Opponents' },
+  { id: 'profiling', title: '🪑 First orbit', group: 'Opponents' },
+  { id: 'station', title: '🐟 Calling station', group: 'Opponents' },
+  { id: 'nit', title: '🪨 Nit', group: 'Opponents' },
+  { id: 'maniac', title: '🌪 Maniac / LAG', group: 'Opponents' },
+  { id: 'tag', title: '🎯 TAG / balanced', group: 'Opponents' },
+  { id: 'bots', title: 'How the bots play', group: 'Opponents' },
 ];
 
 function Section({
@@ -51,6 +61,12 @@ function Section({
 export function Reference() {
   // collapsed ids; everything open by default. A Set keeps toggle/expand-all simple.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // the jump menu is a dropdown, collapsed by default so the sticky bar stays slim.
+  const [navOpen, setNavOpen] = useState(false);
+  const navGroups = GROUP_ORDER.map((name) => ({
+    name,
+    items: SECTIONS.filter((s) => s.group === name),
+  }));
   const isOpen = (id: string) => !collapsed.has(id);
   const toggle = (id: string) =>
     setCollapsed((s) => {
@@ -63,6 +79,7 @@ export function Reference() {
   const collapseAll = () => setCollapsed(new Set(SECTIONS.map((s) => s.id)));
   // jump nav: ensure the target is open, then scroll it into view.
   const jump = (id: string) => {
+    setNavOpen(false);
     setCollapsed((s) => {
       const n = new Set(s);
       n.delete(id);
@@ -73,19 +90,38 @@ export function Reference() {
 
   return (
     <>
-      <nav className="ref-nav">
-        <div className="ref-nav-actions">
-          <span className="ref-nav-label">Jump to</span>
-          <button type="button" onClick={expandAll}>Expand all</button>
-          <button type="button" onClick={collapseAll}>Collapse all</button>
+      <nav className={`ref-nav ${navOpen ? 'open' : ''}`}>
+        <div className="ref-nav-bar">
+          <button
+            type="button"
+            className="ref-nav-toggle"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((o) => !o)}
+          >
+            <span className="ref-nav-caret">{navOpen ? '▾' : '▸'}</span>
+            🧭 Jump to section
+          </button>
+          <div className="ref-nav-actions">
+            <button type="button" onClick={expandAll}>Expand all</button>
+            <button type="button" onClick={collapseAll}>Collapse all</button>
+          </div>
         </div>
-        <div className="ref-nav-links">
-          {SECTIONS.map((s) => (
-            <button key={s.id} type="button" className="ref-nav-link" onClick={() => jump(s.id)}>
-              {s.title}
-            </button>
-          ))}
-        </div>
+        {navOpen && (
+          <div className="ref-nav-panel">
+            {navGroups.map((g) => (
+              <div key={g.name} className="ref-nav-group">
+                <span className="ref-nav-group-label">{g.name}</span>
+                <div className="ref-nav-links">
+                  {g.items.map((s) => (
+                    <button key={s.id} type="button" className="ref-nav-link" onClick={() => jump(s.id)}>
+                      {s.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </nav>
 
       <Section id="tilt" title="🧊 Tilt control — protect your stack" open={isOpen('tilt')} onToggle={() => toggle('tilt')}>
@@ -915,6 +951,472 @@ export function Reference() {
             </ul>
           </div>
         </div>
+      </Section>
+
+      <Section id="reading" title="👁 Reading people — tells, timing & table image" open={isOpen('reading')} onToggle={() => toggle('reading')}>
+        <p className="sub">
+          Cards are only half the game — the other half is the <b>person</b> holding them. A strong reader
+          doesn't need the nuts: they know when you'll fold, when you'll pay, and when you're lying. But most
+          of the edge is <b>not</b> movie-style eye-reads — it's <b>patterns</b>: how they size, how long they
+          take, and what they've shown down before. Physical tells are the noisy bonus on top.
+        </p>
+
+        <div className="two-col">
+          <div>
+            <h4>Physical tells (live) — act opposite the hand</h4>
+            <p className="sub">
+              Caro's rule: <b>strong means weak, weak means strong.</b> A relaxed, chatty player who "doesn't
+              care" is often loaded; the one glaring you down and puffing up is often bluffing — the act is
+              meant to scare you off the pot.
+            </p>
+            <ul className="tips">
+              <li><b>Trembling hands:</b> usually <i>adrenaline</i> from a monster, <b>not</b> nerves — a classic reversal. Genuine shaking after a big bet → believe the hand.</li>
+              <li><b>Freezing after betting:</b> bluffers go still and hold their breath to avoid leaking — the "statue" who just fired is often on air. Value bettors stay loose.</li>
+              <li><b>Glancing at chips</b> right after the flop: they connected and are already planning a bet.</li>
+              <li><b>Re-checking hole cards</b> on the flop: often checking a <i>suit</i> for a flush draw — they don't have it yet.</li>
+              <li><b>Throat &amp; breathing:</b> hard swallow, visible neck pulse, held breath = adrenaline spike (big hand or big bluff — settle it with the betting story).</li>
+            </ul>
+            <p className="sub"><b>Hook:</b> the theatrical player wants a fold; the bored one wants a call. Believe the opposite of the show.</p>
+          </div>
+          <div>
+            <h4>Behavioral tells (work online too)</h4>
+            <p className="sub">
+              These beat physical reads because they show up <b>every hand</b> and need no face — pure betting
+              behaviour. This is the part that transfers straight to online play and to the bots here.
+            </p>
+            <ul className="tips">
+              <li><b>Story consistency:</b> does their line represent a real hand? Bet-bet-<i>check</i> is usually giving up or pot-controlling one pair — rarely a trap.</li>
+              <li><b>Sizing signature:</b> learn their <i>normal</i> size, then read the deviation — a sudden jump or a tiny "please-call" bet is the tell, not the absolute number.</li>
+              <li><b>Showdowns are gold:</b> every hand they table teaches their range for that line. Bank it — reads compound over a session.</li>
+              <li><b>Reluctant limp or min-raise on a dry board</b> from a passive player = made hand. Slow down.</li>
+            </ul>
+          </div>
+        </div>
+
+        <h4>Timing tells — how long they took</h4>
+        <p className="sub">The clock leaks more than the face. Rough live/online reads (always weigh against <i>their</i> baseline):</p>
+        <table>
+          <thead><tr><th>Action</th><th>Usually means</th></tr></thead>
+          <tbody>
+            <tr><td>Instant <b>bet</b></td><td>Pre-planned / automatic — often a draw or a routine c-bet, not a cooler.</td></tr>
+            <tr><td>Long tank → <b>bet</b></td><td>Real thought about value &amp; sizing — lean <b>strong</b> (genuine Hollywooding is rare).</td></tr>
+            <tr><td>Instant <b>call</b></td><td>Capped — a draw or medium hand. They'd tank the nuts and fold trash, so a snap-call rarely holds a monster.</td></tr>
+            <tr><td>Long tank → <b>call</b></td><td>Marginal / drawing — talked themselves into it. Barrel again.</td></tr>
+            <tr><td>Instant <b>check</b></td><td>Gave up — no hand, no plan. Prime to steal.</td></tr>
+            <tr><td>"Time…" then <b>raise</b></td><td>Fake hesitation before strength — the tank was theatre. Respect it.</td></tr>
+          </tbody>
+        </table>
+
+        <div className="note-block">
+          <h4>Table image &amp; leveling — how they read YOU</h4>
+          <p className="sub">
+            Reads run both ways. Your <b>image</b> sets which plays work: a <b>tight</b> image means your
+            bluffs get respect (fire more); a <b>loose / spewy</b> image means you get paid (value more, bluff
+            less). Play to the image you've <i>given</i> them, not the hand you wish you had.
+          </p>
+          <ul className="tips">
+            <li><b>Level 0</b> — "what do <i>I</i> have?" (beginners, stations). Don't bluff — they only see their own cards.</li>
+            <li><b>Level 1</b> — "what do <i>they</i> have?" A standard thinking player.</li>
+            <li><b>Level 2</b> — "what do they think <i>I</i> have?" Now bluffs and thin value start working.</li>
+            <li><b>Hook:</b> beat a level-0 player with value, a level-2 with deception. Play <b>one level above</b> your opponent — no higher, or you out-level yourself.</li>
+          </ul>
+        </div>
+
+        <div className="note-block">
+          <h4>The read that actually pays: archetype &gt; single tell</h4>
+          <p className="sub">
+            One physical tell on one hand is noise. <b>Tendencies over many hands</b> are the money. Bucket
+            every opponent fast, then attack the leak:
+          </p>
+          <ul className="tips">
+            <li><b>Station</b> (calls too much) → value-bet big &amp; often, <b>never</b> bluff.</li>
+            <li><b>Nit</b> (folds too much) → bluff relentlessly; believe them the moment they finally commit.</li>
+            <li><b>Maniac / LAG</b> (bets &amp; bluffs too much) → trap, bluff-catch light, let them bet for you.</li>
+            <li><b>TAG / balanced</b> → few leaks; take your solid line and wait for a spot.</li>
+          </ul>
+          <p className="sub">
+            This is exactly what the <b>🎯 Read &amp; Exploit</b> tab drills: it hides the HUD, asks you to
+            predict the archetype's reaction, then pick the exploit. The bots have no face — but their
+            <b> sizing, timing-equivalents and tendencies</b> read the same way, and <b>"How the bots play"</b>
+            below maps precisely where each one leaks.
+          </p>
+        </div>
+
+        <div className="note-block">
+          <h4>Special case: the random / spewy raiser (non-poker player)</h4>
+          <p className="sub">
+            Recreational players who don't follow poker raise <b>random sizes</b> — sometimes pot, sometimes
+            an overbet, with no logic behind it. The trap is reading strength into the size. Against a normal
+            player a bigger bet is more polarized; against a random raiser, <b>the size carries zero
+            information</b> — pot or overpot, it's the same wide, uncapped, air-heavy range. Ignore the number,
+            play the range. (This is the <b>maniac / LAG</b> archetype in the extreme.)
+          </p>
+          <div className="two-col">
+            <div>
+              <h4>Attack the leak</h4>
+              <ul className="tips">
+                <li><b>Value-bet BIG &amp; often.</b> They don't fold → charge max. Overbet your strong hands; thin value prints.</li>
+                <li><b>Trap the monsters.</b> Check / slow-play and let them spew into you — they bet for you, so don't scare them off.</li>
+                <li><b>Bluff-catch wide.</b> Their raise is mostly air → call down lighter than "normal." <b>Big ≠ strong</b> for them.</li>
+                <li><b>Isolate preflop.</b> Raise bigger to get them heads-up and in position; tighten your junk, value up.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Facing their random raise</h4>
+              <ul className="tips">
+                <li>Decide on <b>pot odds</b>, not the size. Decent made hand + right price → call; a big raise isn't a big hand.</li>
+                <li><b>Never bluff them</b> — no fold equity. Their leak is spewing, not folding; a bluff just lights money on fire.</li>
+                <li><b>Cap the damage:</b> don't stack off <i>one pair</i> for 200bb — even a maniac wakes up with a real hand sometimes. Nut hands stack off; one pair pot-controls.</li>
+                <li><b>Don't level yourself.</b> They're level-0 (only see their own cards) — beat them with a <i>better hand</i>, not fancy lines.</li>
+              </ul>
+            </div>
+          </div>
+          <p className="sub">
+            <b>Brace for variance:</b> they suck out a lot. It's +EV long-run but swingy — full buy-in, no
+            tilt, trust the math over the session, not the hand.
+          </p>
+          <p className="sub">
+            <b>Hook:</b> vs a random raiser — <b>value big, never bluff, bluff-catch wide, ignore the sizing.</b>
+          </p>
+        </div>
+
+        <p className="sub">
+          <b>Bottom line:</b> categorize first (archetype), read the betting story second, and treat physical
+          tells as a tie-breaker — never the whole decision. And guard your own: <b>same tempo, same sizing,
+          every hand.</b>
+        </p>
+      </Section>
+
+      <Section id="profiling" title="🪑 First orbit — read a new table fast" open={isOpen('profiling')} onToggle={() => toggle('profiling')}>
+        <p className="sub">
+          You sit down <b>blind</b> — no reads yet. The first orbit or two you're <b>gathering data</b>, not
+          making hero plays. The job: bucket every opponent fast into <b>Station · Nit · Maniac · TAG</b>, then
+          attack the leak. You don't need a face — you need <b>how often they enter pots, whether they raise or
+          just call, and what they show down.</b> Those read the same live or online.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Four signals — watch these from hand one</h4>
+            <ul className="tips">
+              <li><b>How many pots they enter (VPIP):</b> playing half their hands = <b>loose</b> (station or
+                maniac); one hand an orbit = <b>nit</b>. Just count how often they voluntarily put money in.</li>
+              <li><b>Raise or call?</b> Limping and flat-calling = <b>passive</b> (station). Raising / 3-betting a
+                lot = <b>aggressive</b> (maniac or TAG). This one line splits the whole pool.</li>
+              <li><b>Showdowns are gold:</b> every hand they table teaches their range <i>for that line</i>. What
+                did they call three streets with? What did they raise? Bank it — reads compound.</li>
+              <li><b>Reaction to a bet:</b> fold to most c-bets = nit; call everything "to see it" = station;
+                raise back light = maniac. One c-bet tells you a lot.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Bucket them in one orbit</h4>
+            <table>
+              <thead><tr><th>What you see</th><th>Bucket</th><th>Attack</th></tr></thead>
+              <tbody>
+                <tr><td>Plays lots, calls, rarely raises</td><td><b>Station</b></td><td>Value big, <b>never bluff</b></td></tr>
+                <tr><td>Folds lots, only premiums</td><td><b>Nit</b></td><td>Bluff often; believe their commit</td></tr>
+                <tr><td>Raises/bluffs constantly, random sizes</td><td><b>Maniac</b></td><td>Trap, bluff-catch wide</td></tr>
+                <tr><td>Few hands, aggressive when in</td><td><b>TAG</b></td><td>Few leaks — wait for a spot</td></tr>
+              </tbody>
+            </table>
+            <p className="sub">
+              <b>Hook:</b> two questions bucket anyone — <b>"how often do they play?"</b> (loose/tight) and
+              <b> "do they raise or call?"</b> (aggressive/passive). Loose-passive = station, the pool's most
+              common and most profitable seat.
+            </p>
+          </div>
+        </div>
+
+        <div className="note-block">
+          <h4>Before you have any read — the safe default</h4>
+          <p className="sub">
+            Until a showdown tells you otherwise, assume the <b>pool tendency</b>: low/mid live and low online
+            are <b>loose-passive</b> — they <b>over-call and under-bluff</b>. So on a fresh table, default to:
+          </p>
+          <ul className="tips">
+            <li><b>Value bet more, bluff less</b> — your bluffs don't get through, your value gets paid.</li>
+            <li><b>Believe big aggression</b> — a passive pool that suddenly raises big usually has it. Overfold.</li>
+            <li><b>Don't pay off</b> — one pair is not a stack-off hand against a range that never bluffs.</li>
+            <li><b>Update instantly</b> — the moment a showdown contradicts the default, re-bucket that player.</li>
+          </ul>
+          <p className="sub">
+            <b>Hook:</b> <b>tight-and-value by default, adjust off showdowns.</b> Being slightly too tight for
+            one orbit costs pennies; misreading a station as a bluffer costs a stack.
+          </p>
+        </div>
+
+        <div className="note-block">
+          <h4>How fast can you read a type? — leak size sets the speed</h4>
+          <p className="sub">
+            The <b>bigger the leak, the faster it shows.</b> A maniac or station brands themselves in a few
+            hands; a competent TAG takes far longer because there's little to see.
+          </p>
+          <table>
+            <thead><tr><th>Speed</th><th>Sample</th><th>What shows</th></tr></thead>
+            <tbody>
+              <tr><td><b>1 hand</b></td><td className="num">instant</td><td>Limps, min-raises, random overbets, showing down trash called 3 streets → snap station / maniac tag.</td></tr>
+              <tr><td><b>1 orbit</b></td><td className="num">~6–9</td><td>VPIP eyeball — loose vs tight, and <i>do they ever raise?</i> (passive vs aggressive).</td></tr>
+              <tr><td><b>2–3 orbits</b></td><td className="num">~20–30</td><td>Confirm the bucket, aggression frequency, c-bet tendency.</td></tr>
+              <tr><td><b>Showdown-gated</b></td><td className="num">varies</td><td>Their actual <b>range</b> for a line. One showdown teaches more than 20 hands of guessing.</td></tr>
+            </tbody>
+          </table>
+          <div className="two-col">
+            <div>
+              <h4>Two asymmetries</h4>
+              <ul className="tips">
+                <li><b>Aggressive tells show faster than passive ones.</b> You <i>see</i> a bet or raise. "Folds
+                  too much" (nit) needs many hands of them doing nothing — nits confirm slower than maniacs.</li>
+                <li><b>Good players take longest.</b> A TAG has little to see, so <b>no quick read = probably
+                  competent.</b> The absence of a leak <i>is</i> the read.</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Confidence = sample</h4>
+              <ul className="tips">
+                <li><b>1 hand</b> = hypothesis · <b>1 orbit</b> = working read · <b>3+ orbits</b> = solid.</li>
+                <li><b>Live</b> (~30 hands/hr) → reads come slow; lean on <b>timing &amp; physical tells</b> to
+                  speed them up.</li>
+                <li><b>Online</b> → use a HUD: VPIP/PFR rough at <b>~20–30 hands</b>, aggression stats need
+                  <b> ~100+</b>, positional/showdown stats need hundreds.</li>
+              </ul>
+            </div>
+          </div>
+          <p className="sub">
+            <b>Hook:</b> the worse the player, the faster the read. Bucket in an orbit — but a <b>showdown beats
+            any amount of guessing.</b>
+          </p>
+        </div>
+
+        <div className="note-block">
+          <h4>They adapt — a read is a moving average, not a tattoo</h4>
+          <p className="sub">
+            Reads aren't fixed. Weight <b>recent hands heavier</b> — a player who was nitty for an hour then
+            opens five pots in a row has <b>changed gears</b>; act on the new data, not the old label.
+          </p>
+          <div className="two-col">
+            <div>
+              <ul className="tips">
+                <li><b>Spot the trigger.</b> People gear-shift after events: <b>got stacked</b> → tilt looser;
+                  <b> doubled up</b> → house-money looser; <b>caught bluffing</b> → tightens; <b>you showed them
+                  a bluff</b> → they start calling more. Note the event, predict the shift.</li>
+                <li><b>Cluster, don't snap.</b> One weird hand = variance, not a new strategy. Wait for
+                  <b> 2–3 hands</b> in the same new direction before you re-bucket. Don't chase noise.</li>
+              </ul>
+            </div>
+            <div>
+              <ul className="tips">
+                <li><b>Levels war.</b> Once a thinking player counters your exploit, move <b>one level up</b> —
+                  but <i>only</i> vs players who adapt. Fish are <b>level 0</b> (see only their own cards); they
+                  never adjust → keep hammering the same exploit forever.</li>
+                <li><b>Session arc.</b> Recreationals start tight/nervous, loosen as they drink, tilt or get
+                  bored. Regs tighten when short-stacked, open up when deep.</li>
+              </ul>
+            </div>
+          </div>
+          <p className="sub">
+            <b>Hook: read fast, hold loosely.</b> Bucket in an orbit; treat the label as your current best guess,
+            revised the moment a showdown or a cluster contradicts it. <b>Vs fish the read is permanent; vs regs
+            it's a live feed.</b>
+          </p>
+        </div>
+
+        <div className="note-block">
+          <h4>Beyond the archetype — scan the whole table</h4>
+          <p className="sub">
+            The archetype is just one player. The reads that actually move money are <b>table-level</b>: cards
+            are the small game — <b>money-map + emotional state + seat</b> is the big one. Run this scan before
+            you get attached to a hand:
+          </p>
+          <ol className="tips">
+            <li><b>Effective stacks (everyone).</b> Who can bust you, who's <b>short</b> (push/fold mode), who's
+              <b> deep</b> (implied odds — careful stacking off one pair vs them). Sets your SPR <i>before</i> the
+              flop.</li>
+            <li><b>Seat selection.</b> Want the <b>fish on your right</b> → you act after them: isolate, use
+              position. Money on your <b>left</b> = you're the target. Change seats if the table allows.</li>
+            <li><b>Table temperature.</b> Loose-passive table → <b>value-heavy, bluff less, open tighter</b>.
+              Tight table → <b>steal relentlessly, 3-bet light</b>. The table sets your defaults, not just each
+              villain.</li>
+            <li><b>Who's tilting NOW.</b> A steaming nit plays like a maniac for 20 min — attack the
+              <b> emotion</b>, not the sticker. Live state overrides the archetype label.</li>
+            <li><b>Scared money.</b> Playing above bankroll → <b>over-folds</b> (bluff them). On a heater /
+              freerolling → <b>spews</b> (value them, don't bluff).</li>
+            <li><b>Who's at war.</b> Two players punching each other → <b>stay out of the crossfire</b>, value
+              them both, don't get in the middle light.</li>
+            <li><b>Buy-in &amp; rebuy.</b> Short buy-in = often gambler or push/fold reg; <b>auto-rebuy to
+              full</b> = reg; sad <b>min-rebuy</b> after a beat = tilting.</li>
+            <li><b>Fit-or-fold &amp; who targets YOU.</b> C-bets 100% then folds to a raise → <b>float / raise
+              them</b>. Whoever 3-bets or floats <i>you</i> specifically has a read — <b>counter-adjust</b> before
+              it costs a stack.</li>
+            <li><b>Are YOU the fish?</b> Honest check — can't spot the sucker in 30 min, <b>it's you</b>. No edge
+              means no read helps: <b>table-select and leave bad games.</b></li>
+          </ol>
+          <p className="sub">
+            <b>Hook:</b> notice the <b>table</b> before you notice the <b>hand</b> — money-map, emotion, seat.
+            The cards are the last thing to look at, not the first.
+          </p>
+        </div>
+      </Section>
+
+      <Section id="station" title="🐟 Beating the calling station" open={isOpen('station')} onToggle={() => toggle('station')}>
+        <p className="sub">
+          <b>"I play slow and steady and win for sure — but when I lose, I lose it all in one hand."</b> That's
+          the calling-station trap: you grind small pots, then stack off <b>one pair</b> into a hand that called
+          you the whole way and got there. The fix isn't playing tighter — it's <b>picking the big pots better</b>
+          and <b>charging their draws the max.</b>
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Win small, lose big? Fix the big pots</h4>
+            <ul className="tips">
+              <li>Your small pots are already fine. The leak is the <b>one big pot</b> — winning another small pot
+                barely matters; not punting the 100bb pot matters <b>100×</b> more.</li>
+              <li>You lose a stack when 100bb goes in with <b>one pair</b> vs a station's two pair / set / hit
+                draw. One pair — even an overpair — is a <b>1–2 street hand, not a stack-off hand.</b></li>
+              <li><b>Stack off only</b> with hands that beat a station's <i>calling</i> range: <b>sets, two
+                pair+, nut draws.</b> Pot-control everything else — keep the pot small with mediocre made hands.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Vs the station — value, don't bluff</h4>
+            <ul className="tips">
+              <li><b>Never bluff a station.</b> They don't fold — a bluff just lights money on fire. No fold
+                equity → check instead.</li>
+              <li><b>Value bet BIGGER.</b> Their gutshot is ~8–16% to hit; a big bet makes them pay the wrong
+                price. <b>Small bets let them draw cheap — that's the real leak.</b></li>
+              <li><b>When their gutshot hits, that's correct variance.</b> You <i>wanted</i> that call every time.
+                Charge max, lose sometimes, profit long-run. Don't tilt on the suck-out.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="note-block">
+          <h4>Judge the decision, not the result</h4>
+          <p className="sub">
+            If the money went in <b>good</b> — you were ahead and they overpaid their draw — you played it
+            <b> right</b>, even the times you lose the hand. Losing a correctly-priced pot isn't a mistake; it's
+            variance you already got paid for. You <b>want</b> the station calling your value bets with a
+            gutshot — the 84–92% it bricks pays for the times it hits.
+          </p>
+          <p className="sub">
+            <b>Brace for variance:</b> stations suck out a lot. It's +EV over the session but swingy — play a
+            <b> full buy-in, set a stop-loss, no tilt.</b> Trust the math over the hand.
+          </p>
+        </div>
+
+        <p className="sub">
+          <b>Two-line summary:</b> (1) small pots — keep grinding, fine. (2) big pots — only enter with hands
+          that beat their <b>calling</b> range, and charge draws <b>max</b> — then the gutshot suck-out is
+          <b> profit, not pain.</b>
+        </p>
+      </Section>
+
+      <Section id="nit" title="🪨 Beating the nit (folds too much)" open={isOpen('nit')} onToggle={() => toggle('nit')}>
+        <p className="sub">
+          The nit is the mirror image of the station: <b>tight and passive</b>, plays only premiums, folds
+          everything else. Their money doesn't come from calling too much — it comes from <b>folding too much
+          and only committing with the nuts.</b> You beat them by <b>stealing relentlessly and never paying
+          them off.</b>
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Attack the leak — they fold too much</h4>
+            <ul className="tips">
+              <li><b>Steal their blinds &amp; c-bet relentlessly.</b> They over-fold to aggression — small bets
+                print because they need a real hand to continue.</li>
+              <li><b>3-bet light to steal.</b> Nits over-fold to 3-bets; a blocker 3-bet takes it down preflop.
+                Their <i>opens</i> are strong though — flat cautiously, don't get carried away postflop.</li>
+              <li><b>Barrel scare cards.</b> A nit calls one street then folds when the board gets scary — fire
+                the turn/river that could beat their capped range.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>When they finally commit — believe it</h4>
+            <ul className="tips">
+              <li>A nit who <b>raises, 3-bets, or calls down</b> has it. <b>Fold your marginal value</b> — even
+                top pair. A nit's big bet is the nuts near-always.</li>
+              <li><b>Don't pay them off.</b> The whole edge is bluffing them off pots, not spewing into their
+                one strong range. The moment they push back, you're done.</li>
+              <li><b>No thin value.</b> They only call with strong hands, so thin bets get called by better —
+                bet big only with genuine strength; otherwise check and take the free steal.</li>
+            </ul>
+          </div>
+        </div>
+        <p className="sub">
+          <b>Hook:</b> vs a nit — <b>print by stealing, never by paying off.</b> Their fold button is broken
+          one way (folds too much) and locked the other (only commits with the nuts) — attack both.
+        </p>
+      </Section>
+
+      <Section id="maniac" title="🌪 Beating the maniac / LAG (bets & bluffs too much)" open={isOpen('maniac')} onToggle={() => toggle('maniac')}>
+        <p className="sub">
+          The maniac is <b>loose and aggressive</b> — bets, raises and bluffs far too often, frequently with
+          random sizing. Their leak is <b>spewing, not folding.</b> You don't out-aggress them; you <b>let them
+          bet for you</b> and <b>catch them lying.</b> (For the extreme non-poker version, see the <b>random /
+          spewy raiser</b> box in "Reading people".)
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Let them bet for you</h4>
+            <ul className="tips">
+              <li><b>Trap the monsters.</b> Check / slow-play strong hands and let them barrel into you — don't
+                raise and scare the bluff off. They spew; give them room.</li>
+              <li><b>Bluff-catch wide.</b> Their big bet is mostly air → call down lighter than "normal."
+                <b> Big ≠ strong</b> for a maniac.</li>
+              <li><b>Sizing carries no info</b> when it's random — decide on <b>pot odds</b>, not the number. Pot
+                or overpot, it's the same wide, air-heavy range.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Don't out-spew them</h4>
+            <ul className="tips">
+              <li><b>Don't bluff a pure maniac</b> — no fold equity. A <i>true</i> thinking LAG <i>does</i> fold
+                to raises, so re-raise them for <b>value and thin value</b>, not as a bluff.</li>
+              <li><b>Cap the damage:</b> don't stack off <b>one pair</b> for 200bb — even a maniac wakes up with
+                a real hand sometimes. Nut hands stack off; one pair pot-controls.</li>
+              <li><b>Brace for variance</b> — they suck out a lot. +EV long-run but swingy: full buy-in, no
+                tilt, trust the session.</li>
+            </ul>
+          </div>
+        </div>
+        <p className="sub">
+          <b>Hook:</b> vs a maniac — <b>let them bet for you, bluff-catch wide, trap big, ignore the sizing.</b>
+        </p>
+      </Section>
+
+      <Section id="tag" title="🎯 Beating the TAG / balanced (few leaks)" open={isOpen('tag')} onToggle={() => toggle('tag')}>
+        <p className="sub">
+          The TAG (tight-aggressive) is the <b>hardest seat to exploit</b> — solid ranges, honest aggression,
+          no glaring leak to attack. The mistake is <b>inventing</b> a leak and spewing. Against a TAG you
+          don't force it: play solid, lean on <b>position</b>, and <b>make your real money off the stations</b>,
+          not by out-leveling the good player.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>No leak? Don't force one</h4>
+            <ul className="tips">
+              <li>Pots vs a TAG are close to <b>break-even</b> — accept that. Your profit comes from the fish at
+                the table; the TAG is who you <i>avoid</i> big marginal spots with.</li>
+              <li><b>Respect big lines</b> — their aggression is mostly honest. But they <b>do bluff balanced</b>,
+                so don't over-fold vs their <i>standard</i> sizing either.</li>
+              <li><b>Don't level yourself.</b> Play <b>one level above</b> the opponent, no higher — fancy plays
+                vs a TAG usually out-level <i>you</i>.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>The one edge you have: position</h4>
+            <ul className="tips">
+              <li><b>Play more pots in position</b> vs them, fewer out of position. IP realizes ~106% equity,
+                OOP ~90% — that swing is your whole edge vs an otherwise-solid player.</li>
+              <li><b>Avoid marginal OOP spots.</b> Flat-calling OOP vs a TAG bleeds — 3-bet or fold instead.</li>
+              <li><b>Tighten up and wait.</b> A TAG punishes loose play; take your standard line and let a real
+                spot come to you.</li>
+            </ul>
+          </div>
+        </div>
+        <p className="sub">
+          <b>Hook:</b> vs a TAG — <b>no leak to attack, so take your position edge and wait.</b> Make the money
+          off the stations; break even vs the TAG and you're winning.
+        </p>
       </Section>
 
       <Section id="bots" title="How the bots play (the opponent model)" open={isOpen('bots')} onToggle={() => toggle('bots')}>

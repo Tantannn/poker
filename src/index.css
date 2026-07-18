@@ -646,6 +646,9 @@ td.num { font-variant-numeric: tabular-nums; color: var(--raise); font-weight: 7
 @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
 ul.tips { margin: 6px 0; padding-left: 18px; }
 ul.tips li { margin: 6px 0; }
+ol.tips { margin: 6px 0; padding-left: 22px; list-style: decimal; }
+ol.tips li { margin: 7px 0; padding-left: 2px; }
+ol.tips li::marker { color: var(--gold); font-weight: 800; }
 .pill { display: inline-block; background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--gold); margin-right: 6px; }
 
 /* ---------- utilities ---------- */
@@ -741,28 +744,45 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 
 /* ---- reference: sticky jump nav + collapsible sections ---- */
 .ref-nav {
-  position: sticky; top: 0; z-index: 20; margin-bottom: 14px; padding: 12px;
+  position: sticky; top: 0; z-index: 20; margin-bottom: 14px; padding: 8px 10px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: var(--shadow);
 }
-.ref-nav-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.ref-nav-label { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+/* Slim sticky bar: jump toggle on the left, expand/collapse on the right. */
+.ref-nav-bar { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.ref-nav-toggle {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--chip); color: var(--txt); border: 1px solid var(--line);
+  padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  font-size: 13px; font-weight: 800; letter-spacing: 0.02em; transition: 0.15s;
+}
+.ref-nav-toggle:hover { border-color: var(--raise2); }
+.ref-nav-caret { color: var(--muted); font-size: 11px; width: 10px; flex-shrink: 0; }
+.ref-nav-actions { display: flex; align-items: center; gap: 6px; }
 .ref-nav-actions button {
-  background: var(--chip); color: var(--muted); border: 1px solid var(--line);
-  padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 700;
+  background: transparent; color: var(--muted); border: 1px solid var(--line);
+  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 700; transition: 0.15s;
 }
 .ref-nav-actions button:hover { color: var(--txt); border-color: var(--raise2); }
-.ref-nav-links {
-  display: flex; gap: 6px; flex-wrap: wrap;
-  max-height: 88px; overflow-y: auto; padding-bottom: 2px; scrollbar-width: thin;
+
+/* Dropdown panel — only rendered when the jump menu is open. */
+.ref-nav-panel {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+  max-height: 52vh; overflow-y: auto; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 12px;
 }
+.ref-nav-group { display: flex; flex-direction: column; gap: 6px; }
+.ref-nav-group-label {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gold);
+}
+.ref-nav-links { display: flex; gap: 6px; flex-wrap: wrap; }
 .ref-nav-link {
   background: var(--bg2); color: var(--muted); border: 1px solid var(--line);
-  padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12.5px; font-weight: 600; transition: 0.15s;
+  padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600; transition: 0.15s;
 }
 .ref-nav-link:hover { color: var(--txt); border-color: var(--raise2); background: var(--chip); }
 
-.ref-section { scroll-margin-top: 160px; }
+.ref-section { scroll-margin-top: 72px; }
 .ref-sec-head {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: none; border: none; cursor: pointer; padding: 0; color: inherit;
@@ -1375,10 +1395,10 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
   .trainer-spots { max-width: 100%; }
   .trainer-spots button { padding: 4px 8px; font-size: 11.5px; }
 
-  /* reference jump-nav: was sticky + 17 wrapping links = a tall band covering the
-     page. Let it scroll away on phones and cap its height. */
-  .ref-nav { position: static; padding: 10px; }
-  .ref-nav-links { max-height: 84px; }
+  /* reference jump-nav: collapsed dropdown, so it stays slim. Let it scroll away
+     on phones (not sticky) and cap the open panel's height. */
+  .ref-nav { position: static; padding: 8px; }
+  .ref-nav-panel { max-height: 60vh; }
   .ref-section { scroll-margin-top: 14px; }
   .ref-sec-head h2 { font-size: 16px; }
 }
