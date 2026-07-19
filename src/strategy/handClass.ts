@@ -97,6 +97,31 @@ export function drawProfile(hero: Card[], board: Card[]): { flush: boolean; stra
   return { flush: flushDraw(hero, board).draw, straight: straightDraw(hero, board) };
 }
 
+/** Honest teaching out-count, board-aware. `countOuts` over-counts a draw: it also
+ *  credits pairing your own under/overcards and board-shared straights, so a flush +
+ *  open-ender (really 15 outs) reads as ~21. The memorized ladder keyed to the ACTUAL
+ *  draw is the number a player learns and the number the trainer must show:
+ *    flush 9 · OESD 8 · gutshot 4 · flush+OESD 15 · flush+gutshot 12 · two overcards 6.
+ *  Falls back to `counted` for made hands / anything off the ladder. Single source
+ *  shared by the solver model and the 🎯 equity drill / anchor sheet so they can't
+ *  disagree on the same spot. Flop/turn only (an "out" needs a card to come). */
+export function canonicalOuts(hero: Card[], board: Card[], counted: number): number {
+  const { flush, straight } = drawProfile(hero, board);
+  if (flush && straight === 'oesd') return 15;
+  if (flush && straight === 'gutshot') return 12;
+  if (flush) return 9;
+  if (straight === 'oesd') return 8;
+  if (straight === 'gutshot') return 4;
+  // Two overcards (no made pair, both hole cards above every board card) → ~6 outs to
+  // top pair. Same case as the "Two Overcards" hand class, derived from the cards so no
+  // label is needed; only reachable here once flush/straight draws are ruled out above.
+  if (board.length >= 3 && board.length < 5 && hero.length >= 2 && hero[0].rank !== hero[1].rank) {
+    const topBoard = Math.max(...board.map((c) => c.rank));
+    if (hero.every((h) => h.rank > topBoard)) return 6;
+  }
+  return counted;
+}
+
 export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
   if (hero.length < 2) return { label: 'Unknown', blurb: '', strength: 0 };
 

@@ -46,6 +46,7 @@ const PATH: Stage[] = [
     steps: [
       { id: 'm-mdf', title: 'MDF & value:bluff ratios', blurb: 'How much to defend, and the value:bluff mix a bet needs. Pure numbers, drilled to instant.', tab: 'mathdrill', scoreKey: 'math-mdf' },
       { id: 'm-combos', title: 'Combos & blockers', blurb: '6 pairs, 16 unpaired — and how a card in your hand or on the board cuts villain’s combos.', tab: 'mathdrill', scoreKey: 'math-combos' },
+      { id: 'm-blocker', title: 'Blocker call/fold/bluff decisions', blurb: 'Beyond counting: do the cards you hold turn this river into a call, a fold, or a bluff-raise?', tab: 'blocker', scoreKey: 'blocker' },
     ],
   },
   {
@@ -55,12 +56,15 @@ const PATH: Stage[] = [
       { id: 'q-sizing', title: 'Bet sizing by texture', blurb: 'Small on dry, big/polar on wet, check with no edge. The core sizing rule.', tab: 'sizing', scoreKey: 'bsd-sizing' },
       { id: 'q-heatmap', title: 'See the texture map', blurb: 'One hand across every board texture at once — read the pattern the sizing rule produces.', tab: 'heatmap' },
       { id: 'q-lab', title: 'Play full spots', blurb: 'Complete decisions graded by EV, multi-street play. Where the rules meet real spots.', tab: 'lab' },
+      { id: 'q-plan', title: 'Plan the whole hand', blurb: 'Commit a flop-to-river line up front, then grade the plan vs the solver on the runout.', tab: 'plan', scoreKey: 'plancommit' },
     ],
   },
   {
     name: 'Exploit & Review',
     icon: '🔍',
     steps: [
+      { id: 'e-handread', title: 'Put them on a range', blurb: 'Narrow villain’s range street-by-street from his betting story — the core hand-reading skill.', tab: 'handreading', scoreKey: 'handreading' },
+      { id: 'e-tells', title: 'Tells, timing & table image', blurb: 'Read behavioral tells and table image, then pick the exploit. A cluster beats any single tell.', tab: 'tells', scoreKey: 'tells' },
       { id: 'e-exploit', title: 'Read & exploit opponents', blurb: 'Type the villain, then deviate to attack their leak. Where money is actually made.', tab: 'exploit' },
       { id: 'e-quiz', title: 'Find your own leaks', blurb: 'Targeted quiz on the spots people misplay most. Patch the biggest first.', tab: 'quiz' },
       { id: 'e-replay', title: 'Review your hands', blurb: 'After a session, walk your ✗ Wrong decisions. This is where learning compounds.', tab: 'replay' },

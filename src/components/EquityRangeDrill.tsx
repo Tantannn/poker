@@ -14,7 +14,7 @@ import { equityVsRange, equityVsField, countOuts, rangeBreakdown } from '../engi
 import { rangeFromSet } from '../engine/range';
 import type { ComboWeight, WeightedRange } from '../engine/range';
 import { RFI_RANGES, THREEBET_RANGE, BB_DEFEND_RANGE } from '../ai/preflop';
-import { classifyHandClass, drawProfile } from '../strategy/handClass';
+import { classifyHandClass, canonicalOuts } from '../strategy/handClass';
 import type { HandClass } from '../strategy/handClass';
 import { betConditionedWeight } from '../strategy';
 import { getProfile } from '../ai/profiles';
@@ -81,23 +81,6 @@ const GUESS_TOL = 10;
 // whole cast instead of one fixed opponent. Not a real archetype — a mode flag.
 const RANDOM_ID = 'rand';
 const pickId = <T extends { id: string }>(arr: T[]): string => arr[Math.floor(Math.random() * arr.length)].id;
-
-// Canonical outs for a draw, from the BOARD-AWARE drawProfile (not the label), so the
-// number is honest: a "Combo Draw" whose straight lies on the board is really just a
-// flush draw. countOuts over-counts (it credits pairing your undercards, and shared
-// board straights), so we use the memorized ladder keyed to the actual draw: flush 9,
-// OESD 8, gutshot 4, flush+OESD 15, flush+gutshot 12, two overcards 6. Falls back to
-// the counted number for anything else. (Same ladder as the 🎯 anchor sheet.)
-function canonicalDrawOuts(hero: Card[], board: Card[], hc: HandClass, counted: number): number {
-  const { flush, straight } = drawProfile(hero, board);
-  if (flush && straight === 'oesd') return 15;
-  if (flush && straight === 'gutshot') return 12;
-  if (flush) return 9;
-  if (straight === 'oesd') return 8;
-  if (straight === 'gutshot') return 4;
-  if (/two overcards/i.test(hc.label)) return 6;
-  return counted;
-}
 
 // Reason for the equity read — now WITH the math, so the number isn't a mystery.
 // Equity vs a range is driven by two things you can eyeball: how strong YOUR hand
@@ -391,11 +374,11 @@ function anchorRead(
       }
     }
   } else {
-    // pure draw: LABEL outs (canonicalDrawOuts — a gutshot is 4, not the ~10 category
+    // pure draw: LABEL outs (canonicalOuts — a gutshot is 4, not the ~10 category
     // cards countOuts sees) × Rule of 2 & 4, +~4 vs a wide range (you scoop some air),
     // then cut facing a bet: overcards HALVE (very dirty — you pair and still lose),
     // a straight/flush draw takes ⅓ (mostly-clean outs, but redraws/reverse-implied).
-    const dOuts = canonicalDrawOuts(hero, board, hc, outs);
+    const dOuts = canonicalOuts(hero, board, outs);
     const mult = street === 'Flop' ? 4 : 2;
     const raw = dOuts * mult + (width === 'wide' ? 4 : 0);
     est = clamp(raw);
@@ -521,7 +504,7 @@ export function RangeDrill() {
   );
   const trueBand = bandOf(equity);
   const outs = useMemo(() => countOuts(spot.hero, spot.board).outs, [spot]);
-  const drawO = useMemo(() => canonicalDrawOuts(spot.hero, spot.board, spot.hc, outs), [spot, outs]);
+  const drawO = useMemo(() => canonicalOuts(spot.hero, spot.board, outs), [spot, outs]);
   // Accurate range decomposition — computed from the REAL range only after the guess is
   // locked (it's heavier than the MC), so it can't leak the answer and doesn't run per keystroke.
   const breakdown = useMemo(

@@ -28,10 +28,14 @@ const Review = lazy(() => import('./components/Review').then((m) => ({ default: 
 const BankrollSim = lazy(() => import('./components/BankrollSim').then((m) => ({ default: m.BankrollSim })));
 const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })));
 const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((m) => ({ default: m.PrinciplesPanel })));
+const HandReadingDrill = lazy(() => import('./components/HandReadingDrill').then((m) => ({ default: m.HandReadingDrill })));
+const PlanCommitDrill = lazy(() => import('./components/PlanCommitDrill').then((m) => ({ default: m.PlanCommitDrill })));
+const BlockerDrill = lazy(() => import('./components/BlockerDrill').then((m) => ({ default: m.BlockerDrill })));
+const TellsTrainer = lazy(() => import('./components/TellsTrainer').then((m) => ({ default: m.TellsTrainer })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'plan' | 'blocker' | 'tells' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -58,9 +62,13 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'sizing', label: '18. 💰 Bet Sizing' },
   { id: 'bankroll', label: '19. 💵 Bankroll' },
   { id: 'mental', label: '20. 🧘 Mental Game' },
-  { id: 'analytics', label: '21. Analytics' },
-  { id: 'reference', label: '22. Reference' },
-  { id: 'settings', label: '23. ⚙ Settings' },
+  { id: 'handreading', label: '21. 🕵 Hand Reading' },
+  { id: 'plan', label: '22. 🗺 Plan the Hand' },
+  { id: 'blocker', label: '23. 🚫 Blockers' },
+  { id: 'tells', label: '24. 👁 Tells & Timing' },
+  { id: 'analytics', label: '25. Analytics' },
+  { id: 'reference', label: '26. Reference' },
+  { id: 'settings', label: '27. ⚙ Settings' },
 ];
 
 const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
@@ -181,7 +189,7 @@ export default function App() {
                 }}
               />
               {filtered.map((t) => (
-                <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => selectTab(t.id)}>
+                <button key={t.id} role="tab" aria-selected={tab === t.id} className={[tab === t.id ? 'active' : '', t.id === 'analytics' ? 'nav-accent' : ''].filter(Boolean).join(' ')} onClick={() => selectTab(t.id)}>
                   {t.label}
                 </button>
               ))}
@@ -233,7 +241,7 @@ export default function App() {
         )}
         {tab === 'quiz' && (
           <div className="content-col">
-            <LeakQuiz g={g} />
+            <LeakQuiz g={g} onGo={(t) => selectTab(t as Tab)} />
           </div>
         )}
         {tab === 'exploit' && (
@@ -284,6 +292,26 @@ export default function App() {
         {tab === 'mental' && (
           <div className="content-col">
             <MentalGame />
+          </div>
+        )}
+        {tab === 'handreading' && (
+          <div className="content-col">
+            <HandReadingDrill />
+          </div>
+        )}
+        {tab === 'plan' && (
+          <div className="content-col">
+            <PlanCommitDrill />
+          </div>
+        )}
+        {tab === 'blocker' && (
+          <div className="content-col">
+            <BlockerDrill />
+          </div>
+        )}
+        {tab === 'tells' && (
+          <div className="content-col">
+            <TellsTrainer />
           </div>
         )}
         {tab === 'analytics' && (

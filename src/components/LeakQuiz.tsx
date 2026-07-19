@@ -36,6 +36,14 @@ const LEAK_TO_DRILL: Record<string, DrillId> = {
   'Over-bluffing / spewing': 'bluff',
   'Calling too much (station)': 'fold',
 };
+// A richer dedicated tab beats the inline mini-drill for some leaks — route there
+// instead of switching the in-quiz drill. Passivity → the Bet-Sizing Drill (when &
+// how big to bet, now vs opponent types); over-calling → Blockers (river call/fold/
+// bluff-raise). Leaks without a better home fall back to the inline drill above.
+const LEAK_TO_TAB: Record<string, { tab: string; label: string }> = {
+  'Too passive (missing value/aggression)': { tab: 'sizing', label: 'Bet-Sizing Drill' },
+  'Calling too much (station)': { tab: 'blocker', label: 'Blockers' },
+};
 
 const KIND_COLOR: Record<string, string> = { value: '#2ec27e', bluff: '#e0843a', passive: '#3aa0e0', fold: '#2a3a31', aggressive: '#2ec27e' };
 
@@ -113,7 +121,7 @@ function genSpot(drill: DrillId): Spot {
 // drill (the suggested-drill default); the first "Next" rerolls to the picked one.
 const FIRST_SPOT = genSpot('value');
 
-export function LeakQuiz({ g }: { g: G }) {
+export function LeakQuiz({ g, onGo }: { g: G; onGo?: (tab: string) => void }) {
   // worst real leak (highest severity, then rate) that maps to a drill
   const ranked = useMemo(
     () => [...g.leaks].filter((l) => l.severity !== 'ok').sort((a, b) => b.rate - a.rate),
@@ -172,9 +180,13 @@ export function LeakQuiz({ g }: { g: G }) {
             <div key={l.label} className={`leak-item sev-${l.severity}`}>
               <span className="leak-name">{l.label}</span>
               <span className="leak-rate">{(l.rate * 100).toFixed(0)}% · n={l.sample}</span>
-              {LEAK_TO_DRILL[l.label] && (
+              {LEAK_TO_TAB[l.label] && onGo ? (
+                <button className="leak-drill-btn" onClick={() => onGo(LEAK_TO_TAB[l.label].tab)}>
+                  Practice · {LEAK_TO_TAB[l.label].label} →
+                </button>
+              ) : LEAK_TO_DRILL[l.label] ? (
                 <button className="leak-drill-btn" onClick={() => switchDrill(LEAK_TO_DRILL[l.label])}>Drill this →</button>
-              )}
+              ) : null}
             </div>
           ))
         )}

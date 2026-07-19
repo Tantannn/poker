@@ -1,8 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useGame } from '../hooks/useGame';
 import { accuracy, bbPer100, evLossPer100, rngAdherence, totalEvLoss, scoreBuckets, gtowScore, downswing } from '../store/stats';
 import type { DecisionRecord } from '../store/stats';
+import { recordLeakSnapshot, loadLeakHistory, clearLeakHistory, leakLabels, leakSeries, leakDelta } from '../store/leakHistory';
+import type { LeakTrendPoint } from '../store/leakHistory';
 import { assessTilt } from '../analysis/tilt';
 import { downloadBackup, importBackup } from '../store/backup';
 import { PlayingCard } from './PlayingCard';
@@ -48,6 +50,32 @@ export function Analytics({ g }: { g: G }) {
   const rngPct = rng.total ? Math.round((rng.followed / rng.total) * 100) : 0;
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Cross-session leak trend. Persist a throttled point when the tab opens (for
+  // durability across days) — no setState here, the live session is shown as an
+  // appended in-memory point below, so the chart always includes "now". The reset
+  // button force-captures the session it's about to wipe (see below).
+  const [leakTrend, setLeakTrend] = useState<LeakTrendPoint[]>(() => loadLeakHistory());
+  useEffect(() => {
+    recordLeakSnapshot(stats, {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The current (unsaved) session as a trailing trend point, so the chart reflects
+  // live progress without a persist→reload round-trip. `at: 0` avoids Date in render.
+  const livePoint = useMemo<LeakTrendPoint | null>(() => {
+    if ((stats.decisions?.length ?? 0) < 8) return null;
+    return {
+      at: 0,
+      handsPlayed: stats.handsPlayed,
+      netBB: stats.netBB,
+      score: gtowScore(stats),
+      leaks: leaks.map((l) => ({ label: l.label, rate: l.rate, severity: l.severity, sample: l.sample })),
+    };
+  }, [stats, leaks]);
+  const trendPoints = useMemo(
+    () => (livePoint ? [...leakTrend, livePoint] : leakTrend),
+    [leakTrend, livePoint],
+  );
+
   const buckets = scoreBuckets(stats);
   const score = gtowScore(stats);
   // swings & tilt — the historical view of what the live table shows in-session.
@@ -81,7 +109,14 @@ export function Analytics({ g }: { g: G }) {
       <div className="card">
         <div className="analytics-head">
           <h2>Session Analytics</h2>
-          <button className="btn-small" onClick={g.doResetStats}>
+          <button
+            className="btn-small"
+            onClick={() => {
+              // Preserve the ending session as a leak-trend point before wiping it.
+              if (recordLeakSnapshot(stats, { force: true })) setLeakTrend(loadLeakHistory());
+              g.doResetStats();
+            }}
+          >
             Reset stats
           </button>
         </div>
@@ -211,6 +246,24 @@ export function Analytics({ g }: { g: G }) {
       </div>
 
       <div className="card">
+        <div className="analytics-head">
+          <h2>Leaks over time</h2>
+          {leakTrend.length > 0 && (
+            <button
+              className="btn-small"
+              onClick={() => {
+                clearLeakHistory();
+                setLeakTrend([]);
+              }}
+            >
+              Clear trend
+            </button>
+          )}
+        </div>
+        <LeakTrend points={trendPoints} />
+      </div>
+
+      <div className="card">
         <h2>Hand History</h2>
         {history.length === 0 ? (
           <p className="sub">Played hands will appear here for step-by-step review.</p>
@@ -312,6 +365,80 @@ function Sparkline({ data }: { data: number[] }) {
         <polyline points={pts} className={`an-spark-line ${last >= 0 ? 'pos' : 'neg'}`} fill="none" />
       </svg>
       <div className={`an-spark-end ${last >= 0 ? 'pos' : 'neg'}`}>{last >= 0 ? '+' : ''}{last.toFixed(1)} bb</div>
+    </div>
+  );
+}
+
+// Cross-session leak trend: one row per leak, its rate charted across snapshots so
+// recurrence and improvement are visible — the longitudinal view the single-session
+// Leak Finder can't give. A shrinking line is the goal.
+function LeakTrend({ points }: { points: LeakTrendPoint[] }) {
+  if (points.length < 2) {
+    return (
+      <p className="sub">
+        Not enough history yet. A point is captured when you open this tab (at most once every few hours) and
+        whenever you reset stats. Play across a few sessions and your leaks will trend here — a line that falls
+        over time is a leak you're fixing.
+      </p>
+    );
+  }
+  const labels = leakLabels(points);
+  const scores = points.map((p) => p.score / 100);
+  return (
+    <>
+      <div className="an-section">
+        <div className="an-h">Move quality (GTOW score) across {points.length} snapshots</div>
+        <RateSparkline data={scores} goodHigh />
+      </div>
+      <div className="leak-trend">
+        {labels.map((label) => {
+          const series = leakSeries(points, label);
+          const latest = series[series.length - 1];
+          const delta = leakDelta(points, label);
+          const arrow =
+            delta == null ? '' : delta < -0.03 ? '▼ improving' : delta > 0.03 ? '▲ worsening' : '► flat';
+          const arrowCls = delta == null ? '' : delta < -0.03 ? 'pos' : delta > 0.03 ? 'neg' : '';
+          return (
+            <div key={label} className="leak-trend-row">
+              <div className="leak-trend-head">
+                <span className="leak-label">{label}</span>
+                <span className={`leak-trend-delta ${arrowCls}`}>
+                  {(latest * 100).toFixed(0)}% <span className="muted">{arrow}</span>
+                </span>
+              </div>
+              <RateSparkline data={series} />
+            </div>
+          );
+        })}
+      </div>
+      <p className="note">
+        Each line is one leak's error-rate over time. Lower is better — a falling line means the fix is
+        sticking. A leak that keeps climbing is your next study target (try the <b>Leak Quiz</b> tab).
+      </p>
+    </>
+  );
+}
+
+// Sparkline for a 0..1 series (leak rate or normalised score). Unlike the bb
+// Sparkline this has a fixed [0,1] domain so heights compare across leaks; colour
+// keys on the latest value (or its inverse when higher is better, e.g. score).
+function RateSparkline({ data, goodHigh = false }: { data: number[]; goodHigh?: boolean }) {
+  const W = 600;
+  const H = 60;
+  const pad = 4;
+  const x = (i: number) => pad + (i / Math.max(1, data.length - 1)) * (W - 2 * pad);
+  const y = (v: number) => H - pad - Math.max(0, Math.min(1, v)) * (H - 2 * pad);
+  const pts = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const last = data[data.length - 1];
+  const good = goodHigh ? last >= 0.6 : last <= 0.15;
+  const bad = goodHigh ? last < 0.4 : last >= 0.3;
+  const cls = good ? 'pos' : bad ? 'neg' : '';
+  return (
+    <div className="an-spark">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="an-spark-svg">
+        <polyline points={pts} className={`an-spark-line ${cls}`} fill="none" />
+      </svg>
+      <div className={`an-spark-end ${cls}`}>{(last * 100).toFixed(0)}%</div>
     </div>
   );
 }

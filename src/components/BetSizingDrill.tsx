@@ -23,23 +23,47 @@ import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/dril
 
 const BB = 2;
 const POT = 12;
-const VILLAIN = rangeFromSet(RFI_RANGES.BTN);
 
 type Mode = 'sizing' | 'decide';
 
+// Opponent-type lens. Correct sizing shifts with WHO you're betting into, not just
+// the board — a station wants bigger value & zero bluffs, a nit folds to pressure.
+// range width feeds hero's equity; contBias is the villain-stickiness knob the model
+// already exposes (+ = calls wider, − = folds wider; see postflopModel.PostflopInput).
+type Villain = { id: string; label: string; contBias: number; range: ReturnType<typeof rangeFromSet>; note: string };
+const VILLAINS: Villain[] = [
+  { id: 'gto', label: '⚖ Balanced', contBias: 0, range: rangeFromSet(RFI_RANGES.BTN), note: 'Balanced ranges — read the size straight off the board texture; no read-based adjustment.' },
+  { id: 'lp', label: '🐟 Station', contBias: 0.22, range: rangeFromSet(RFI_RANGES.SB), note: 'Calls far too wide. Size UP your value — thin value prints because they pay off — and never bluff; they don\'t fold.' },
+  { id: 'nit', label: '🗿 Nit', contBias: -0.16, range: rangeFromSet(RFI_RANGES.UTG), note: 'Folds too much. Bet/bluff bigger for fold equity; but value gets no action, so give up when called instead of barrelling into a strong continue.' },
+  { id: 'maniac', label: '🤪 Maniac', contBias: 0.06, range: rangeFromSet(RFI_RANGES.SB), note: 'Bets & bluffs relentlessly. Lean to CHECK strong hands and let them bluff into you; when you do bet, size for value, not protection.' },
+];
+
 interface Band { id: ActionId; label: string; tag: string; pct: string }
 
-// the three sizes we drill, in order. all-in is excluded — this is about
+// the four sizes we drill, in order. all-in is excluded — this is about
 // reading texture for a normal bet, not stack-off math.
 const SIZES: Band[] = [
   { id: 'bet33', label: '⅓ pot', tag: 'Small', pct: '~33%' },
+  { id: 'bet50', label: '½ pot', tag: 'Medium', pct: '~50%' },
   { id: 'bet75', label: '¾ pot', tag: 'Big', pct: '~75%' },
   { id: 'betpot', label: 'Pot', tag: 'Polar', pct: '100%' },
 ];
 const CHECK: Band = { id: 'check', label: 'Check', tag: 'Pot control', pct: '0%' };
 const SIZE_IDS = SIZES.map((s) => s.id);
 // rank used to tell the user "too small" vs "too big" when they miss a size.
-const SIZE_RANK: Record<string, number> = { bet33: 0, bet75: 1, betpot: 2 };
+const SIZE_RANK: Record<string, number> = { bet33: 0, bet50: 1, bet75: 2, betpot: 3 };
+
+// player-count lens: sizing shifts multiway. Nutted hands barely lose equity (size
+// UP for value), one pair below top dies (check more), and a bet thins the field.
+// opps = live opponents; oppRanges feeds the model N copies so hero must beat the
+// whole field, and the pot starts bigger as dead money piles in (mirror of PostflopLab).
+const FIELDS: { opps: number; label: string }[] = [
+  { opps: 1, label: 'Heads-up' },
+  { opps: 2, label: '3-way' },
+  { opps: 4, label: '5-way' },
+  { opps: 5, label: '6-way' },
+];
+const fieldPot = (opps: number) => Math.round(POT * (1 + 0.6 * (opps - 1)));
 
 type Pos = 'ip' | 'oop';
 
@@ -52,11 +76,13 @@ function dealHero(): Card[] {
   return [a, b];
 }
 
-function solve(hero: Card[], board: Card[], position: Pos): NodeStrategy {
+function solve(hero: Card[], board: Card[], position: Pos, villain: Villain, opps: number): NodeStrategy {
   return solvePostflop({
-    hero, board, oppRange: VILLAIN, pot: POT, toCall: 0, heroCommitted: 0, currentBet: 0,
+    hero, board, oppRange: villain.range,
+    oppRanges: opps > 1 ? Array.from({ length: opps }, () => villain.range) : undefined,
+    contBias: villain.contBias, pot: fieldPot(opps), toCall: 0, heroCommitted: 0, currentBet: 0,
     minRaiseTo: BB, maxRaiseTo: 188, canCheck: true, canRaise: true, bigBlind: BB,
-    iterations: 1500, rangeNote: 'BTN range', position,
+    iterations: 1500, rangeNote: `${villain.label} range · ${opps + 1}-way`, position,
   });
 }
 
@@ -65,28 +91,33 @@ function solve(hero: Card[], board: Card[], position: Pos): NodeStrategy {
 // ("which size"); decide mode also allows check ("bet or check, then how big").
 // Position is randomised per spot — it shifts the right size, so you train the
 // read: in position you bet smaller & more often, out of position you polarise.
-function genSpot(allow: ActionId[]): Spot {
+function genSpot(allow: ActionId[], villain: Villain, opps: number): Spot {
   for (let a = 0; a < 700; a++) {
     const hero = dealHero();
     let board = randomFlop('any', hero);
     if (Math.random() < 0.45) board = [...board, randomCard([...hero, ...board])];
     const pos: Pos = Math.random() < 0.5 ? 'ip' : 'oop';
-    const strategy = solve(hero, board, pos);
+    const strategy = solve(hero, board, pos, villain, opps);
     if (allow.includes(strategy.bestId)) {
       return { hero, board, strategy, label: classifyHandClass(hero, board).label, pos };
     }
   }
   const hero = dealHero();
   const board = randomFlop('any', hero);
-  return { hero, board, strategy: solve(hero, board, 'oop'), label: classifyHandClass(hero, board).label, pos: 'oop' };
+  return { hero, board, strategy: solve(hero, board, 'oop', villain, opps), label: classifyHandClass(hero, board).label, pos: 'oop' };
 }
 
 // First spot generated at module load, not during render — a useState lazy
 // initializer runs in the render phase, where React forbids Math.random.
-const FIRST_SPOT = genSpot(SIZE_IDS);
+const FIRST_SPOT = genSpot(SIZE_IDS, VILLAINS[0], 1);
 
 export function BetSizingDrill() {
   const [mode, setMode] = useState<Mode>('sizing');
+  const [villainId, setVillainId] = useState<string>(VILLAINS[0].id);
+  const villain = useMemo(() => VILLAINS.find((v) => v.id === villainId) ?? VILLAINS[0], [villainId]);
+  const [opps, setOpps] = useState(1);
+  const potChips = fieldPot(opps);
+  const fieldLabel = FIELDS.find((f) => f.opps === opps)?.label ?? 'Heads-up';
   const allow = useMemo<ActionId[]>(() => (mode === 'decide' ? ['check', ...SIZE_IDS] : SIZE_IDS), [mode]);
   const bands = mode === 'decide' ? [CHECK, ...SIZES] : SIZES;
 
@@ -119,13 +150,26 @@ export function BetSizingDrill() {
     setScore(recordDrillScore(`bsd-${mode}`, l <= 0.15));
     playGrade(l <= 0.15);
   }
-  function next() { setSpot(genSpot(allow)); setChosen(null); }
+  function next() { setSpot(genSpot(allow, villain, opps)); setChosen(null); }
   function switchMode(m: Mode) {
     if (m === mode) return;
     setMode(m);
     setScore(loadDrillScore(`bsd-${m}`)); // each mode keeps its own lifetime score
     setChosen(null);
-    setSpot(genSpot(m === 'decide' ? ['check', ...SIZE_IDS] : SIZE_IDS));
+    setSpot(genSpot(m === 'decide' ? ['check', ...SIZE_IDS] : SIZE_IDS, villain, opps));
+  }
+  function switchVillain(id: string) {
+    if (id === villainId) return;
+    const v = VILLAINS.find((x) => x.id === id) ?? VILLAINS[0];
+    setVillainId(id);
+    setChosen(null);
+    setSpot(genSpot(allow, v, opps)); // re-solve the SAME kind of spot vs the new type
+  }
+  function switchField(o: number) {
+    if (o === opps) return;
+    setOpps(o);
+    setChosen(null);
+    setSpot(genSpot(allow, villain, o)); // same spot kind, now N-way
   }
 
   // keyboard: 1..N picks the Nth size button, Space/Enter deals the next spot.
@@ -217,11 +261,29 @@ export function BetSizingDrill() {
       </div>
       <p className="note">{drillKeysHint(bands.length)} · score is saved across sessions.</p>
 
+      <div className="quiz-drills bsd-villains">
+        <span className="bsd-vs">Betting into:</span>
+        {VILLAINS.map((v) => (
+          <button key={v.id} className={villainId === v.id ? 'active' : ''} onClick={() => switchVillain(v.id)} title={v.note}>
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="quiz-drills bsd-villains">
+        <span className="bsd-vs">Players:</span>
+        {FIELDS.map((f) => (
+          <button key={f.opps} className={opps === f.opps ? 'active' : ''} onClick={() => switchField(f.opps)}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       <SpotBoard
         hero={spot.hero}
         board={spot.board}
         handLabel={spot.label}
-        boardTag={<>{street} · {tex.label} · pot {POT}bb · {spot.pos === 'ip' ? 'in position (checked to you)' : 'out of position (you act first)'}</>}
+        boardTag={<>{street} · {tex.label} · {fieldLabel} · pot {potChips}bb · {spot.pos === 'ip' ? 'in position (checked to you)' : 'out of position (you act first)'}</>}
         equity={spot.strategy.equity}
         equityHidden={hideEq && !revealed}
         posNote={spot.pos}
@@ -264,6 +326,7 @@ export function BetSizingDrill() {
                 {actionRule(spot.strategy.bestId, spot.board) && (
                   <div className="bsd-rule"><b>💡 Rule:</b> {actionRule(spot.strategy.bestId, spot.board)}</div>
                 )}
+                <div className="bsd-rule"><b>🎯 vs {villain.label}:</b> {villain.note}</div>
               </div>
             </div>
           )}
@@ -286,11 +349,14 @@ export function BetSizingDrill() {
         <h4>When each size — the rule</h4>
         <div className="bsd-cheat-grid">
           <div><span className="bsd-pill small">⅓ Small</span> Dry/static boards (K72r, A84r), range bets, thin value. You bet often, deny little equity, keep worse hands in.</div>
+          <div><span className="bsd-pill small">½ Medium</span> Semi-wet / medium boards, or thin value that still wants a call. The middle gear — more than a range bet, less than a polar charge.</div>
           <div><span className="bsd-pill big">¾ Big</span> Wet/dynamic boards (T98ss, 654), value + draws. Charge their equity, build the pot, polarize.</div>
           <div><span className="bsd-pill polar">Pot</span> You have the nut advantage — strong, polar range. Max value / max fold equity. Also low SPR / commitment spots.</div>
           <div><span className="bsd-pill check">Check</span> Neither edge — marginal made hands and air with no value/fold-equity case. Pot control, realize equity for free. Drilled in <b>Bet or check</b> mode.</div>
           <div><span className="bsd-pill pos">Position</span> <b>In position</b> you realise equity well → bet smaller, bet more often, check back marginal hands. <b>Out of position</b> you realise less → check more, and go bigger / more polar when you do bet.</div>
           <div><span className="bsd-pill polar">Don't over-bet value</span> A one-pair overpair is <i>not</i> a jam. Size to the <b>worst hand that still calls</b> — over-bet/shove and you fold out everything you beat and get called only by what beats you. Get the stack in across streets, not all at once. <b>Overbet/jam = polar nuts &amp; air, or low SPR — never a one-pair hand that needs calls from worse.</b></div>
+          <div><span className="bsd-pill polar">vs Opponent type</span> Texture sets the baseline; the read shifts it. <b>Station</b> → size UP value, never bluff (they don't fold). <b>Nit</b> → bet/bluff bigger for fold equity, but give up when called. <b>Maniac</b> → check strong hands and induce their bluffs. <b>Balanced</b> → size purely off the board. Switch the <i>Betting into</i> chip and watch the best size move.</div>
+          <div><span className="bsd-pill big">Multiway</span> More players in the pot: <b>size UP with value</b> (nutted hands barely lose equity and you must beat everyone), <b>check marginal one-pair</b> (it dies against a field), and a bet also <b>thins the field</b>. <b>Bluff far less</b> — someone usually has a piece. Compare your equity to the <b>fair share</b> (33% 3-way, 20% 5-way), not 50%.</div>
         </div>
         <p className="bsd-note">
           Core idea: <b>size follows board advantage</b>. Range advantage → small &amp; often · nut advantage →

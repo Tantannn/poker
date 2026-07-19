@@ -11,6 +11,7 @@ import { evaluate7 } from '../engine/evaluator';
 import { requiredEquityForBet } from '../engine/potOdds';
 import { classifyFlop, boardWetScore } from '../engine/board';
 import type { TextureInfo } from '../engine/board';
+import { canonicalOuts } from './handClass';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
 import { mixFromEv } from './types';
 
@@ -395,8 +396,15 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const C = inp.toCall;
   const bb = inp.bigBlind;
 
-  // outs for semi-bluff vs pure-bluff labelling (meaningful flop/turn only)
-  const outs = inp.board.length >= 3 && inp.board.length < 5 ? countOuts(inp.hero, inp.board).outs : 0;
+  // outs for semi-bluff vs pure-bluff labelling (meaningful flop/turn only). Use the
+  // HONEST ladder (canonicalOuts), NOT raw countOuts: countOuts credits pairing your
+  // own over/undercards on top of a draw, so a flush + open-ender (15 outs) reads as
+  // ~21 and the semi-bluff blurb overstates the hand. canonicalOuts keys off the actual
+  // draw and matches the 🎯 equity drill / anchor sheet.
+  const outs =
+    inp.board.length >= 3 && inp.board.length < 5
+      ? canonicalOuts(inp.hero, inp.board, countOuts(inp.hero, inp.board).outs)
+      : 0;
   const isRiver = inp.board.length === 5;
   // does hero hold a MADE hand (pair or better)? gates value-vs-semibluff labelling
   // so a high-equity DRAW is called a semi-bluff, not a value bet. Must be measured
@@ -542,7 +550,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       }${
         !isRiver && oop ? ' Out of position you realise less of that equity, so call tighter.' : !isRiver && ip ? ' In position you realise it well.' : ''
       }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}${riverCallNote(isRiver, e, need)}`,
-      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(callEq)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(callEq * (P + C) - C + implied).toFixed(1)} chips ≈ ${((callEq * (P + C) - C + implied) / bb).toFixed(2)} bb`,
+      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity${callEq !== e ? ` × realise(${realize})` : ''} × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(callEq)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(callEq * (P + C) - C + implied).toFixed(1)} chips ≈ ${((callEq * (P + C) - C + implied) / bb).toFixed(2)} bb`,
     });
   }
 
