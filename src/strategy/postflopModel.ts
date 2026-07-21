@@ -140,16 +140,34 @@ function whyBet(
         base = `Value shove — but a jam folds out every worse hand and gets called almost only by what beats you${cont ? ` (~${cont} of his range continues, the strong part)` : ''}, so your equity WHEN CALLED drops to ~${e2}. Worth it only when committed (low SPR) or vs a station who won't fold — otherwise a sized value bet that keeps worse hands in prints more across streets.`;
         break;
       }
-      // Per-line reason stays short and table-usable: the continue% differs per
-      // size and is actionable; the raw denial / street-value chip deltas are
-      // solver internals a player can't use, so they stay in the math panel, not
-      // here. The "how big?" RULE (board texture → size) is printed once in the
-      // overview note (buildNote), not repeated on every line.
-      base = `Value bet: you're ahead (~${eq}). Bet to get WORSE hands to call and build the pot${cont ? ` — ~${cont} of his range continues at this size` : ''}. Size to the worst hand that still calls — too big folds out your customers, too small leaves value behind.`;
+      // Each size must read DIFFERENTLY. "Get worse hands to call" is true at
+      // EVERY size, so leading with it made all lines identical. Lead instead with
+      // THIS size's lever: bigger = more chips per call but a stronger calling
+      // range (equity-when-called e2 drops); smaller = keeps more worse hands in
+      // for later streets. e2 and contFrac both vary per size and are actionable;
+      // raw denial / street-value chip deltas stay in the math panel. The board→size
+      // RULE lives once in the overview note (buildNote), not on every line.
+      const contClause = cont ? ` ~${cont} of his range calls this size.` : '';
+      let lever: string;
+      if (frac >= 0.9)
+        lever = `This is the BIGGEST worse hands still pay — most chips per call. You're called by his stronger hands (equity-when-called drops to ~${e2}), but worse hands keep paying here, so bloating the pot extracts the most. Ease off only if calls start drying up.`;
+      else if (frac >= 0.6)
+        lever = `A big size — charges draws and builds the pot. Called by a slightly stronger range (eq-when-called ~${e2}) than a small bet; earns nearly as much as potting while staying safe if a pot-sized bet would start folding worse hands out.`;
+      else if (frac >= 0.4)
+        lever = `A medium size — a wider, weaker range calls (eq-when-called ~${e2}), so each call pays less but you keep more worse hands in for later streets. Best when a bigger bet would fold out your customers.`;
+      else
+        lever = `A small size — keeps the MOST worse hands in (eq-when-called ~${e2}) and sets up later-street value, but pays the least right now. Fits dry boards; leaves value behind when worse hands would have called bigger.`;
+      base = `You're ahead (~${eq}) — value-bet to get WORSE hands to call.${contClause} ${lever}`;
       break;
     }
     case 'thin':
-      base = `Thin value / merge: only a slight favourite (~${eq}). Bet to get called by worse — but size down, you're not strong enough to bloat the pot.`;
+      base = `Thin value / merge: only a slight favourite (~${eq}), so bet to get called by worse without bloating the pot.${
+        frac >= 0.6
+          ? ` This size is too big for a hand this thin — it folds out the worse hands and gets called by the ones that beat you (eq-when-called only ~${e2}); come down.`
+          : frac >= 0.4
+            ? ` A medium size is about the ceiling here — worse hands still call (~${e2} when called), but any bigger and only better hands come along.`
+            : ` A small size fits — worse hands call cheaply (~${e2} when called) and you dodge the stronger range a big bet would wake up.`
+      }`;
       break;
     case 'semibluff':
       base = `Semi-bluff: ~${eq} equity now${outs > 0 ? ` with ~${outs} outs` : ''}. Two ways to win — villain folds ~${fe}, and when called you still hit ~${e2} of the time. Keep barreling cards that complete your draw.`;

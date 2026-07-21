@@ -821,6 +821,8 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .lab-act:hover { border-color: var(--raise2); }
 .lab-act.chosen { outline: 2px solid var(--call); }
 .lab-act.is-best { border-color: var(--gold); }
+/* the exploit target line in Read & Exploit — green glow, distinct from the gold GTO best */
+.lab-act.is-exploit { border-color: #2ec27e; box-shadow: inset 0 0 0 2px rgba(46,194,126,0.45); }
 .la-label { font-weight: 700; font-size: 14px; position: relative; z-index: 1; }
 .la-freq { font-weight: 800; font-size: 13px; position: relative; z-index: 1; }
 .la-ev { font-size: 12px; font-weight: 700; position: relative; z-index: 1; }
@@ -967,6 +969,9 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .gp-why-caret { flex: none; width: 12px; text-align: center; font-size: 10px; color: var(--muted); }
 .gp-why { font-size: 12.5px; line-height: 1.5; color: var(--txt); background: var(--bg2); border-left: 2px solid var(--gold); border-radius: 0 6px 6px 0; padding: 7px 10px; margin: 3px 0 5px; }
 .gp-why-size { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+/* "which size?" teaching callout in Recommended mix — board→size rule (dry→small, wet→big) */
+.gp-block .gp-sizerule { background: var(--bg2); border-left: 2px solid var(--gold); border-radius: 0 6px 6px 0; padding: 8px 10px; margin: 6px 0 8px; color: var(--txt); font-size: 12.5px; line-height: 1.55; }
+.gp-block .gp-sizerule b { color: var(--gold); }
 .gp-calc { margin-bottom: 8px; }
 .gp-calc-tag { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
 .gp-calc-plain { font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.45; }
@@ -1634,6 +1639,30 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 @media (max-width: 620px) {
   .rd-bands { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- Tournament Drill (push/fold + ICM bubble) ---- */
+.td-bands { grid-template-columns: repeat(2, 1fr); }
+.td-stackbox { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 8px 16px; }
+.td-bb { font-size: 14px; margin-left: 2px; }
+.td-pos { font-size: 12px; font-weight: 700; color: var(--gold); margin-top: 2px; }
+.td-rangebox { margin-top: 10px; padding: 10px 12px; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; line-height: 1.5; }
+.td-tokens { display: block; margin-top: 4px; color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; }
+.td-icm-info { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; align-items: center; }
+.td-stacks { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
+.td-stackrow { display: flex; justify-content: space-between; gap: 12px; padding: 4px 8px; background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; font-size: 12.5px; }
+.td-stackrow.hero { border-color: var(--gold); }
+.td-stackrow.shover { border-color: var(--red); }
+.td-scenario { flex: 1; min-width: 220px; font-size: 12.5px; line-height: 1.5; margin: 0; }
+.td-verdicts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.td-verdict { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg2); }
+.td-verdict b { font-size: 16px; }
+.td-verdict.call { border-color: var(--raise); }
+.td-verdict.fold { border-color: var(--red); }
+.td-verdict.td-icm { box-shadow: inset 0 0 0 1px var(--gold); }
+.td-vlabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 800; }
+.td-vsub { font-size: 11px; color: var(--muted); }
+.td-lesson { margin-top: 10px; padding: 10px 12px; background: var(--bg2); border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0; font-size: 12.5px; line-height: 1.55; }
+.td-lesson-tag { display: inline-block; font-weight: 800; color: var(--gold); margin-right: 6px; }
 
 .rd-truth { text-align: center; margin-top: 14px; }
 .rd-truth .stat-lbl { color: var(--muted); font-size: 13px; }

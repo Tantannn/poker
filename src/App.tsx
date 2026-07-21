@@ -33,10 +33,11 @@ const BlockerDrill = lazy(() => import('./components/BlockerDrill').then((m) => 
 const TellsTrainer = lazy(() => import('./components/TellsTrainer').then((m) => ({ default: m.TellsTrainer })));
 const StoryTrainer = lazy(() => import('./components/StoryTrainer').then((m) => ({ default: m.StoryTrainer })));
 const SizingTellDrill = lazy(() => import('./components/SizingTellDrill').then((m) => ({ default: m.SizingTellDrill })));
+const TournamentDrill = lazy(() => import('./components/TournamentDrill').then((m) => ({ default: m.TournamentDrill })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -46,32 +47,33 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'learn', label: '1. 🎓 Learning Path' },
   { id: 'play', label: '2. ♠ Play vs Bots' },
   { id: 'tournament', label: '3. 🏆 Tournament' },
-  { id: 'charts', label: '4. Preflop Charts' },
-  { id: 'trainer', label: '5. Range Trainer' },
-  { id: 'lab', label: '6. Postflop Lab' },
-  { id: 'debug', label: '7. 🧪 Custom Spot' },
-  { id: 'heatmap', label: '8. 🔥 Flop Heatmap' },
-  { id: 'gameplan', label: '9. 📋 Gameplan' },
-  { id: 'quiz', label: '10. Leak Quiz' },
-  { id: 'exploit', label: '11. 🎯 Read & Exploit' },
-  { id: 'replay', label: '12. 🌟 Hand Review' },
-  { id: 'principles', label: '13. 📓 Principles' },
-  { id: 'odds', label: '14. Pot Odds' },
-  { id: 'eqdrill', label: '15. 🧠 Equity Drill' },
-  { id: 'mathdrill', label: '16. 🧮 Math Trainer' },
-  { id: 'review', label: '17. 🔁 Review' },
-  { id: 'sizing', label: '18. 💰 Bet Sizing' },
-  { id: 'bankroll', label: '19. 💵 Bankroll' },
-  { id: 'mental', label: '20. 🧘 Mental Game' },
-  { id: 'handreading', label: '21. 🕵 Hand Reading' },
-  { id: 'story', label: '22. 🎭 Betting Story' },
-  { id: 'sizetell', label: '23. 🔎 Sizing Tells' },
-  { id: 'plan', label: '24. 🗺 Plan the Hand' },
-  { id: 'blocker', label: '25. 🚫 Blockers' },
-  { id: 'tells', label: '26. 👁 Tells & Timing' },
-  { id: 'analytics', label: '27. Analytics' },
-  { id: 'reference', label: '28. Reference' },
-  { id: 'settings', label: '29. ⚙ Settings' },
+  { id: 'tourneydrill', label: '4. 🎲 Push/Fold & ICM' },
+  { id: 'charts', label: '5. Preflop Charts' },
+  { id: 'trainer', label: '6. Range Trainer' },
+  { id: 'lab', label: '7. Postflop Lab' },
+  { id: 'debug', label: '8. 🧪 Custom Spot' },
+  { id: 'heatmap', label: '9. 🔥 Flop Heatmap' },
+  { id: 'gameplan', label: '10. 📋 Gameplan' },
+  { id: 'quiz', label: '11. Leak Quiz' },
+  { id: 'exploit', label: '12. 🎯 Read & Exploit' },
+  { id: 'replay', label: '13. 🌟 Hand Review' },
+  { id: 'principles', label: '14. 📓 Principles' },
+  { id: 'odds', label: '15. Pot Odds' },
+  { id: 'eqdrill', label: '16. 🧠 Equity Drill' },
+  { id: 'mathdrill', label: '17. 🧮 Math Trainer' },
+  { id: 'review', label: '18. 🔁 Review' },
+  { id: 'sizing', label: '19. 💰 Bet Sizing' },
+  { id: 'bankroll', label: '20. 💵 Bankroll' },
+  { id: 'mental', label: '21. 🧘 Mental Game' },
+  { id: 'handreading', label: '22. 🕵 Hand Reading' },
+  { id: 'story', label: '23. 🎭 Betting Story' },
+  { id: 'sizetell', label: '24. 🔎 Sizing Tells' },
+  { id: 'plan', label: '25. 🗺 Plan the Hand' },
+  { id: 'blocker', label: '26. 🚫 Blockers' },
+  { id: 'tells', label: '27. 👁 Tells & Timing' },
+  { id: 'analytics', label: '28. Analytics' },
+  { id: 'reference', label: '29. Reference' },
+  { id: 'settings', label: '30. ⚙ Settings' },
 ];
 
 const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
@@ -211,6 +213,11 @@ export default function App() {
           )}
           {(tab === 'play' || tab === 'tournament') && (
             <PokerTable g={g} hudEnabled={hudEnabled} onToggleHud={toggleHud} />
+          )}
+          {tab === 'tourneydrill' && (
+            <div className="content-col">
+              <TournamentDrill />
+            </div>
           )}
           {tab === 'charts' && (
             <div className="content-col">

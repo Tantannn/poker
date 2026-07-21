@@ -142,6 +142,18 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
               The {engineName}'s best line is <b>{fb.bestLabel}</b>. Frequencies are the mixed strategy; the bar
               shows how often to take each action. <b>Tap any line</b> for the reason behind its EV.
             </p>
+            {ctx && ctx.street !== 'preflop' && (
+              <p className="gp-sizerule">
+                <b>Which size (⅓ / ½ / pot)?</b> Read the <b>board</b>, not your hand. Ask one thing:
+                does the range that calls have <b>draws</b>, or only made hands?{' '}
+                <b>Dry</b> board, no draws (e.g. K♠7♦2♣) → <b>small ⅓</b>: only weak pairs call, and a
+                big bet just folds them out — keep your customer in cheap.{' '}
+                <b>Wet</b> board, draws live (e.g. 9♥8♥6♠) → <b>big ⅔–pot</b>: a draw calls any size
+                because it has equity, so charge it now before a scare card lands.{' '}
+                In between → <b>½</b>. Short version: <b>draws pay big, scared pairs pay small.</b>{' '}
+                The per-line note below is the <i>same</i> value logic at every size — this is how you pick <i>which</i> size.
+              </p>
+            )}
             <div className="gp-rows">
               {strat.options.map((o) => {
                 // Only postflop options carry a `why`/`sizeNote`; preflop-chart

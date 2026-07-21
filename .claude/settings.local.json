@@ -150,7 +150,14 @@
       "PowerShell(npx vite build 2>&1 | Select-Object -Last 30)",
       "Bash(grep -iE \"❯|⎯ .*\\\\.test|FAIL |> .*[0-9]+ms$\")",
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; echo \"===TESTS===\"; npx vitest run 2>&1 | Select-Object -Last 25)",
-      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; echo \"===TESTS===\"; npx vitest run src/strategy/riverBlockers.test.ts src/components/DecisionChecklist.test.tsx 2>&1 | Select-Object -Last 35)"
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; echo \"===TESTS===\"; npx vitest run src/strategy/riverBlockers.test.ts src/components/DecisionChecklist.test.tsx 2>&1 | Select-Object -Last 35)",
+      "PowerShell(npx tsc --noEmit -p . 2>&1 | Select-Object -First 20)",
+      "PowerShell(Out-File *)",
+      "PowerShell(npx vitest run src/analysis/grade.test.ts src/strategy/crossCheck.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/pushFold.charts.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 18)",
+      "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 15)",
+      "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6; echo \"=== RUN 2 ===\"; npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6)"
     ]
   }
 }

@@ -26,7 +26,7 @@ const SUGGESTED: { trigger: string; reframe: string }[] = [
   { trigger: 'Bad beat', reframe: 'Variance is exactly how weak players pay me. One hand ≠ my edge.' },
   { trigger: 'Lost to a fish', reframe: 'Their bad call is +EV for me over time. I WANT them calling.' },
   { trigger: 'Down a buy-in', reframe: "Chips already in the pot aren't mine. The next decision is independent." },
-  { trigger: 'Card-dead / bored', reframe: 'Folding trash IS the correct play. Boredom is not a reason to spew.' },
+  { trigger: 'Card-dead / bored', reframe: "Folding trash IS the correct play. Boredom is not a reason to jam — a bored all-in donates the stack for zero edge. If sitting still is the itch, rack up and leave; don't buy action with your buy-in." },
   { trigger: 'Being needled', reframe: 'My tilt is their only edge. Silence + solid play beats them.' },
 ];
 

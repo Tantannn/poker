@@ -23,6 +23,7 @@ const BLOCKS: { n: string; title: string; rows: [string, string][] }[] = [
     n: '2',
     title: 'Board texture → size & how often to bet (SPR 1–4)',
     rows: [
+      ['WHY size changes', 'One question decides ⅓ vs ½ vs pot: does the range that CALLS have draws, or only made hands? DRAWS pay big — a draw has equity so it calls any size; charge it now before a scare card. Only SCARED made hands (weak pairs, no draws) pay small — a big bet just folds your customer out. So: dry board = small, wet board = big. Every size below is this same rule.'],
       ['Dry (K72r)', 'Rainbow, disconnected. Bet 25–33%, ~70–85% of the time — range-bet, little to protect.'],
       ['Paired (KK4)', 'Bet 25–33%, ~80–90% — few draws, huge range edge.'],
       ['Low dry (532r)', 'Bet 25–33%, ~60–70%.'],
@@ -130,7 +131,7 @@ export function SizingCheatSheet() {
   return (
     <div className="cheat">
       <p className="cheat-hook">
-        SPR ≤ 1 → jam · Dry → 33% · Wet → 66–75% · Multiway → +10% equity & bigger · River → thin value or check
+        Draws pay big, scared pairs pay small · SPR ≤ 1 → jam · Dry → 33% · Wet → 66–75% · Multiway → +10% equity & bigger · River → thin value or check
       </p>
       <div className="cheat-top">
         <span className="cheat-order">Read in order: SPR → board → players → hand.</span>
