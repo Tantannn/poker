@@ -17,6 +17,8 @@ import {
   type ChecklistGrade,
 } from '../strategy/checklist';
 import { ReasonList } from './ReasonList';
+import type { ObservedStats } from '../analysis/observed';
+import type { StreetMove } from '../strategy/bettingStory';
 
 interface Props {
   /** 'aggressive' gates a bet/raise; 'call' gates a defensive call. */
@@ -25,6 +27,12 @@ interface Props {
   board: Card[];
   /** equity vs villain range from the HUD, or null while it's still computing. */
   equity: number | null;
+  /** observed villain stats (anonymous mode) — powers the ungraded read note. */
+  observed?: ObservedStats | null;
+  /** hero's own postflop line this hand — grades the story question (aggressive). */
+  heroLine?: StreetMove[];
+  /** villain's postflop line this hand — grades the story question (call). */
+  villainLine?: StreetMove[];
   /** aggressive: chips going in — grades the size question. */
   amount?: number;
   /** pot before hero's chips — grades size (aggressive) and price (call). */
@@ -48,6 +56,9 @@ export function DecisionChecklist({
   hero,
   board,
   equity,
+  observed = null,
+  heroLine,
+  villainLine,
   amount = 0,
   pot,
   spr = 0,
@@ -86,8 +97,8 @@ export function DecisionChecklist({
   const result = !locked
     ? null
     : call
-      ? gradeCallChecklist(hero, board, equity, { toCall, pot, outs, opps }, answers)
-      : gradeChecklist(hero, board, equity, answers, { amount, pot, spr });
+      ? gradeCallChecklist(hero, board, equity, { toCall, pot, outs, opps }, answers, observed, villainLine)
+      : gradeChecklist(hero, board, equity, answers, { amount, pot, spr }, observed, heroLine);
   const gradeFor = (id: string): ChecklistGrade | undefined =>
     result?.grades.find((g) => g.questionId === id);
 

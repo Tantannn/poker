@@ -43,6 +43,8 @@ const LEAK_TO_DRILL: Record<string, DrillId> = {
 const LEAK_TO_TAB: Record<string, { tab: string; label: string }> = {
   'Too passive (missing value/aggression)': { tab: 'sizing', label: 'Bet-Sizing Drill' },
   'Calling too much (station)': { tab: 'blocker', label: 'Blockers' },
+  // spew = incoherent bluffs → learn to fire only lines that tell a value story.
+  'Over-bluffing / spewing': { tab: 'story', label: 'Betting-Story Trainer' },
 };
 
 const KIND_COLOR: Record<string, string> = { value: '#2ec27e', bluff: '#e0843a', passive: '#3aa0e0', fold: '#2a3a31', aggressive: '#2ec27e' };

@@ -13,7 +13,9 @@ import {
   loadMental,
   saveMental,
   warmupComplete,
+  concealComplete,
   WARMUP_ITEMS,
+  CONCEAL_ITEMS,
   type MentalState,
   type TiltTrigger,
 } from '../store/mental';
@@ -62,6 +64,13 @@ export function MentalGame() {
     update({ warmup: {} });
   }
 
+  function toggleConceal(id: string) {
+    setState((prev) => saveMental({ ...prev, conceal: { ...prev.conceal, [id]: !prev.conceal[id] } }));
+  }
+  function resetConceal() {
+    update({ conceal: {} });
+  }
+
   function addTrigger(trigger: string, reframe: string) {
     const t = trigger.trim();
     const r = reframe.trim();
@@ -78,6 +87,7 @@ export function MentalGame() {
   }
 
   const done = warmupComplete(state);
+  const concealDone = concealComplete(state);
   const usedTriggers = new Set(state.triggers.map((t) => t.trigger.toLowerCase()));
 
   return (
@@ -106,6 +116,64 @@ export function MentalGame() {
         <div className={`lab-feedback ${done ? 'good' : 'bad'}`}>
           {done ? '✅ Warmed up — sit down deliberate. Judge decisions, not results.' : 'Tick all five before you sit.'}
           {done && <button className="btn btn-small mg-reset" onClick={resetWarmup}>New session ↺</button>}
+        </div>
+      </div>
+
+      {/* ---- self-concealment routine ---- */}
+      <div className="mg-block">
+        <div className="mg-head">
+          <h3>🕶 Self-concealment routine</h3>
+          <span className="mg-sub">consistency &gt; shades</span>
+        </div>
+        <p className="note" style={{ marginTop: 0 }}>
+          Sunglasses only hide your eyes. What actually gets you read is <b>inconsistency</b> — different tempo,
+          motions or breathing when strong vs weak. Run these until they're automatic; a stoic, identical routine
+          makes you unreadable.
+        </p>
+        <div className="mg-checks">
+          {CONCEAL_ITEMS.map((it) => (
+            <label key={it.id} className={`mg-check ${state.conceal[it.id] ? 'on' : ''}`}>
+              <input type="checkbox" checked={!!state.conceal[it.id]} onChange={() => toggleConceal(it.id)} />
+              <span>{it.label}</span>
+            </label>
+          ))}
+        </div>
+        <div className={`lab-feedback ${concealDone ? 'good' : 'bad'}`}>
+          {concealDone
+            ? '✅ Same every hand — nothing to read. The Decision Timer keeps your tempo honest live.'
+            : 'Internalize all six — one leak (usually tempo) undoes the rest.'}
+          {concealDone && <button className="btn btn-small mg-reset" onClick={resetConceal}>Reset ↺</button>}
+        </div>
+      </div>
+
+      {/* ---- live routine: read them / hide you ---- */}
+      <div className="mg-block">
+        <h3>🎯 Live routine — read them, hide you</h3>
+        <p className="note" style={{ marginTop: 0 }}>
+          The two jobs every street, side by side. Rehearse until it's a loop you run without thinking.
+        </p>
+        <div className="mg-routines">
+          <div className="mg-routine">
+            <h4>🔍 Read them — per street</h4>
+            <ol>
+              <li><b>Preflop:</b> who limps, open sizes, who defends blinds, 3-bet freq → bucket loose/tight, passive/aggro.</li>
+              <li><b>Flop:</b> c-bet or check? small = range/weak, big = polar. Note who peels vs folds.</li>
+              <li><b>Turn:</b> second barrel or give up? sizing up = value, slow-down = capped. Watch the reaction to scare cards.</li>
+              <li><b>River:</b> is the whole line a value story or capped? overbet = polar. Bet-fold vs check-back tells you plenty.</li>
+              <li><b>Showdown:</b> <b>log what they showed vs their line</b> — the only ground truth. One showdown updates the read more than a whole orbit of guessing.</li>
+            </ol>
+          </div>
+          <div className="mg-routine">
+            <h4>🕶 Hide you — per hand</h4>
+            <ol>
+              <li><b>Before you sit:</b> run the 6-item concealment checklist above once.</li>
+              <li><b>Cards:</b> look once, decide your plan, don't re-peek.</li>
+              <li><b>Every action:</b> one slow breath, then the same beat — easy or hard.</li>
+              <li><b>Chips:</b> same cut-and-push motion, value or bluff.</li>
+              <li><b>Big pot:</b> go quiet, still, neutral — watch the board, not your stack.</li>
+              <li><b>After:</b> no reaction to the result — win or lose, same face.</li>
+            </ol>
+          </div>
         </div>
       </div>
 

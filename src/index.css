@@ -1978,3 +1978,42 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .su-d { color: #1668d8; } /* diamond — blue  */
 .su-h { color: #cc1f3a; } /* hearts  — red   */
 .su-s { color: #14181c; } /* spades  — black */
+
+/* ── Decision timer (live table thinking aid) ─────────────────────────── */
+.dtimer {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 7px 12px; margin: 0 0 8px;
+  border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.dtimer-main { display: flex; align-items: baseline; gap: 10px; }
+.dtimer-clock { font-size: 1.4rem; font-weight: 700; letter-spacing: .5px; }
+.dtimer-band { font-size: .8rem; color: var(--muted); }
+.dtimer-sub {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: .72rem; color: var(--muted);
+}
+.dtimer-guide { opacity: .8; }
+.dtimer.snap .dtimer-clock, .dtimer.ok .dtimer-clock { color: #2ec27e; }
+.dtimer.slow .dtimer-clock { color: var(--gold); }
+.dtimer.tank .dtimer-clock { color: #e0563a; }
+.dtimer.slow { border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
+.dtimer.tank { border-color: color-mix(in srgb, #e0563a 60%, transparent); }
+
+/* ── Story trainer: type + multiway context ───────────────────────────── */
+.st-context { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; flex-wrap: wrap; }
+.st-way {
+  font-size: .74rem; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+.st-way.multi { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
+.st-hint { margin: 2px 0 8px; }
+.st-mod { border-left: 3px solid var(--gold); padding-left: 10px; }
+
+/* ── Mental Game: two-column live routine ─────────────────────────────── */
+.mg-routines { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 640px) { .mg-routines { grid-template-columns: 1fr; } }
+.mg-routine h4 { margin: 0 0 6px; font-size: .95rem; }
+.mg-routine ol { margin: 0; padding-left: 18px; }
+.mg-routine li { margin: 5px 0; font-size: .84rem; line-height: 1.4; color: var(--txt); }
+.mg-routine li b { color: var(--gold); }

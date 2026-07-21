@@ -64,6 +64,8 @@ const PATH: Stage[] = [
     icon: '🔍',
     steps: [
       { id: 'e-handread', title: 'Put them on a range', blurb: 'Narrow villain’s range street-by-street from his betting story — the core hand-reading skill.', tab: 'handreading', scoreKey: 'handreading' },
+      { id: 'e-story', title: 'Read & build the betting story', blurb: 'Call whether his line adds up to value — and whether yours does. The live bluff-catch and bluff-credibility read, no cards or equity.', tab: 'story', scoreKey: 'story-villain' },
+      { id: 'e-sizetell', title: 'Read villain bet sizes', blurb: 'What a size MEANS — range bet, value, polar, or a capped/weak blocker. Sizing tells beat physical tells at live low/mid stakes; includes the population-default reads.', tab: 'sizetell', scoreKey: 'sizingtell' },
       { id: 'e-tells', title: 'Tells, timing & table image', blurb: 'Read behavioral tells and table image, then pick the exploit. A cluster beats any single tell.', tab: 'tells', scoreKey: 'tells' },
       { id: 'e-exploit', title: 'Read & exploit opponents', blurb: 'Type the villain, then deviate to attack their leak. Where money is actually made.', tab: 'exploit' },
       { id: 'e-quiz', title: 'Find your own leaks', blurb: 'Targeted quiz on the spots people misplay most. Patch the biggest first.', tab: 'quiz' },

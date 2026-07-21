@@ -2,7 +2,6 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { useGame } from './hooks/useGame';
 // Eager: the landing tab (Play/Tournament) and the always-mounted equity widget.
 import { PokerTable } from './components/PokerTable';
-import { EquityCalc } from './components/EquityCalc';
 
 // Every other tab is code-split — its chunk loads only when first opened, so the
 // initial bundle carries just the table you land on. These are named exports, so
@@ -32,10 +31,12 @@ const HandReadingDrill = lazy(() => import('./components/HandReadingDrill').then
 const PlanCommitDrill = lazy(() => import('./components/PlanCommitDrill').then((m) => ({ default: m.PlanCommitDrill })));
 const BlockerDrill = lazy(() => import('./components/BlockerDrill').then((m) => ({ default: m.BlockerDrill })));
 const TellsTrainer = lazy(() => import('./components/TellsTrainer').then((m) => ({ default: m.TellsTrainer })));
+const StoryTrainer = lazy(() => import('./components/StoryTrainer').then((m) => ({ default: m.StoryTrainer })));
+const SizingTellDrill = lazy(() => import('./components/SizingTellDrill').then((m) => ({ default: m.SizingTellDrill })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'plan' | 'blocker' | 'tells' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -63,12 +64,14 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'bankroll', label: '19. 💵 Bankroll' },
   { id: 'mental', label: '20. 🧘 Mental Game' },
   { id: 'handreading', label: '21. 🕵 Hand Reading' },
-  { id: 'plan', label: '22. 🗺 Plan the Hand' },
-  { id: 'blocker', label: '23. 🚫 Blockers' },
-  { id: 'tells', label: '24. 👁 Tells & Timing' },
-  { id: 'analytics', label: '25. Analytics' },
-  { id: 'reference', label: '26. Reference' },
-  { id: 'settings', label: '27. ⚙ Settings' },
+  { id: 'story', label: '22. 🎭 Betting Story' },
+  { id: 'sizetell', label: '23. 🔎 Sizing Tells' },
+  { id: 'plan', label: '24. 🗺 Plan the Hand' },
+  { id: 'blocker', label: '25. 🚫 Blockers' },
+  { id: 'tells', label: '26. 👁 Tells & Timing' },
+  { id: 'analytics', label: '27. Analytics' },
+  { id: 'reference', label: '28. Reference' },
+  { id: 'settings', label: '29. ⚙ Settings' },
 ];
 
 const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
@@ -200,139 +203,149 @@ export default function App() {
       </nav>
 
       <main className="app-main">
-       <Suspense fallback={<div className="card"><p className="sub">Loading…</p></div>}>
-        {tab === 'learn' && (
-          <div className="content-col">
-            <Curriculum onGo={(t) => selectTab(t as Tab)} />
-          </div>
-        )}
-        {(tab === 'play' || tab === 'tournament') && (
-          <PokerTable g={g} hudEnabled={hudEnabled} onToggleHud={toggleHud} />
-        )}
-        {tab === 'charts' && (
-          <div className="content-col">
-            <RangeGrid />
-          </div>
-        )}
-        {tab === 'trainer' && (
-          <div className="content-col">
-            <PreflopTrainer />
-          </div>
-        )}
-        {tab === 'lab' && (
-          <div className="content-col">
-            <PostflopLab />
-          </div>
-        )}
-        {tab === 'debug' && (
-          <div className="content-col">
-            <SpotDebugger />
-          </div>
-        )}
-        {tab === 'heatmap' && (
-          <div className="content-col">
-            <FlopHeatmap />
-          </div>
-        )}
-        {tab === 'gameplan' && (
-          <div className="content-col">
-            <Gameplan />
-          </div>
-        )}
-        {tab === 'quiz' && (
-          <div className="content-col">
-            <LeakQuiz g={g} onGo={(t) => selectTab(t as Tab)} />
-          </div>
-        )}
-        {tab === 'exploit' && (
-          <div className="content-col">
-            <ExploitTrainer />
-          </div>
-        )}
-        {tab === 'replay' && (
-          <div className="content-col">
-            <Replay g={g} />
-          </div>
-        )}
-        {tab === 'principles' && (
-          <div className="content-col">
-            <PrinciplesPanel g={g} />
-          </div>
-        )}
-        {tab === 'odds' && (
-          <div className="content-col">
-            <PotOddsCalc />
-          </div>
-        )}
-        {tab === 'eqdrill' && (
-          <div className="content-col">
-            <EquityDrill />
-          </div>
-        )}
-        {tab === 'mathdrill' && (
-          <div className="content-col">
-            <MathDrill />
-          </div>
-        )}
-        {tab === 'review' && (
-          <div className="content-col">
-            <Review />
-          </div>
-        )}
-        {tab === 'sizing' && (
-          <div className="content-col">
-            <BetSizingDrill />
-          </div>
-        )}
-        {tab === 'bankroll' && (
-          <div className="content-col">
-            <BankrollSim g={g} />
-          </div>
-        )}
-        {tab === 'mental' && (
-          <div className="content-col">
-            <MentalGame />
-          </div>
-        )}
-        {tab === 'handreading' && (
-          <div className="content-col">
-            <HandReadingDrill />
-          </div>
-        )}
-        {tab === 'plan' && (
-          <div className="content-col">
-            <PlanCommitDrill />
-          </div>
-        )}
-        {tab === 'blocker' && (
-          <div className="content-col">
-            <BlockerDrill />
-          </div>
-        )}
-        {tab === 'tells' && (
-          <div className="content-col">
-            <TellsTrainer />
-          </div>
-        )}
-        {tab === 'analytics' && (
-          <div className="content-col">
-            <Analytics g={g} />
-          </div>
-        )}
-        {tab === 'reference' && (
-          <div className="content-col">
-            <Reference />
-          </div>
-        )}
-        {tab === 'settings' && (
-          <div className="content-col">
-            <Settings g={g} />
-          </div>
-        )}
-       </Suspense>
+        <Suspense fallback={<div className="card"><p className="sub">Loading…</p></div>}>
+          {tab === 'learn' && (
+            <div className="content-col">
+              <Curriculum onGo={(t) => selectTab(t as Tab)} />
+            </div>
+          )}
+          {(tab === 'play' || tab === 'tournament') && (
+            <PokerTable g={g} hudEnabled={hudEnabled} onToggleHud={toggleHud} />
+          )}
+          {tab === 'charts' && (
+            <div className="content-col">
+              <RangeGrid />
+            </div>
+          )}
+          {tab === 'trainer' && (
+            <div className="content-col">
+              <PreflopTrainer />
+            </div>
+          )}
+          {tab === 'lab' && (
+            <div className="content-col">
+              <PostflopLab />
+            </div>
+          )}
+          {tab === 'debug' && (
+            <div className="content-col">
+              <SpotDebugger />
+            </div>
+          )}
+          {tab === 'heatmap' && (
+            <div className="content-col">
+              <FlopHeatmap />
+            </div>
+          )}
+          {tab === 'gameplan' && (
+            <div className="content-col">
+              <Gameplan />
+            </div>
+          )}
+          {tab === 'quiz' && (
+            <div className="content-col">
+              <LeakQuiz g={g} onGo={(t) => selectTab(t as Tab)} />
+            </div>
+          )}
+          {tab === 'exploit' && (
+            <div className="content-col">
+              <ExploitTrainer />
+            </div>
+          )}
+          {tab === 'replay' && (
+            <div className="content-col">
+              <Replay g={g} />
+            </div>
+          )}
+          {tab === 'principles' && (
+            <div className="content-col">
+              <PrinciplesPanel g={g} />
+            </div>
+          )}
+          {tab === 'odds' && (
+            <div className="content-col">
+              <PotOddsCalc />
+            </div>
+          )}
+          {tab === 'eqdrill' && (
+            <div className="content-col">
+              <EquityDrill />
+            </div>
+          )}
+          {tab === 'mathdrill' && (
+            <div className="content-col">
+              <MathDrill />
+            </div>
+          )}
+          {tab === 'review' && (
+            <div className="content-col">
+              <Review />
+            </div>
+          )}
+          {tab === 'sizing' && (
+            <div className="content-col">
+              <BetSizingDrill />
+            </div>
+          )}
+          {tab === 'bankroll' && (
+            <div className="content-col">
+              <BankrollSim g={g} />
+            </div>
+          )}
+          {tab === 'mental' && (
+            <div className="content-col">
+              <MentalGame />
+            </div>
+          )}
+          {tab === 'handreading' && (
+            <div className="content-col">
+              <HandReadingDrill />
+            </div>
+          )}
+          {tab === 'story' && (
+            <div className="content-col">
+              <StoryTrainer />
+            </div>
+          )}
+          {tab === 'sizetell' && (
+            <div className="content-col">
+              <SizingTellDrill />
+            </div>
+          )}
+          {tab === 'plan' && (
+            <div className="content-col">
+              <PlanCommitDrill />
+            </div>
+          )}
+          {tab === 'blocker' && (
+            <div className="content-col">
+              <BlockerDrill />
+            </div>
+          )}
+          {tab === 'tells' && (
+            <div className="content-col">
+              <TellsTrainer />
+            </div>
+          )}
+          {tab === 'analytics' && (
+            <div className="content-col">
+              <Analytics g={g} />
+            </div>
+          )}
+          {tab === 'reference' && (
+            <div className="content-col">
+              <Reference />
+            </div>
+          )}
+          {tab === 'settings' && (
+            <div className="content-col">
+              <Settings g={g} />
+            </div>
+          )}
+        </Suspense>
       </main>
 
-      <EquityCalc />
+      {/* <EquityCalc /> */}
 
       <footer className="app-footer">
         Runs 100% locally · nothing leaves your machine · ranges &amp; feedback are training baselines,

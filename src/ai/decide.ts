@@ -195,10 +195,21 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       }
       // it's folded to us (or limps in front) — RFI by blueprint open frequency:
       // strong hands open ~always, borderline hands mix, a thin off-chart band steals.
-      // Position-aware size: earlier seats and the SB open a touch bigger (less
-      // position, more players behind); late seats open smaller.
-      const openFrac = pos === 'SB' ? 1.35 : pos === 'UTG' || pos === 'MP' ? 1.25 : 1.1;
-      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness)) return sizeTo(openFrac, false);
+      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness)) {
+        // Open SIZE scales with DEPTH, not just the board (openSizing.ts). Deep
+        // stacks build the pot (~2.5–3bb), but as the tournament clock lifts the
+        // blinds the effective stack shrinks and a fat 3–4bb open over-commits — so
+        // shrink toward a min-raise the shorter we get. Antes shave another notch
+        // (dead money = a cheaper steal, risk less to win it), and position adds a
+        // touch (early seats / SB open bigger — less position, more players behind).
+        // Push/fold (≤15bb) already returned above, so depth here is always >15bb.
+        const depthBB = effStackBB >= 60 ? 2.5 : effStackBB >= 40 ? 2.3 : effStackBB >= 25 ? 2.1 : 2.0;
+        const posBump = pos === 'SB' ? 0.5 : pos === 'UTG' || pos === 'MP' ? 0.3 : 0;
+        const anteShave = state.ante > 0 ? 0.2 : 0;
+        const openToBB = Math.max(2, depthBB + posBump - anteShave);
+        const target = Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, Math.round(openToBB * state.bigBlind)));
+        return { type: 'raise', amount: target };
+      }
       return { type: 'fold' };
     }
 

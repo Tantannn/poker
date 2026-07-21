@@ -11,6 +11,11 @@ import type { Card } from '../engine/cards';
 import { boardWetness } from '../engine/board';
 import { classifyHandClass } from './handClass';
 import { requiredEquityForBet } from '../engine/potOdds';
+import type { ObservedStats } from '../analysis/observed';
+import type { StreetMove } from './bettingStory';
+import { readVillainStory, readHeroStory } from './bettingStory';
+import { modulateStory, heroStoryTypeNote } from './storyModulation';
+import { readRiverBlockers, BLOCKER_READ_LABEL } from './riverBlockers';
 
 export type HeroCategory = 'value' | 'marginal' | 'draw' | 'air';
 export type Street = 'flop' | 'turn' | 'river';
@@ -30,6 +35,12 @@ export interface ChecklistQuestion {
     | 'spr'
     | 'size'
     | 'plan'
+    // villain read (shared by both gates) — ungraded, keyed to observed stats
+    | 'read'
+    // betting-story: hero's own line (aggressive gate) / villain's line (call gate)
+    | 'story'
+    // river-only removal read — what your cards block (both gates, ungraded)
+    | 'blocker'
     // call-gate questions
     | 'price'
     | 'verdict'
@@ -109,6 +120,153 @@ export const PLAN_OPTIONS: ChecklistOption[] = [
   { id: 'call', label: 'Call — my hand/odds can stand a raise' },
   { id: 'raise', label: 'Re-raise / get it in' },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────
+// VILLAIN READ — the exploit layer. The rest of the gate grades the GTO
+// baseline (equity, price, board-driven sizing); this asks how THIS villain
+// deviates from balance so the hero can deviate back. It's UNGRADED: at a live
+// table you never see the archetype, only behaviour, and a read off a thin
+// sample is a coin flip — so it's a teaching read (like plan/bluffcatch), not a
+// score. The reveal shows the observed HUD stats + the exploit adjustment for
+// the action in progress, and whether the pick matches the sample.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type VillainReadId = 'overfold' | 'overcall' | 'spew' | 'unknown';
+
+export const READ_OPTIONS: ChecklistOption[] = [
+  { id: 'overfold', label: 'Folds too much — tight, gives up unless strong' },
+  { id: 'overcall', label: 'Calls too much — sticky station' },
+  { id: 'spew', label: 'Over-aggressive — barrels & bluffs a lot' },
+  { id: 'unknown', label: 'No clear read yet — thin sample / plays balanced' },
+];
+
+// Below this hand count the observed stats are noise, not a read.
+const READ_MIN_HANDS = 12;
+
+/** Turn observed VPIP/AF into the dominant leak — the same reads the Exploit
+ *  trainer grades, but derived from behaviour instead of the true profile.
+ *  `enough` is false when the sample is too thin to trust. */
+export function readFromObserved(s: ObservedStats | null | undefined): {
+  read: VillainReadId;
+  enough: boolean;
+} {
+  if (!s || s.hands < READ_MIN_HANDS) return { read: 'unknown', enough: false };
+  const { vpip, af } = s;
+  // fires far more than it calls → maniac/LAG spew
+  if (af != null && af >= 3 && vpip >= 0.28) return { read: 'spew', enough: true };
+  // in a lot of pots but passive → calling station
+  if (vpip >= 0.4 && (af == null || af <= 1.2)) return { read: 'overcall', enough: true };
+  // rarely voluntarily in → nit / weak-tight, over-folds
+  if (vpip <= 0.22) return { read: 'overfold', enough: true };
+  return { read: 'unknown', enough: true }; // moderate, no clear leak
+}
+
+const READ_LABEL: Record<VillainReadId, string> = {
+  overfold: 'folds too much (tight / weak-tight)',
+  overcall: 'calls too much (sticky station)',
+  spew: 'over-aggressive (barrels & bluffs)',
+  unknown: 'no clear leak — near-balanced',
+};
+
+// The exploit deviation per read, split by whether the hero is betting or
+// calling — because the same leak flips the adjustment depending on who has the
+// lead (a nit BETTING means believe them; a nit facing YOUR bet means bluff more).
+const READ_COACH: Record<'aggressive' | 'call', Record<VillainReadId, string>> = {
+  aggressive: {
+    overfold: 'Exploit: bluff MORE — fold equity is huge. Size your value bets DOWN so worse hands stick around.',
+    overcall: 'Exploit: value bet BIGGER and more often; cut bluffs to ~zero — they will not fold.',
+    spew: "Exploit: don't bluff a bluffer — check/trap your strong hands and let them barrel into you; bet only for value.",
+    unknown: 'No leak to attack — bet the GTO size/frequency the questions above point to.',
+  },
+  call: {
+    overfold: 'Exploit: tight players bet real hands — believe them. Fold your bluff-catchers, do not hero-call.',
+    overcall: 'Exploit: stations rarely bluff — their bets are value. Fold marginal hands; call only what beats value.',
+    spew: "Exploit: they bluff a lot — call down LIGHTER, your bluff-catchers are good. Don't over-fold to pressure.",
+    unknown: 'No leak — defend at the price / MDF the pot odds set, no deviation.',
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// BETTING STORY — does the LINE (across streets) tell one believable hand?
+// Aggressive gate asks about the hero's OWN story (will a bluff be believed);
+// call gate asks about the VILLAIN's story (is his bet credible). Both are
+// GRADED — the line is in the hand log, so the read is deterministic, not a
+// guess. Only shown from the turn on (need ≥2 streets for a line to exist).
+// ─────────────────────────────────────────────────────────────────────────
+
+// hero's own line — aggressive gate
+export const HERO_STORY_OPTIONS: ChecklistOption[] = [
+  { id: 'credible', label: 'Credible — I repped strength earlier, this continues it' },
+  { id: 'fresh', label: 'Fresh — first bet; the story starts now and fits the board' },
+  { id: 'broken', label: 'Broken — I was passive, now suddenly betting big' },
+];
+
+// villain's line — call gate
+export const VILLAIN_STORY_OPTIONS: ChecklistOption[] = [
+  { id: 'value', label: 'Value story — kept firing, the line is consistent' },
+  { id: 'polar', label: 'Polarized — a big bet/raise; nuts-or-bluff' },
+  { id: 'bluffy', label: 'Capped / delayed — slowed down or stabbed late' },
+  { id: 'none', label: 'One bet — no multi-street story yet' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// BLOCKERS — river only. Do your exact cards REMOVE combos from villain's
+// range? Blocking his value (nut-flush/straight/boat cards) helps a bluff and
+// a bluff-catch; blocking his BLUFFS (holding the cards he'd be bluffing with)
+// hurts a catch. Deterministic from hole+board, but the "right" read leans on
+// his actual range, so — like the villain-type read — it's UNGRADED: a live
+// judgment call, with a concrete reveal note from strategy/riverBlockers.
+// ─────────────────────────────────────────────────────────────────────────
+export const BLOCKER_OPTIONS: ChecklistOption[] = [
+  { id: 'blockValue', label: 'I block his value — hold his nut cards (flush / straight / boat / top pair)' },
+  { id: 'blockBluffs', label: "I block his bluffs — hold the cards he'd be bluffing with" },
+  { id: 'neutral', label: "Neutral — my cards don't shift his range" },
+];
+
+/** postflop streets reached: flop = 1, turn = 2, river = 3. */
+const revealedStreets = (board: Card[]): number => Math.max(0, board.length - 2);
+/** a line only exists to read once a second street is out (turn+). */
+const storyReadable = (board: Card[]): boolean => board.length >= 4;
+
+/** The (ungraded) note for the read question: observed stats + the exploit
+ *  adjustment for the action in progress, and whether the pick matched. */
+function readNote(
+  observed: ObservedStats | null | undefined,
+  picked: string | undefined,
+  mode: 'aggressive' | 'call',
+): string {
+  const { read, enough } = readFromObserved(observed);
+  const stat =
+    observed && observed.hands > 0
+      ? `Observed: ${observed.hands} hands · VPIP ${(observed.vpip * 100).toFixed(0)}% · PFR ${(observed.pfr * 100).toFixed(0)}% · AF ${observed.af != null ? observed.af.toFixed(1) : '—'}.`
+      : 'No hands observed yet — you have no sample on this villain.';
+  if (!enough)
+    return `${stat} Too thin to trust a read — lean on the fundamentals above and adjust as the sample grows. "No clear read yet" is the honest answer here.`;
+  const cmp =
+    read === 'unknown'
+      ? ''
+      : picked === read
+        ? ' Matches the sample.'
+        : ` Your pick differs — the sample leans "${READ_LABEL[read]}".`;
+  return `${stat} Sample suggests: ${READ_LABEL[read]}.${cmp} ${READ_COACH[mode][read]}`;
+}
+
+/** Ungraded blocker reveal: the concrete removal read for the hero's cards on
+ *  this river + whether the pick matched (mode picks the bluff vs catch framing). */
+function blockerNote(
+  hero: Card[],
+  board: Card[],
+  picked: string | undefined,
+  mode: 'aggressive' | 'call',
+): string {
+  const v = readRiverBlockers(hero, board, mode);
+  const cmp = !picked
+    ? ''
+    : picked === v.read
+      ? ' Matches your cards.'
+      : ` Your cards actually read as ${BLOCKER_READ_LABEL[v.read]}.`;
+  return `${v.why}${cmp}`;
+}
 
 // Commitment (stack-to-pot) — asked only when SPR actually flips the plan, i.e.
 // committed (≤1) or deep (>4). In the normal 1–4 zone it's hidden to keep the
@@ -234,11 +392,19 @@ export function buildChecklist(equity: number | null, board: Card[] = [], spr?: 
       prompt: "Your equity vs villain's range is roughly…",
       options: EQUITY_BUCKETS.map((b) => ({ id: b.id, label: b.label })),
     });
+  // read the villain BEFORE deciding why/how to bet — it shapes both.
+  qs.push({ id: 'read', prompt: 'How is this villain playing?', options: READ_OPTIONS });
   qs.push({
     id: 'purpose',
     prompt: 'Why are you putting chips in?',
     options: river ? PURPOSE_OPTIONS_RIVER : PURPOSE_OPTIONS,
   });
+  // does your own line sell this bet? (only once a line exists — turn+)
+  if (storyReadable(board))
+    qs.push({ id: 'story', prompt: 'Does your line tell a credible story?', options: HERO_STORY_OPTIONS });
+  // river removal read — do your cards block his value or his bluffs? (river only)
+  if (river)
+    qs.push({ id: 'blocker', prompt: 'What do your cards block?', options: BLOCKER_OPTIONS });
   // commitment comes BEFORE sizing — it drives it — and only when it binds.
   if (sprBinds(spr))
     qs.push({ id: 'spr', prompt: 'How deep are the stacks (SPR)?', options: SPR_OPTIONS });
@@ -320,6 +486,8 @@ export function gradeChecklist(
   equity: number | null,
   answers: Record<string, string>,
   size?: SizeContext,
+  observed?: ObservedStats | null,
+  heroLine?: StreetMove[],
 ): { grades: ChecklistGrade[]; score: number; total: number } {
   const hc = classifyHandClass(hero, board);
   const cat = heroCategory(hero, board);
@@ -384,6 +552,22 @@ export function gradeChecklist(
         ` • Builds the pot for when you hit, and denies a free card.`
       : (river ? PURPOSE_COACH_RIVER : PURPOSE_COACH)[cat],
   });
+
+  // villain read — ungraded teaching note (observed stats + exploit adjustment).
+  grades.push({ questionId: 'read', ok: null, note: readNote(observed, answers.read, 'aggressive') });
+
+  // betting story — your OWN line. Graded (deterministic from the hand log);
+  // the note also folds in how the villain TYPE (from the read question) changes
+  // whether the bet even works.
+  if (answers.story != null && heroLine) {
+    const s = readHeroStory(heroLine, revealedStreets(board));
+    const typeNote = heroStoryTypeNote(answers.read);
+    grades.push({ questionId: 'story', ok: answers.story === s.read, note: typeNote ? `${s.why} ${typeNote}` : s.why });
+  }
+
+  // river blocker read — ungraded (removal is a live judgment vs his real range).
+  if (river && answers.blocker != null)
+    grades.push({ questionId: 'blocker', ok: null, note: blockerNote(hero, board, answers.blocker, 'aggressive') });
 
   if (size && answers.spr != null) {
     const b = sprBucket(size.spr);
@@ -506,6 +690,14 @@ export function buildCallChecklist(equity: number | null, board: Card[] = []): C
       prompt: 'Your equity vs his range is roughly…',
       options: EQUITY_BUCKETS.map((b) => ({ id: b.id, label: b.label })),
     });
+  // read the villain before the call/fold verdict — it drives bluff-catching.
+  qs.push({ id: 'read', prompt: 'How is this villain playing?', options: READ_OPTIONS });
+  // does his line add up to a value hand? (only once a line exists — turn+)
+  if (storyReadable(board))
+    qs.push({ id: 'story', prompt: 'What story does his line tell?', options: VILLAIN_STORY_OPTIONS });
+  // river removal read — do your cards block his value or his bluffs? (river only)
+  if (river)
+    qs.push({ id: 'blocker', prompt: 'What do your cards block?', options: BLOCKER_OPTIONS });
   qs.push({ id: 'verdict', prompt: 'So — call, fold, or raise?', options: VERDICT_OPTIONS });
   if (river)
     qs.push({ id: 'bluffcatch', prompt: 'How often is he bluffing here?', options: BLUFF_OPTIONS });
@@ -518,6 +710,8 @@ export function gradeCallChecklist(
   equity: number | null,
   ctx: CallContext,
   answers: Record<string, string>,
+  observed?: ObservedStats | null,
+  villainLine?: StreetMove[],
 ): { grades: ChecklistGrade[]; score: number; total: number } {
   const { toCall, pot, outs, opps = 1 } = ctx;
   const need = toCall > 0 ? toCall / (pot + toCall) : 0;
@@ -598,6 +792,22 @@ export function gradeCallChecklist(
     }
     grades.push({ questionId: 'verdict', ok: correct.includes(answers.verdict ?? ''), note });
   }
+
+  // villain read — ungraded teaching note (observed stats + call-side exploit).
+  grades.push({ questionId: 'read', ok: null, note: readNote(observed, answers.read, 'call') });
+
+  // betting story — HIS line. Graded on the shape (deterministic from the log);
+  // the note then modulates by the villain TYPE (read question) + player count —
+  // the same line means opposite things vs a nit vs a maniac, and multiway.
+  if (answers.story != null && villainLine) {
+    const s = readVillainStory(villainLine, revealedStreets(board));
+    const mod = modulateStory(s.read, answers.read, opps);
+    grades.push({ questionId: 'story', ok: answers.story === s.read, note: `${s.why} ${mod.note}` });
+  }
+
+  // river blocker read — ungraded (removal is a live judgment vs his real range).
+  if (river && answers.blocker != null)
+    grades.push({ questionId: 'blocker', ok: null, note: blockerNote(hero, board, answers.blocker, 'call') });
 
   // river bluff-catch — ungraded read, but pinned to the price
   if (river)

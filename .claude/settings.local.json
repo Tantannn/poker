@@ -147,7 +147,10 @@
       "PowerShell(npx eslint src/components/HandReadingDrill.tsx src/components/PlanCommitDrill.tsx src/components/Analytics.tsx src/strategy/handReading.ts src/strategy/planCommit.ts src/store/leakHistory.ts src/App.tsx src/components/Curriculum.tsx 2>&1 | Select-Object -First 60)",
       "PowerShell(npx eslint src/components/HandReadingDrill.tsx src/components/PlanCommitDrill.tsx src/components/Analytics.tsx src/strategy/handReading.ts src/strategy/planCommit.ts src/store/leakHistory.ts src/App.tsx src/components/Curriculum.tsx 2>&1 | Select-Object -First 40; Write-Output \"=== tsc ===\"; npx tsc -b 2>&1 | Select-Object -First 20)",
       "PowerShell(npx vitest run 2>&1 | Select-Object -Last 35)",
-      "PowerShell(npx vite build 2>&1 | Select-Object -Last 30)"
+      "PowerShell(npx vite build 2>&1 | Select-Object -Last 30)",
+      "Bash(grep -iE \"❯|⎯ .*\\\\.test|FAIL |> .*[0-9]+ms$\")",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; echo \"===TESTS===\"; npx vitest run 2>&1 | Select-Object -Last 25)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; echo \"===TESTS===\"; npx vitest run src/strategy/riverBlockers.test.ts src/components/DecisionChecklist.test.tsx 2>&1 | Select-Object -Last 35)"
     ]
   }
 }

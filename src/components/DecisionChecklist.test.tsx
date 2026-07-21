@@ -35,6 +35,7 @@ describe('DecisionChecklist', () => {
     fireEvent.click(screen.getByText(/Strong made hand/));
     fireEvent.click(screen.getByText(/Dry \/ static/));
     fireEvent.click(screen.getByText(/Over 60%/));
+    fireEvent.click(screen.getByText(/No clear read yet/)); // villain read — ungraded
     fireEvent.click(screen.getByText(/Value — worse hands/));
     fireEvent.click(screen.getByText(/small \/ range bet/)); // 6 into 18 = ⅓ pot on a dry board
     fireEvent.click(screen.getByText(/Call — my hand/));
@@ -79,6 +80,7 @@ describe('DecisionChecklist', () => {
     fireEvent.click(screen.getByText(/Strong made hand/));
     fireEvent.click(screen.getByText(/Dry \/ static/));
     fireEvent.click(screen.getByText(/Over 60%/));
+    fireEvent.click(screen.getByText(/No clear read yet/)); // villain read — ungraded
     fireEvent.click(screen.getByText(/Value — worse hands/));
     fireEvent.click(screen.getByText(/Committed — SPR/));
     fireEvent.click(screen.getByText(/All-in \/ jam/));
@@ -113,6 +115,7 @@ describe('DecisionChecklist', () => {
     );
     fireEvent.click(screen.getByText(/about half pot/)); // 5 into 15 = 25% price
     fireEvent.click(screen.getByText(/coin flip/)); // 45–60% equity
+    fireEvent.click(screen.getByText(/No clear read yet/)); // villain read — ungraded
     fireEvent.click(screen.getByText(/my equity clears the price/));
 
     const lock = screen.getByRole('button', { name: /lock answers/i });

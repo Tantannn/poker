@@ -18,6 +18,7 @@ export interface MentalState {
   aGame: string; // your best-game traits, in your words
   cGame: string; // your tilt/worst-game traits — name them to catch them
   triggers: TiltTrigger[];
+  conceal: Record<string, boolean>; // self-concealment routine item id → ticked
 }
 
 // The fixed warmup checklist. Ids are stable so ticks survive a reload.
@@ -29,12 +30,25 @@ export const WARMUP_ITEMS: { id: string; label: string }[] = [
   { id: 'settle', label: 'First orbit: tight-solid, no hero plays until I have reads.' },
 ];
 
+// Self-concealment routine — the flip side of the Tells trainer. These are the
+// habits that make you unreadable; consistency beats a pair of shades, which only
+// hides the eyes. Each item IS the habit — tick through it before you sit.
+export const CONCEAL_ITEMS: { id: string; label: string }[] = [
+  { id: 'tempo', label: 'Same tempo — I take a similar beat on EVERY decision, easy or hard (no snap-fold / long-tank tell).' },
+  { id: 'motion', label: 'Same motion — I cut and push chips the same way for value and bluff (no slam, no gentle placement).' },
+  { id: 'breath', label: 'Same breath — one slow breath before acting; I breathe the same in big pots as small.' },
+  { id: 'quiet', label: "Quiet in big pots — I don't chat or answer questions when it's for stacks." },
+  { id: 'still', label: 'Still & neutral — same posture strong or weak; I watch the board, not my cards or my stack.' },
+  { id: 'onepeek', label: 'One peek — I check my hole cards once and remember them (re-looking leaks a draw / uncertainty).' },
+];
+
 const DEFAULT: MentalState = {
   warmup: {},
   lastWarmupAt: null,
   aGame: '',
   cGame: '',
   triggers: [],
+  conceal: {},
 };
 
 export function loadMental(): MentalState {
@@ -50,6 +64,7 @@ export function loadMental(): MentalState {
       cGame: typeof m.cGame === 'string' ? m.cGame : '',
       triggers: Array.isArray(m.triggers) ? m.triggers.filter((t: unknown): t is TiltTrigger =>
         !!t && typeof (t as TiltTrigger).id === 'string') : [],
+      conceal: m.conceal && typeof m.conceal === 'object' ? m.conceal : {},
     };
   } catch {
     return { ...DEFAULT };
@@ -68,4 +83,9 @@ export function saveMental(m: MentalState): MentalState {
 /** True once every warmup item is ticked. */
 export function warmupComplete(m: MentalState): boolean {
   return WARMUP_ITEMS.every((it) => m.warmup[it.id]);
+}
+
+/** True once every self-concealment item is ticked. */
+export function concealComplete(m: MentalState): boolean {
+  return CONCEAL_ITEMS.every((it) => m.conceal[it.id]);
 }

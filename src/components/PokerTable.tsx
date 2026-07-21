@@ -17,10 +17,12 @@ import { OpponentPanel } from './OpponentPanel';
 import { Feedback } from './Feedback';
 import type { NodeFeedback } from '../analysis/grade';
 import { DecisionChecklist } from './DecisionChecklist';
+import { DecisionTimer } from './DecisionTimer';
 import { ScenarioBar } from './ScenarioBar';
 import type { AggroWarning } from '../analysis/aggression';
 import type { TiltState } from '../analysis/tilt';
 import { toStats } from '../analysis/observed';
+import { playerLine } from '../strategy/bettingStory';
 
 type G = ReturnType<typeof useGame>;
 
@@ -77,6 +79,11 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
   // fold/check, bypass it.
   const [checklistOn, setChecklistOn] = useState(() => {
     try { return localStorage.getItem('poker.thinkFirst') !== '0'; } catch { return true; }
+  });
+  // Decision timer: a count-up thinking aid (never auto-folds). ON by default;
+  // persisted like the other table aids.
+  const [timerOn, setTimerOn] = useState(() => {
+    try { return localStorage.getItem('poker.timer') !== '0'; } catch { return true; }
   });
   const [pendingBet, setPendingBet] = useState<Action | null>(null);
   // a new node = a fresh hero turn; drop any peek from the previous decision.
@@ -278,15 +285,18 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               )}
             </div>
           ) : isHeroTurn ? (
-            <Controls
-              legal={legal}
-              pot={pot}
-              currentBet={game.currentBet}
-              heroCommitted={hero.committed}
-              bigBlind={game.bigBlind}
-              onAction={heroAct}
-              onSkip={g.skipHand}
-            />
+            <>
+              {timerOn && <DecisionTimer key={`${game.handNumber}:${game.street}:${game.currentBet}`} />}
+              <Controls
+                legal={legal}
+                pot={pot}
+                currentBet={game.currentBet}
+                heroCommitted={hero.committed}
+                bigBlind={game.bigBlind}
+                onAction={heroAct}
+                onSkip={g.skipHand}
+              />
+            </>
           ) : hero.folded && !handOver ? (
             <div className="waiting folded-wait">
               <span>You folded — watching the hand play out…</span>
@@ -324,6 +334,18 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           {feedbackMode === 'deferred'
             ? '📋 Answers: AFTER the hand — full preflop→river review'
             : '📋 Answers: after each move (live)'}
+        </button>
+
+        <button
+          className={`study-toggle ${timerOn ? 'on' : ''}`}
+          onClick={() => {
+            const next = !timerOn;
+            setTimerOn(next);
+            try { localStorage.setItem('poker.timer', next ? '1' : '0'); } catch { /* ignore */ }
+          }}
+          title="Count-up decision timer on your turn — learn your own tempo and keep it consistent (uneven timing is a live tell). A thinking aid only: it never auto-folds."
+        >
+          {timerOn ? '⏱ Decision timer: ON — learn your tempo' : '⏱ Decision timer: OFF'}
         </button>
 
         {!supportsHidden && (
@@ -435,6 +457,8 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           hero={hero.holeCards}
           board={game.board}
           equity={!hudLoading && hud ? hud.equity : null}
+          observed={villain ? toStats(g.obsCounters[villain.seat]) : null}
+          villainLine={villain ? playerLine(game.log, game.handNumber, villain.seat) : undefined}
           pot={pot}
           toCall={legal.callAmount}
           outs={!hudLoading && hud ? hud.outs : 0}
@@ -449,6 +473,8 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
           hero={hero.holeCards}
           board={game.board}
           equity={!hudLoading && hud ? hud.equity : null}
+          observed={villain ? toStats(g.obsCounters[villain.seat]) : null}
+          heroLine={playerLine(game.log, game.handNumber, hero.id)}
           amount={pendingBet.amount ?? 0}
           pot={pot}
           spr={pot > 0 ? Math.min(hero.stack, ...game.players.filter((p) => !p.folded && !p.isHero).map((p) => p.stack), Infinity) / pot : 0}
