@@ -420,6 +420,35 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
           <li><b>River is the easiest street.</b> No outs, no draws. Made hand → "am I ahead of the hands he VALUE-bets?" yes call / no fold. No pair → you're a bluff-catcher = a <b>pot-odds</b> question, not equity.</li>
         </ol>
 
+        <h4 className="cs-subhead">Slow-play (trap) — the 3 green lights <span className="cs-width">default is BET; check only when it earns MORE</span></h4>
+        <p className="modal-note">
+          Aggression is the default because your opponents are too passive — they don't bluff, so a check just hands a
+          free card to a range that would have <i>paid</i> a bet. <b>Slow-play ONLY when a check earns more than a bet</b>,
+          which needs one of these three. Vs a typical passive mid-stakes player, none hold — so you bet.
+        </p>
+        <div className="cs-tablewrap">
+          <table className="cs-table">
+            <thead>
+              <tr><th>green light</th><th>why a check beats a bet</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="cs-hero">① He bets when you check</td><td className="cs-good">An aggressor / maniac barrels his air into you. Checking hands him the lead so he bluffs the chips in — a bet folds those very bluffs out. <b>Check-raise / check-call.</b></td></tr>
+              <tr><td className="cs-hero">② A bet gets zero calls from worse</td><td className="cs-good">Near-nut hand + you hold his outs / block his strong continues. A lead only folds out the hands you beat and is called by the few that beat you. Checking keeps his weak hands in.</td></tr>
+              <tr><td className="cs-hero">③ Induce a bluff</td><td className="cs-mid">You look capped, he stabs at weakness. Check to let a bluffer fire, then snap. Works on a bluffer — <b>never</b> on a station.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="cs-gut">
+          💡 The trap costs you when you're wrong about it: a set on a wet board still <b>bets</b> — protection
+          outweighs the trap, because a blank can outdraw you and a passive villain won't bet it for you. Slow-play =
+          near-nut <b>+</b> an opponent who does the betting for you. Everywhere else, bet.
+        </p>
+        <ol className="cs-rules">
+          <li><b>Check only if you can name who bets for you.</b> No aggressor behind = no trap, you're just giving free cards. This is the maniac's one gift — take it.</li>
+          <li><b>Protection kills the trap.</b> If a blank flips you from ahead to behind (one pair, a bare set on a draw-heavy board), bet to deny the equity. Trap only what nothing outdraws.</li>
+          <li><b>Never slow-play a station.</b> A caller won't bet for you, so a check just skips a street of value. Bet, and bet big.</li>
+        </ol>
+
         <p className="cs-gut">
           💡 The one anchor: the <b>50% line</b> ≈ one decent pair vs a wide range, OR a big draw (flush +
           overs) vs a made hand. Read everything else as "better than that" or "worse than that."
