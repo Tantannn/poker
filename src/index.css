@@ -82,6 +82,13 @@ body {
 .nav-search::placeholder { color: var(--muted); }
 .nav-search:focus { border-color: var(--raise); }
 .nav-empty { grid-column: 1 / -1; color: var(--muted); font-size: 13px; padding: 6px 4px; }
+/* category header: spans the whole grid row so the sections group visually */
+.nav-cat {
+  grid-column: 1 / -1;
+  color: var(--muted); font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.09em; text-transform: uppercase;
+  padding: 9px 4px 3px; margin-top: 5px; border-top: 1px solid var(--line);
+}
 
 .app-footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 .app-version { display: block; margin-top: 6px; font-size: 10px; opacity: 0.55; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }

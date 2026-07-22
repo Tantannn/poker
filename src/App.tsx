@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense, Fragment } from 'react';
 import { useGame } from './hooks/useGame';
 // Eager: the landing tab (Play/Tournament) and the always-mounted equity widget.
 import { PokerTable } from './components/PokerTable';
@@ -35,49 +35,66 @@ const StoryTrainer = lazy(() => import('./components/StoryTrainer').then((m) => 
 const SizingTellDrill = lazy(() => import('./components/SizingTellDrill').then((m) => ({ default: m.SizingTellDrill })));
 const TournamentDrill = lazy(() => import('./components/TournamentDrill').then((m) => ({ default: m.TournamentDrill })));
 const DisciplineDrill = lazy(() => import('./components/DisciplineDrill').then((m) => ({ default: m.DisciplineDrill })));
-const TrapDrill = lazy(() => import('./components/TrapDrill').then((m) => ({ default: m.TrapDrill })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'trap' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
 const TAB_KEY = 'poker-ui-tab';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'learn', label: '1. 🎓 Learning Path' },
-  { id: 'play', label: '2. ♠ Play vs Bots' },
-  { id: 'tournament', label: '3. 🏆 Tournament' },
-  { id: 'tourneydrill', label: '4. 🎲 Push/Fold & ICM' },
-  { id: 'charts', label: '5. Preflop Charts' },
-  { id: 'trainer', label: '6. Range Trainer' },
-  { id: 'lab', label: '7. Postflop Lab' },
-  { id: 'debug', label: '8. 🧪 Custom Spot' },
-  { id: 'heatmap', label: '9. 🔥 Flop Heatmap' },
-  { id: 'gameplan', label: '10. 📋 Gameplan' },
-  { id: 'quiz', label: '11. Leak Quiz' },
-  { id: 'exploit', label: '12. 🎯 Read & Exploit' },
-  { id: 'replay', label: '13. 🌟 Hand Review' },
-  { id: 'principles', label: '14. 📓 Principles' },
-  { id: 'odds', label: '15. Pot Odds' },
-  { id: 'eqdrill', label: '16. 🧠 Equity Drill' },
-  { id: 'mathdrill', label: '17. 🧮 Math Trainer' },
-  { id: 'review', label: '18. 🔁 Review' },
-  { id: 'sizing', label: '19. 💰 Bet Sizing' },
-  { id: 'bankroll', label: '20. 💵 Bankroll' },
-  { id: 'mental', label: '21. 🧘 Mental Game' },
-  { id: 'handreading', label: '22. 🕵 Hand Reading' },
-  { id: 'story', label: '23. 🎭 Betting Story' },
-  { id: 'sizetell', label: '24. 🔎 Sizing Tells' },
-  { id: 'plan', label: '25. 🗺 Plan the Hand' },
-  { id: 'blocker', label: '26. 🚫 Blockers' },
-  { id: 'tells', label: '27. 👁 Tells & Timing' },
-  { id: 'discipline', label: '28. 🧊 Cold Fold' },
-  { id: 'trap', label: '29. 🪤 Trap the Aggressor' },
-  { id: 'analytics', label: '30. Analytics' },
-  { id: 'reference', label: '31. Reference' },
-  { id: 'settings', label: '32. ⚙ Settings' },
+// Sections are grouped under category headers in the nav dropdown so 31 tabs
+// stay scannable. The category only drives the menu's visual grouping — tab ids
+// and routing are unchanged. Order below IS the display order (top-to-bottom,
+// grid-flowed within each category).
+type Cat = 'PLAY' | 'PREFLOP' | 'POSTFLOP' | 'MATH' | 'READS' | 'MENTAL' | 'REVIEW' | 'REFERENCE';
+const CAT_ORDER: Cat[] = ['PLAY', 'PREFLOP', 'POSTFLOP', 'MATH', 'READS', 'MENTAL', 'REVIEW', 'REFERENCE'];
+const CAT_LABEL: Record<Cat, string> = {
+  PLAY: '♠ Play', PREFLOP: 'Preflop', POSTFLOP: 'Postflop', MATH: 'Math',
+  READS: 'Reads', MENTAL: 'Mental', REVIEW: 'Review', REFERENCE: 'Reference',
+};
+
+const TABS: { id: Tab; label: string; cat: Cat }[] = [
+  // PLAY
+  { id: 'learn', label: '🎓 Learning Path', cat: 'PLAY' },
+  { id: 'play', label: '♠ Play vs Bots', cat: 'PLAY' },
+  { id: 'tournament', label: '🏆 Tournament', cat: 'PLAY' },
+  { id: 'tourneydrill', label: '🎲 Push/Fold & ICM', cat: 'PLAY' },
+  // PREFLOP
+  { id: 'charts', label: 'Preflop Charts', cat: 'PREFLOP' },
+  { id: 'trainer', label: 'Range Trainer', cat: 'PREFLOP' },
+  // POSTFLOP
+  { id: 'lab', label: 'Postflop Lab', cat: 'POSTFLOP' },
+  { id: 'debug', label: '🧪 Custom Spot', cat: 'POSTFLOP' },
+  { id: 'heatmap', label: '🔥 Flop Heatmap', cat: 'POSTFLOP' },
+  { id: 'sizing', label: '💰 Bet Sizing', cat: 'POSTFLOP' },
+  // MATH
+  { id: 'odds', label: 'Pot Odds', cat: 'MATH' },
+  { id: 'eqdrill', label: '🧠 Equity Drill', cat: 'MATH' },
+  { id: 'mathdrill', label: '🧮 Math Trainer', cat: 'MATH' },
+  // READS
+  { id: 'exploit', label: '🎯 Read & Exploit', cat: 'READS' },
+  { id: 'handreading', label: '🕵 Hand Reading', cat: 'READS' },
+  { id: 'story', label: '🎭 Betting Story', cat: 'READS' },
+  { id: 'sizetell', label: '🔎 Sizing Tells', cat: 'READS' },
+  { id: 'tells', label: '👁 Tells & Timing', cat: 'READS' },
+  { id: 'blocker', label: '🚫 Blockers', cat: 'READS' },
+  { id: 'plan', label: '🗺 Plan the Hand', cat: 'READS' },
+  // MENTAL
+  { id: 'mental', label: '🧘 Mental Game', cat: 'MENTAL' },
+  { id: 'discipline', label: '🧊 Cold Fold', cat: 'MENTAL' },
+  // REVIEW
+  { id: 'quiz', label: 'Leak Quiz', cat: 'REVIEW' },
+  { id: 'replay', label: '🌟 Hand Review', cat: 'REVIEW' },
+  { id: 'review', label: '🔁 Review', cat: 'REVIEW' },
+  { id: 'bankroll', label: '💵 Bankroll', cat: 'REVIEW' },
+  { id: 'analytics', label: 'Analytics', cat: 'REVIEW' },
+  // REFERENCE
+  { id: 'gameplan', label: '📋 Gameplan', cat: 'REFERENCE' },
+  { id: 'principles', label: '📓 Principles', cat: 'REFERENCE' },
+  { id: 'reference', label: 'Reference', cat: 'REFERENCE' },
+  { id: 'settings', label: '⚙ Settings', cat: 'REFERENCE' },
 ];
 
 const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
@@ -197,12 +214,27 @@ export default function App() {
                   if (e.key === 'Enter' && filtered[0]) selectTab(filtered[0].id);
                 }}
               />
-              {filtered.map((t) => (
-                <button key={t.id} role="tab" aria-selected={tab === t.id} className={[tab === t.id ? 'active' : '', t.id === 'analytics' ? 'nav-accent' : ''].filter(Boolean).join(' ')} onClick={() => selectTab(t.id)}>
-                  {t.label}
-                </button>
-              ))}
-              {filtered.length === 0 && <div className="nav-empty">No sections match “{query}”.</div>}
+              {q ? (
+                <>
+                  {filtered.map((t) => (
+                    <button key={t.id} role="tab" aria-selected={tab === t.id} className={[tab === t.id ? 'active' : '', t.id === 'analytics' ? 'nav-accent' : ''].filter(Boolean).join(' ')} onClick={() => selectTab(t.id)}>
+                      {t.label}
+                    </button>
+                  ))}
+                  {filtered.length === 0 && <div className="nav-empty">No sections match “{query}”.</div>}
+                </>
+              ) : (
+                CAT_ORDER.map((cat) => (
+                  <Fragment key={cat}>
+                    <div className="nav-cat">{CAT_LABEL[cat]}</div>
+                    {TABS.filter((t) => t.cat === cat).map((t) => (
+                      <button key={t.id} role="tab" aria-selected={tab === t.id} className={[tab === t.id ? 'active' : '', t.id === 'analytics' ? 'nav-accent' : ''].filter(Boolean).join(' ')} onClick={() => selectTab(t.id)}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </Fragment>
+                ))
+              )}
             </div>
           </>
         )}
@@ -341,11 +373,6 @@ export default function App() {
           {tab === 'discipline' && (
             <div className="content-col">
               <DisciplineDrill />
-            </div>
-          )}
-          {tab === 'trap' && (
-            <div className="content-col">
-              <TrapDrill />
             </div>
           )}
           {tab === 'analytics' && (
