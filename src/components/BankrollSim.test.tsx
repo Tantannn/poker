@@ -33,7 +33,11 @@ describe('<BankrollSim />', () => {
     const stats = {
       handsPlayed: 5000,
       netBB: 250,
+      wonBB: 7500,
+      lostBB: 5000,
+      busts: 0,
       decisions: [],
+      movesTotal: 0,
       handResults: Array.from({ length: 5000 }, (_, i) => (i % 2 ? 3 : -2)),
       startedAt: 0,
     };

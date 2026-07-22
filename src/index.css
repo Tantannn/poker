@@ -625,6 +625,15 @@ td.num { font-variant-numeric: tabular-nums; color: var(--raise); font-weight: 7
 .leak-medium .leak-fill { background: var(--gold); }
 .leak-low .leak-fill, .leak-ok .leak-fill { background: var(--raise2); }
 .leak-detail { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.leak-breakdown { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.lb-head { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; }
+.lb-row { display: grid; grid-template-columns: minmax(120px, 1.4fr) 2fr auto; align-items: center; gap: 8px; margin: 4px 0; }
+.lb-label { font-size: 12px; color: var(--txt); }
+.lb-bar { height: 6px; background: #0c1813; border-radius: 5px; overflow: hidden; }
+.lb-fill { height: 100%; background: var(--gold); }
+.lb-rate { font-size: 12px; color: var(--txt); white-space: nowrap; }
+.lb-rate .muted { color: var(--muted); }
+@media (max-width: 560px) { .lb-row { grid-template-columns: 1fr auto; } .lb-bar { display: none; } }
 
 .history-list { display: flex; flex-direction: column; gap: 6px; }
 .history-item { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -1002,6 +1011,9 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .sc-tier-lbl { flex: 1; color: var(--muted); }
 .sc-tier-num { font-weight: 800; font-variant-numeric: tabular-nums; }
 .sc-ev { border-top: 1px solid var(--line); padding-top: 8px; }
+.sc-money { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.sc-money-h { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 6px; }
+.sc-variance-note.bad { color: var(--red); }
 
 /* ---------- folded waiting state ---------- */
 .folded-wait { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -2046,3 +2058,36 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .mg-routine ol { margin: 0; padding-left: 18px; }
 .mg-routine li { margin: 5px 0; font-size: .84rem; line-height: 1.4; color: var(--txt); }
 .mg-routine li b { color: var(--gold); }
+
+/* ── Cold-Fold discipline drill ───────────────────────────────────────── */
+.cf-gate-lbl { align-self: center; font-size: 12px; color: var(--muted); font-weight: 700; margin-right: 2px; }
+.cf-hero { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; }
+.cf-hero-lbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.cf-hand { font-weight: 700; font-size: 13.5px; color: var(--txt); }
+.cf-tier { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px; border: 1px solid var(--line); color: var(--muted); }
+.cf-tier.t-marginal { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.cf-tier.t-strong { color: var(--call); border-color: color-mix(in srgb, var(--call) 45%, transparent); }
+.cf-tier.t-monster { color: var(--raise); border-color: color-mix(in srgb, var(--raise) 45%, transparent); }
+.cf-check-hint { margin: 2px 0 8px; }
+.cf-lock { background: var(--bg2); border: 1px dashed var(--gold); border-radius: 10px; padding: 12px 14px; margin: 6px 0 10px; }
+.cf-count { font-size: 15px; font-weight: 800; color: var(--gold); text-align: center; margin-bottom: 8px; letter-spacing: .5px; }
+.cf-check ol { margin: 0; padding-left: 20px; }
+.cf-check li { margin: 5px 0; font-size: 13px; line-height: 1.5; color: var(--txt); }
+.cf-tempo { border-radius: 8px; padding: 9px 12px; margin: 10px 0; font-size: 13px; line-height: 1.5; border: 1px solid var(--line); }
+.cf-tempo.ok { color: var(--raise); background: rgba(46,194,126,0.08); border-color: color-mix(in srgb, var(--raise) 40%, transparent); }
+.cf-tempo.snap { color: var(--red); background: rgba(224,87,58,0.08); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.cf-wait { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 22px 16px; margin: 8px 0; }
+.cf-muck { display: flex; gap: 6px; opacity: .55; }
+.cf-wait-count { font-size: 14px; font-weight: 700; color: var(--muted); letter-spacing: .3px; }
+.cf-wait-tip { font-size: 12.5px; color: var(--gold); max-width: 42ch; line-height: 1.5; font-style: italic; }
+.cf-wait-skip { margin-top: 2px; opacity: .7; }
+.cf-pace-note { margin: -4px 0 10px; }
+.cf-pace-note b { color: var(--gold); }
+.cf-clock { margin: 4px 0 10px; }
+.cf-clock-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+.cf-clock-num { font-size: 15px; font-weight: 800; color: var(--gold); letter-spacing: .5px; }
+.cf-clock.low .cf-clock-num { color: var(--red); }
+.cf-nag { font-size: 11.5px; font-weight: 700; color: var(--red); opacity: .9; }
+.cf-clock-bar { height: 7px; border-radius: 999px; background: var(--bg2); border: 1px solid var(--line); overflow: hidden; }
+.cf-clock-fill { height: 100%; background: var(--gold); border-radius: 999px; transition: width 150ms linear; }
+.cf-clock.low .cf-clock-fill { background: var(--red); }

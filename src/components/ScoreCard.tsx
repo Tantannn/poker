@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import type { SessionStats } from '../store/stats';
-import { scoreBuckets, gtowScore, totalEvLoss, avgEvLossPerHand, downswing, bbPer100 } from '../store/stats';
+import { scoreBuckets, gtowScore, totalEvLoss, avgEvLossPerHand, downswing, bbPer100, moneyStats } from '../store/stats';
 import { isSoundEnabled, setSoundEnabled } from '../sound';
 import { CalcLabel } from './CalcTip';
 
@@ -29,6 +29,14 @@ export function ScoreCard({ stats, onReset }: Props) {
   const scoreCls = score >= 85 ? 'good' : score >= 65 ? 'okv' : 'bad';
   const ds = downswing(stats);
   const winrate = bbPer100(stats);
+  const money = moneyStats(stats);
+  const enoughMoney = money.winHands >= 5 && money.lossHands >= 5;
+  const bleedy = enoughMoney && money.ratio >= 1.3;
+  const moneyNote = !enoughMoney
+    ? 'Play more hands for a read on your win/loss sizing.'
+    : bleedy
+      ? `You lose ${money.ratio.toFixed(1)}× bigger than you win (avg −${money.avgLoss.toFixed(1)} vs +${money.avgWin.toFixed(1)} bb). That's the big-pot bleed — marrying hands and calling down. The fix is smaller losses in the pots you're behind, not more volume.`
+      : `Win and loss sizes are balanced (avg +${money.avgWin.toFixed(1)} vs −${money.avgLoss.toFixed(1)} bb) — no big-pot bleed. 👍`;
   const dsNote =
     stats.handsPlayed < 15
       ? 'Play more hands for a meaningful read on your swings.'
@@ -63,8 +71,8 @@ export function ScoreCard({ stats, onReset }: Props) {
             <div className="sc-lbl">Hands</div>
           </div>
           <div className="sc-count">
-            <div className="sc-num">{buckets.moves}</div>
-            <div className="sc-lbl">Moves</div>
+            <div className="sc-num">{(stats.movesTotal ?? buckets.moves).toLocaleString()}</div>
+            <div className="sc-lbl" title={`Lifetime moves. The GTOW score is weighted over your most recent ${buckets.moves} of them.`}>Moves</div>
           </div>
         </div>
         <div className={`sc-score ${scoreCls}`}>
@@ -123,6 +131,33 @@ export function ScoreCard({ stats, onReset }: Props) {
           <b>{ds.stdPer100.toFixed(0)}</b>
         </div>
         <div className="sc-variance-note">{dsNote}</div>
+      </div>
+
+      <div className="sc-money">
+        <div className="sc-money-h">Win vs loss sizing</div>
+        <div className="hud-row">
+          <span className="tip-label" title="Lifetime bb won across winning hands">Total won</span>
+          <b className="good">+{money.won.toFixed(0)} bb</b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="Lifetime bb lost across losing hands">Total lost</span>
+          <b className="bad">−{money.lost.toFixed(0)} bb</b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="Average size of a winning vs a losing hand (recent hands)">Avg win / loss</span>
+          <b>
+            <span className="good">+{money.avgWin.toFixed(1)}</span> / <span className="bad">−{money.avgLoss.toFixed(1)}</span> bb
+          </b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="Worst single hand in the recent window">Biggest pot lost</span>
+          <b className="bad">−{money.biggestLoss.toFixed(0)} bb</b>
+        </div>
+        <div className="hud-row">
+          <span className="tip-label" title="Times your stack hit zero at hand end — a rebuy in cash, elimination in a tournament">Times busted</span>
+          <b className={stats.busts > 0 ? 'bad' : ''}>{stats.busts}{stats.handsPlayed > 0 && stats.busts > 0 ? ` (1 per ${Math.round(stats.handsPlayed / stats.busts)} hands)` : ''}</b>
+        </div>
+        <div className={`sc-variance-note ${bleedy ? 'bad' : ''}`}>{moneyNote}</div>
       </div>
     </div>
   );

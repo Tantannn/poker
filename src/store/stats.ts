@@ -3,6 +3,11 @@
 import type { Street } from '../engine/table';
 import type { ActionClass, Verdict } from '../analysis/feedback';
 
+/** Preflop facing-action at the hero's decision: how many raises were already in
+ *  when it was his turn. Lets the over-fold breakdown separate opens from 3-bets.
+ *  Undefined on postflop decisions and on hands recorded before this was tracked. */
+export type PreflopFacing = 'unopened' | 'raise' | '3bet' | '4bet+';
+
 export interface DecisionRecord {
   street: Street;
   position: string;
@@ -12,14 +17,26 @@ export interface DecisionRecord {
   evLoss?: number; // bb lost vs the best action at this node
   chosenEv?: number; // EV (bb) of the action the hero took — its sign tiers wrong vs inaccuracy
   rngMatch?: boolean | null; // did hero follow the RNG-prescribed action?
+  facing?: PreflopFacing; // preflop only — the action hero faced
 }
 
 export interface SessionStats {
   handsPlayed: number;
   netBB: number; // cumulative big blinds won/lost
-  decisions: DecisionRecord[]; // capped
+  wonBB: number; // lifetime sum of winning-hand deltas (positive magnitude)
+  lostBB: number; // lifetime sum of losing-hand deltas (positive magnitude)
+  busts: number; // times the hero's stack hit 0 at hand end (rebuy / elimination)
+  decisions: DecisionRecord[]; // capped rolling window (last MAX_DECISIONS) — scoring
+  movesTotal: number; // lifetime decision count, never capped — the number that climbs
   handResults: number[]; // per-hand deltaBB series (capped) — for downswing/variance
   startedAt: number;
+}
+
+export interface LeakBreakdown {
+  label: string;
+  folded: number; // over-folds in this bucket
+  spots: number; // play-spots (chart said play) in this bucket
+  rate: number; // folded / spots
 }
 
 export interface Leak {
@@ -28,6 +45,7 @@ export interface Leak {
   detail: string;
   rate: number; // 0..1
   sample: number;
+  breakdown?: LeakBreakdown[]; // optional per-category split (over-folding preflop)
 }
 
 const KEY = 'poker-trainer-stats-v1';
@@ -35,7 +53,7 @@ const MAX_DECISIONS = 2000;
 const MAX_HAND_RESULTS = 2000;
 
 export function emptyStats(): SessionStats {
-  return { handsPlayed: 0, netBB: 0, decisions: [], handResults: [], startedAt: stamp() };
+  return { handsPlayed: 0, netBB: 0, wonBB: 0, lostBB: 0, busts: 0, decisions: [], movesTotal: 0, handResults: [], startedAt: stamp() };
 }
 
 function stamp(): number {
@@ -50,6 +68,16 @@ export function loadStats(): SessionStats {
     const parsed = JSON.parse(raw) as SessionStats;
     if (!parsed.decisions) parsed.decisions = [];
     if (!parsed.handResults) parsed.handResults = []; // migrate older saves
+    // older saves have no lifetime counter — seed it from the rolling window so
+    // the number doesn't reset to 0 on upgrade (it just resumes climbing).
+    if (parsed.movesTotal == null) parsed.movesTotal = parsed.decisions.length;
+    // seed lifetime won/lost from the (rolling) hand series — approximate for old
+    // saves, then exact for every hand played after the upgrade.
+    if (parsed.wonBB == null || parsed.lostBB == null) {
+      parsed.wonBB = parsed.handResults.filter((x) => x > 0).reduce((a, b) => a + b, 0);
+      parsed.lostBB = -parsed.handResults.filter((x) => x < 0).reduce((a, b) => a + b, 0);
+    }
+    if (parsed.busts == null) parsed.busts = 0; // can't reconstruct from history — start fresh
     return parsed;
   } catch {
     return emptyStats();
@@ -73,13 +101,57 @@ export function resetStats(): SessionStats {
 export function recordDecision(s: SessionStats, d: DecisionRecord): SessionStats {
   const decisions = [...s.decisions, d];
   if (decisions.length > MAX_DECISIONS) decisions.splice(0, decisions.length - MAX_DECISIONS);
-  return { ...s, decisions };
+  // decisions is a capped rolling window (for scoring recent form); movesTotal
+  // is the uncapped lifetime tally shown on the scorecard.
+  return { ...s, decisions, movesTotal: (s.movesTotal ?? s.decisions.length) + 1 };
 }
 
-export function recordHand(s: SessionStats, deltaBB: number): SessionStats {
+export function recordHand(s: SessionStats, deltaBB: number, busted = false): SessionStats {
   const handResults = [...s.handResults, deltaBB];
   if (handResults.length > MAX_HAND_RESULTS) handResults.splice(0, handResults.length - MAX_HAND_RESULTS);
-  return { ...s, handsPlayed: s.handsPlayed + 1, netBB: s.netBB + deltaBB, handResults };
+  return {
+    ...s,
+    handsPlayed: s.handsPlayed + 1,
+    netBB: s.netBB + deltaBB,
+    wonBB: (s.wonBB ?? 0) + Math.max(0, deltaBB),
+    lostBB: (s.lostBB ?? 0) + Math.max(0, -deltaBB),
+    busts: (s.busts ?? 0) + (busted ? 1 : 0),
+    handResults,
+  };
+}
+
+export interface MoneyStats {
+  won: number; // lifetime bb won (positive)
+  lost: number; // lifetime bb lost (positive magnitude)
+  avgWin: number; // mean winning-hand size (recent window)
+  avgLoss: number; // mean losing-hand size (recent window, positive)
+  biggestLoss: number; // worst single hand (recent window, positive)
+  biggestWin: number; // best single hand (recent window)
+  winHands: number;
+  lossHands: number;
+  ratio: number; // avgLoss / avgWin — >1 means you lose bigger than you win
+}
+
+/** Won/lost totals (lifetime) plus the diagnostic that matters for the marry /
+ *  station leak: average win size vs average loss size. Averages/extremes come
+ *  from the rolling hand series; totals are lifetime accumulators. */
+export function moneyStats(s: SessionStats): MoneyStats {
+  const wins = s.handResults.filter((x) => x > 0);
+  const losses = s.handResults.filter((x) => x < 0).map((x) => -x);
+  const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+  const avgWin = mean(wins);
+  const avgLoss = mean(losses);
+  return {
+    won: s.wonBB ?? 0,
+    lost: s.lostBB ?? 0,
+    avgWin,
+    avgLoss,
+    biggestWin: wins.length ? Math.max(...wins) : 0,
+    biggestLoss: losses.length ? Math.max(...losses) : 0,
+    winHands: wins.length,
+    lossHands: losses.length,
+    ratio: avgWin > 0 ? avgLoss / avgWin : 0,
+  };
 }
 
 export interface Downswing {
@@ -244,6 +316,7 @@ export function findLeaks(s: SessionStats): Leak[] {
     preflop.filter((x) => x.recommended !== 'fold').length,
     'You are folding hands that the charts say to play. Open and defend wider.',
     [0.25, 0.12],
+    preflopFoldBreakdown(s),
   );
 
   // 2. Playing too loose preflop (rec fold, hero played)
@@ -296,6 +369,7 @@ function pushRate(
   sample: number,
   detail: string,
   thresholds: [number, number],
+  breakdown?: LeakBreakdown[],
 ) {
   if (sample < 4) return; // not enough data
   const rate = hits / sample;
@@ -303,7 +377,41 @@ function pushRate(
   if (rate >= thresholds[0]) severity = 'high';
   else if (rate >= thresholds[1]) severity = 'medium';
   else if (rate > 0) severity = 'low';
-  out.push({ label, severity, detail, rate, sample });
+  out.push({ label, severity, detail, rate, sample, breakdown: breakdown?.length ? breakdown : undefined });
+}
+
+// Split preflop over-folds by spot type. Blinds are bucketed by position (any
+// defend); non-blind play-spots split by the action hero faced (from `facing`)
+// so an open you skipped reads separately from a 3-bet you passed on. Hands
+// recorded before `facing` was tracked fall into an "older hands" bucket.
+type FoldBucket = 'blinds' | 'open' | 'threebet' | 'fourbet' | 'flat' | 'legacy';
+function preflopFoldCategory(x: DecisionRecord): FoldBucket {
+  if (x.position === 'BB' || x.position === 'SB') return 'blinds';
+  if (x.recommended === 'call') return 'flat';
+  // recommended is a raise (open / 3-bet / 4-bet) — split by what hero faced.
+  if (x.facing === 'unopened') return 'open';
+  if (x.facing === 'raise') return 'threebet';
+  if (x.facing === '3bet' || x.facing === '4bet+') return 'fourbet';
+  return 'legacy'; // no facing recorded (older hand)
+}
+
+export function preflopFoldBreakdown(s: SessionStats): LeakBreakdown[] {
+  const play = s.decisions.filter((x) => x.street === 'preflop' && x.recommended !== 'fold');
+  const defs: { key: FoldBucket; label: string }[] = [
+    { key: 'blinds', label: 'Blind defense (SB/BB)' },
+    { key: 'open', label: 'Should open (RFI)' },
+    { key: 'threebet', label: 'Should 3-bet (vs open)' },
+    { key: 'fourbet', label: 'Should 4-bet (vs 3-bet)' },
+    { key: 'flat', label: 'Should flat an open' },
+    { key: 'legacy', label: 'Open / 3-bet (older hands)' },
+  ];
+  return defs
+    .map(({ key, label }) => {
+      const spotsArr = play.filter((x) => preflopFoldCategory(x) === key);
+      const folded = spotsArr.filter((x) => x.heroAction === 'fold').length;
+      return { label, folded, spots: spotsArr.length, rate: spotsArr.length ? folded / spotsArr.length : 0 };
+    })
+    .filter((b) => b.spots > 0);
 }
 
 function severityRank(s: Leak['severity']): number {

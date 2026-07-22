@@ -33,7 +33,7 @@ import type { NodeFeedback } from '../analysis/grade';
 import { gradeNode, idToClass } from '../analysis/grade';
 import { aggressionWarning } from '../analysis/aggression';
 import { assessTilt } from '../analysis/tilt';
-import type { SessionStats } from '../store/stats';
+import type { SessionStats, PreflopFacing } from '../store/stats';
 import {
   findLeaks,
   loadStats,
@@ -416,6 +416,15 @@ export function useGame(initialProfiles: string[]) {
     else { pendingFbRef.current.push(fb); playAction(); }
 
     const pos = positionLabel(0, prev.buttonIndex, prev.players.length);
+    // Preflop facing-action: count the raises already in when it reached hero
+    // (opens/3-bets/4-bets all log as 'raise'; blinds are 'post', limps 'call').
+    let facing: PreflopFacing | undefined;
+    if (prev.street === 'preflop') {
+      const raises = prev.log.filter(
+        (l) => l.handNumber === prev.handNumber && l.street === 'preflop' && l.type === 'raise',
+      ).length;
+      facing = raises === 0 ? 'unopened' : raises === 1 ? 'raise' : raises === 2 ? '3bet' : '4bet+';
+    }
     setStats((s) => {
       const updated = recordDecision(s, {
         street: prev.street,
@@ -426,6 +435,7 @@ export function useGame(initialProfiles: string[]) {
         evLoss: fb.evLoss,
         chosenEv: fb.chosenEv,
         rngMatch: fb.rngMatch,
+        facing,
       });
       saveStats(updated);
       return updated;
@@ -622,8 +632,11 @@ export function useGame(initialProfiles: string[]) {
     setObsCounters((m) => accumulateHand(m, game.log, game.handNumber));
 
     const delta = handResults(game).find((r) => r.playerId === 0)?.deltaBB ?? 0;
+    // hero busted this hand if the stack is empty at hand end (cash → rebuy/reset
+    // next deal; tournament → eliminated). Counted once per hand via the guard above.
+    const busted = game.players[0].stack <= 0;
     setStats((s) => {
-      const updated = recordHand(s, delta);
+      const updated = recordHand(s, delta, busted);
       saveStats(updated);
       return updated;
     });

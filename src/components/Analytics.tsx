@@ -236,6 +236,22 @@ export function Analytics({ g }: { g: G }) {
                   <div className="leak-fill" style={{ width: `${Math.min(100, l.rate * 100)}%` }} />
                 </div>
                 {l.severity !== 'ok' && l.severity !== 'low' && <div className="leak-detail">{l.detail}</div>}
+                {l.breakdown && l.breakdown.length > 0 && (
+                  <div className="leak-breakdown">
+                    <div className="lb-head">Where the folds come from</div>
+                    {l.breakdown.map((b) => (
+                      <div key={b.label} className="lb-row">
+                        <span className="lb-label">{b.label}</span>
+                        <div className="lb-bar">
+                          <div className="lb-fill" style={{ width: `${Math.min(100, b.rate * 100)}%` }} />
+                        </div>
+                        <span className="lb-rate">
+                          {(b.rate * 100).toFixed(0)}% <span className="muted">({b.folded}/{b.spots})</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {leaks.every((l) => l.severity === 'ok' || l.severity === 'low') && (
