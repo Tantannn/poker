@@ -112,6 +112,9 @@ export interface PersistSettings {
   anonymousVillains?: boolean;
   /** bias the hero's dealt hole cards toward mixed/edge preflop hands. */
   edgeFocus?: boolean;
+  /** drill deal-filter: force each dealt hero hand into a starting-hand class
+   *  ('off' | 'pairs' | 'suited-connectors' | …). Overrides edgeFocus when set. */
+  drillClass?: string;
   /** cash only: when any seat busts to 0, the next deal starts fresh equal
    *  stacks instead of rebuying — keeps a focused drill table even. */
   autoResetOnBust?: boolean;

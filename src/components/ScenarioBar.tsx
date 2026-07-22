@@ -4,6 +4,7 @@ import { tablePositions } from '../engine/table';
 import { PROFILE_LIST } from '../ai/profiles';
 import { DIFFICULTY_LIST } from '../ai/difficulty';
 import { coachDrill } from '../analysis/coach';
+import { DRILL_CLASSES } from '../strategy/drillDeal';
 
 type G = ReturnType<typeof useGame>;
 
@@ -114,6 +115,22 @@ export function ScenarioBar({ g }: { g: G }) {
         <label className="sc-check" title="Bias your dealt hole cards toward mixed / range-edge hands so more spots are close decisions. Weights the preflop spot only — the hand still plays out fully.">
           <input type="checkbox" checked={g.edgeFocus} onChange={(e) => g.setEdgeFocus(e.target.checked)} />
           🎯 Focus borderline hands
+        </label>
+        <label
+          className="sc-check"
+          title={
+            'Drill mode: deal your hole cards only from a chosen starting-hand class so you grind that class in repetition. Overrides Focus borderline hands. Note: a class in a vacuum drills the hand, not the range — real EV is hand × board × position, so keep this for targeted reps, not normal play.\n\n' +
+            (DRILL_CLASSES.find((c) => c.id === g.drillClass)?.hint ?? '')
+          }
+        >
+          🃏 Deal only:
+          <select value={g.drillClass} onChange={(e) => g.setDrillClass(e.target.value as typeof g.drillClass)}>
+            {DRILL_CLASSES.map((c) => (
+              <option key={c.id} value={c.id} title={c.hint}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </label>
         {!g.isTournament && (
           <label className="sc-check" title="When any seat busts to 0, the next deal starts fresh equal stacks instead of the standard cash rebuy — keeps a drill table even.">

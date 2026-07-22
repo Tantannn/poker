@@ -157,7 +157,8 @@
       "PowerShell(npx vitest run src/strategy/pushFold.charts.test.ts 2>&1 | Select-Object -Last 30)",
       "PowerShell(npx vitest run 2>&1 | Select-Object -Last 18)",
       "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 15)",
-      "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6; echo \"=== RUN 2 ===\"; npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6)"
+      "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6; echo \"=== RUN 2 ===\"; npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6)",
+      "PowerShell(npx vitest run src/strategy/drillDeal.test.ts 2>&1 | Select-Object -Last 30)"
     ]
   }
 }

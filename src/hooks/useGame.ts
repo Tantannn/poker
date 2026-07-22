@@ -19,6 +19,8 @@ import {
 import type { TableSize } from '../strategy/preflopChart';
 import { scenariosForSize } from '../strategy/preflopChart';
 import { pickBorderlineCode } from '../strategy/borderline';
+import type { DrillClass } from '../strategy/drillDeal';
+import { pickDrillCode } from '../strategy/drillDeal';
 import { decideAction, inPositionPostflop } from '../ai/decide';
 import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
 import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
@@ -165,6 +167,10 @@ export function useGame(initialProfiles: string[]) {
   // focus borderline hands: bias the hero's dealt hole cards toward mixed /
   // range-edge preflop hands so reps land on close decisions, not obvious spots.
   const [edgeFocus, setEdgeFocus] = useState<boolean>(SAVED?.edgeFocus ?? false);
+  // drill deal-filter: force each dealt hero hand into a chosen starting-hand
+  // class (pocket pairs, suited connectors, …) so a session drills that class in
+  // repetition. 'off' = normal random deal. Overrides edgeFocus while active.
+  const [drillClass, setDrillClass] = useState<DrillClass>((SAVED?.drillClass as DrillClass) ?? 'off');
   // cash only: when any seat busts to 0, the next deal resets to fresh equal
   // stacks instead of the standard cash rebuy — keeps a drill table even.
   const [autoResetOnBust, setAutoResetOnBust] = useState<boolean>(SAVED?.autoResetOnBust ?? false);
@@ -327,16 +333,23 @@ export function useGame(initialProfiles: string[]) {
         }
       }
       startHand(next);
-      // focus borderline hands: after the deal, swap the hero's hole cards for a
-      // borderline-weighted hand class read off the RFI chart for the seat the
-      // hero landed on. Weights the PREFLOP spot only (BB / heads-up BB have no
-      // open chart, so those hands stay as dealt).
-      if (edgeFocus && next.players[0].holeCards.length === 2) {
-        const pos = positionLabel(0, next.buttonIndex, next.players.length);
-        const sc = scenariosForSize(next.players.length as TableSize).find(
-          (s) => s.facing === 'rfi' && s.heroPos === pos,
-        );
-        if (sc) biasHoleCards(next, 0, pickBorderlineCode(sc));
+      // bias the hero's dealt hole cards. Drill deal-filter wins when set: force
+      // the hand into the chosen starting-hand class (pocket pairs, suited
+      // connectors, …) for repetition drilling. Otherwise "focus borderline
+      // hands" swaps in a borderline-weighted hand read off the RFI chart for the
+      // seat the hero landed on (preflop spot only; BB / heads-up BB have no open
+      // chart, so those hands stay as dealt).
+      if (next.players[0].holeCards.length === 2) {
+        if (drillClass !== 'off') {
+          const code = pickDrillCode(drillClass);
+          if (code) biasHoleCards(next, 0, code);
+        } else if (edgeFocus) {
+          const pos = positionLabel(0, next.buttonIndex, next.players.length);
+          const sc = scenariosForSize(next.players.length as TableSize).find(
+            (s) => s.facing === 'rfi' && s.heroPos === pos,
+          );
+          if (sc) biasHoleCards(next, 0, pickBorderlineCode(sc));
+        }
       }
       // snapshot the freshly-dealt hand (same hole cards + deck) so "Repeat
       // hand" can replay the exact same spot — persisted so it survives a refresh.
@@ -354,7 +367,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     decisionsRef.current = [];
     playDeal();
-  }, [scenario, game, mode, edgeFocus, autoResetOnBust, tableSize, stackDepth, profiles]);
+  }, [scenario, game, mode, edgeFocus, drillClass, autoResetOnBust, tableSize, stackDepth, profiles]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
@@ -561,12 +574,12 @@ export function useGame(initialProfiles: string[]) {
   useEffect(() => {
     saveSettings({
       profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
-      anonymousVillains, edgeFocus, autoResetOnBust, feedbackMode,
+      anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, autoResetOnBust, feedbackMode, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
@@ -865,6 +878,8 @@ export function useGame(initialProfiles: string[]) {
     setAnonymousVillains,
     edgeFocus,
     setEdgeFocus,
+    drillClass,
+    setDrillClass,
     autoResetOnBust,
     setAutoResetOnBust,
     villainGuesses,
