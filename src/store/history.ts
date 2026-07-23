@@ -8,6 +8,7 @@
 import type { Card } from '../engine/cards';
 import type { Street } from '../engine/table';
 import type { ActionId } from '../strategy/types';
+import { moveTier } from './stats';
 
 export interface SnapOption {
   id: ActionId;
@@ -74,35 +75,57 @@ export interface HistoryHand {
 }
 
 const KEY = 'poker-trainer-history-v1';
-// Cap by SESSION, not by a flat hand count: a freezeout can run well past any
-// per-hand limit, and truncating it mid-tournament would defeat the grouping.
-// Keep the most-recent sessions whole, bounded by a hard hand ceiling — but the
-// newest session is always kept intact even if it alone exceeds the ceiling.
-const MAX_SESSIONS = 8;
+// Hard ceiling on stored hands. UNDER it, nothing is trimmed. OVER it, the review
+// is MISTAKE-FIRST: clean hands (every decision sound) are dropped before hands
+// that carry a lesson, so the archive stays dense with spots worth studying.
+// The most-recent hands and every tagged hand are always kept regardless — a
+// tagged hand is only reviewable while it's still in history, so it must never
+// be evicted by the cap.
 const MAX_HANDS = 400;
+const ALWAYS_KEEP_RECENT = 60;
 
-/** Trim history newest-first, keeping whole sessions. Hands arrive newest-first
- *  and a session is contiguous in time, so first-seen order groups them. */
-export function capHistory(hands: HistoryHand[]): HistoryHand[] {
-  const order: string[] = [];
-  const bySession = new Map<string, HistoryHand[]>();
-  for (const h of hands) {
-    const sid = h.sessionId ?? 'legacy';
-    if (!bySession.has(sid)) { bySession.set(sid, []); order.push(sid); }
-    bySession.get(sid)!.push(h);
+/** Did the hero misplay any decision in this hand (inaccuracy / wrong / blunder)?
+ *  Uses the same moveTier as the live grade + scorecard, so "clean" here means
+ *  exactly what "no mistakes" means everywhere else. Hands with no captured
+ *  decisions (legacy) count as clean and are droppable. */
+function handHasLeak(h: HistoryHand): boolean {
+  for (const d of h.decisions ?? []) {
+    const chosenEv = d.options.find((o) => o.id === d.chosenId)?.ev ?? 0;
+    const t = moveTier(d.evLoss, chosenEv);
+    if (t === 'inaccuracy' || t === 'wrong' || t === 'blunder') return true;
   }
-  const out: HistoryHand[] = [];
-  let sessions = 0;
-  for (const sid of order) {
-    if (sessions >= MAX_SESSIONS) break;
-    const group = bySession.get(sid)!;
-    // always keep the first (most-recent) session whole; for older ones, stop
-    // before blowing past the hand ceiling.
-    if (out.length > 0 && out.length + group.length > MAX_HANDS) break;
-    out.push(...group);
-    sessions++;
-  }
-  return out;
+  return false;
+}
+
+/** Trim history newest-first. Under the ceiling nothing is dropped. Over it,
+ *  keep the most-recent hands (whatever you just played), every tagged hand, and
+ *  every hand with a leak — dropping only clean, untagged, older hands. If leaks
+ *  + tags alone still overflow, keep the newest of them, but tagged hands are
+ *  never evicted. Hands arrive newest-first, and every filter preserves order. */
+export function capHistory(hands: HistoryHand[], protectedIds: Set<string> = new Set()): HistoryHand[] {
+  if (hands.length <= MAX_HANDS) return hands;
+  // The current session (hands are newest-first, so hands[0]'s session) is kept
+  // whole — its net/arc stay accurate while you're reviewing it live. Older
+  // sessions are curated: keep tagged hands, tournament-result hands (place), and
+  // any hand with a leak; drop only clean, untagged, older hands.
+  const newestSid = hands[0]?.sessionId;
+  const curated = hands.filter(
+    (h, i) =>
+      h.sessionId === newestSid ||
+      i < ALWAYS_KEEP_RECENT ||
+      protectedIds.has(h.id) ||
+      h.place != null ||
+      handHasLeak(h),
+  );
+  if (curated.length <= MAX_HANDS) return curated;
+  // Even the curated set overflows (a long run of leaks/tags): keep all tagged
+  // hands plus the newest untagged ones up to the ceiling.
+  const tagged = curated.filter((h) => protectedIds.has(h.id));
+  const room = Math.max(0, MAX_HANDS - tagged.length);
+  const keptUntagged = new Set(
+    curated.filter((h) => !protectedIds.has(h.id)).slice(0, room).map((h) => h.id),
+  );
+  return curated.filter((h) => protectedIds.has(h.id) || keptUntagged.has(h.id));
 }
 
 export function loadHistory(): HistoryHand[] {
@@ -125,9 +148,9 @@ export function loadHistory(): HistoryHand[] {
   }
 }
 
-export function saveHistory(hands: HistoryHand[]): void {
+export function saveHistory(hands: HistoryHand[], protectedIds: Set<string> = new Set()): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(capHistory(hands)));
+    localStorage.setItem(KEY, JSON.stringify(capHistory(hands, protectedIds)));
   } catch {
     /* ignore quota / private mode */
   }

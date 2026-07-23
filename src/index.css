@@ -1383,6 +1383,88 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .strat-amt { font-size: 11.5px; color: var(--muted); margin: 2px 0 0 2px; }
 .strat-amt b { color: var(--gold); font-variant-numeric: tabular-nums; }
 
+/* ---------- Hand Review upgrade: leak rail, mistake grouping, review solver ---------- */
+/* leak rail — find & highlight the hands with the most mistakes */
+.rv-rail { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.rv-rail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.rv-rail-title { font-weight: 800; font-size: 13px; }
+.rv-rail-filters { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+.rv-chipbtn { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
+.rv-chipbtn:hover { color: var(--txt); }
+.rv-chipbtn.on { background: var(--gold); color: #1a1207; border-color: var(--gold); }
+.rv-rail-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.rv-rail-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; border: 1px solid transparent; background: var(--panel); cursor: pointer; text-align: left; width: 100%; font-size: 12.5px; color: var(--txt); }
+.rv-rail-row:hover { background: var(--chip); }
+.rv-rail-row.on { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 12%, var(--panel)); }
+.rv-rail-row.heavy { border-left: 3px solid var(--red); }
+.rv-rail-mode { font-size: 12px; }
+.rv-rail-num { font-weight: 800; color: var(--muted); min-width: 40px; }
+.rv-rail-cards { display: flex; gap: 2px; }
+.rv-rail-ev { color: var(--red); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.rv-rail-delta { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rv-rail-delta.pos { color: var(--raise); }
+.rv-rail-delta.neg { color: var(--red); }
+.rv-rail-badges { display: flex; gap: 4px; }
+.rv-rail-more { margin-top: 8px; background: none; border: none; color: var(--gold); font-weight: 700; font-size: 12px; cursor: pointer; padding: 2px; }
+.rv-empty { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 6px 2px; margin: 0; }
+
+.rv-badge { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 6px; line-height: 1.5; }
+.rv-badge.blunder { background: var(--red); color: #2a0d06; }
+.rv-badge.mistake { background: #e0843a; color: #2a1405; }
+.rv-badge.inacc { background: var(--gold); color: #2a1f06; }
+
+/* per-hand mistake scoreboard (chips in the summary) */
+.rv-scoreboard { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+.rv-chip { font-size: 11.5px; font-weight: 800; border-radius: 999px; padding: 3px 10px; }
+.rv-chip.blunder { background: var(--red); color: #2a0d06; }
+.rv-chip.mistake { background: #e0843a; color: #2a1405; }
+.rv-chip.inacc { background: var(--gold); color: #2a1f06; }
+.rv-chip.clean { background: var(--raise); color: #06210f; }
+.rv-chip.ev { background: var(--chip); color: var(--txt); }
+
+/* "Fix these" — every mistake in the hand, grouped & clickable */
+.rv-fix { background: var(--bg2); border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 10px; padding: 10px 12px; margin: 12px 0; }
+.rv-fix.clean-fix { border-left-color: var(--raise); }
+.rv-fix-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.rv-fix-row { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 12.5px; color: var(--txt); }
+.rv-fix-row:hover { background: var(--chip); }
+.rv-fix-row.bad { border-left: 3px solid var(--red); }
+.rv-fix-row.okv { border-left: 3px solid var(--gold); }
+.rv-fix-tier { font-weight: 800; min-width: 96px; }
+.rv-fix-tier.bad { color: var(--red); }
+.rv-fix-tier.okv { color: var(--gold); }
+.rv-fix-street { text-transform: uppercase; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: var(--muted); }
+.rv-fix-line { flex: 1; }
+.rv-fix-line b { color: var(--txt); }
+.rv-fix-loss { color: var(--red); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rv-fix-go { color: var(--gold); font-weight: 800; }
+.rv-clean { color: var(--raise); font-weight: 700; font-size: 13px; margin: 6px 0 0; }
+
+/* streets that hold a mistake get flagged red on the breadcrumb */
+.sb-step.has-mistake { border-color: var(--red); color: var(--red); }
+.sb-step.has-mistake.on { background: var(--red); color: #2a0d06; border-color: var(--red); }
+.sb-dot { margin-left: 3px; font-size: 14px; line-height: 0; vertical-align: middle; }
+
+/* decisions header row + mistakes-only toggle + sound-hidden chip */
+.rv-dechead-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rv-toggle { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
+.rv-toggle.on { background: var(--gold); color: #1a1207; border-color: var(--gold); }
+.rv-sortbtn { font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg2); color: var(--muted); cursor: pointer; }
+.rv-sortbtn:hover { color: var(--txt); }
+.rv-sortbtn.on { background: var(--gold); color: #1a1207; border-color: var(--gold); }
+.rv-sound-chip { color: var(--raise); font-weight: 700; font-size: 12.5px; padding: 8px 2px; margin: 0; }
+
+/* jump-to-decision flash */
+.rv-dec-focus { animation: rvflash 1.4s ease; }
+@keyframes rvflash { 0%, 100% { box-shadow: none; } 25% { box-shadow: 0 0 0 3px var(--gold); } }
+
+/* review solver — reuses the Play-vs-Bots .strat-* look; just marks YOUR line */
+.rv-solver { margin-top: 8px; }
+.rv-solver .strat-row.rv-you { outline: 1px solid var(--call); outline-offset: 2px; border-radius: 6px; }
+.rv-you-tag { margin-left: 6px; font-size: 10px; font-weight: 800; color: var(--call); }
+.rv-star { margin-left: 5px; color: var(--gold); font-weight: 800; }
+.rv-verdict-tag { font-weight: 800; margin-right: 6px; }
+
 /* ============================================================
    MOBILE / RESPONSIVE
    Tablet-and-down (≤720px): tighten chrome, make the nav a

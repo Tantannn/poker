@@ -148,6 +148,12 @@ export function useGame(initialProfiles: string[]) {
   const [history, setHistory] = useState<HistoryHand[]>(() => loadHistory());
   const [stats, setStats] = useState<SessionStats>(() => loadStats());
   const [journal, setJournal] = useState<JournalEntry[]>(() => loadJournal());
+  // Latest tagged-hand ids, mirrored into a ref so the history-cap (which runs in
+  // an effect with a narrow dep list) can protect tagged hands without a stale
+  // closure — a tagged hand is only reviewable while it's still in history.
+  const journalRef = useRef<JournalEntry[]>(journal);
+  useEffect(() => { journalRef.current = journal; }, [journal]);
+  const protectedIds = () => new Set(journalRef.current.map((e) => e.id));
   const [scenario, setScenario] = useState<HeroPositionPref>((SAVED?.scenario as HeroPositionPref) ?? 'random');
   const [speed, setSpeed] = useState<Speed>((SAVED?.speed as Speed) ?? '1x');
   const [stackDepth, setStackDepth] = useState<number>(SAVED?.stackDepth ?? STARTING_BB);
@@ -685,8 +691,9 @@ export function useGame(initialProfiles: string[]) {
       decisions: decisionsRef.current.slice(),
     };
     setHistory((h) => {
-      const next = capHistory([hist, ...h]);
-      saveHistory(next);
+      const prot = protectedIds();
+      const next = capHistory([hist, ...h], prot);
+      saveHistory(next, prot);
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -727,7 +734,7 @@ export function useGame(initialProfiles: string[]) {
     const set = new Set(ids);
     setHistory((h) => {
       const next = h.filter((x) => !set.has(x.id));
-      saveHistory(next);
+      saveHistory(next, protectedIds());
       return next;
     });
   }, []);
@@ -737,7 +744,7 @@ export function useGame(initialProfiles: string[]) {
   const clearHistory = useCallback(() => {
     setHistory((h) => {
       const next = h.filter((x) => isTagged(journal, x.id));
-      saveHistory(next);
+      saveHistory(next, protectedIds());
       return next;
     });
   }, [journal]);
