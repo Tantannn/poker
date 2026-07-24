@@ -91,6 +91,22 @@ export function describeTexture(board: Card[]): TextureDescription {
   const t = classifyFlop(board);
   const hc = t.highCard;
 
+  // Straight structure over the FULL board, counted INDEPENDENTLY of the pair:
+  // the most ranks that fall inside any single 5-rank straight window (ace plays
+  // low). A paired board can still be four-to-a-straight (e.g. 4-5-5-6-7), so this
+  // has to be measured separately — the `paired` label must not hide it.
+  const straightRun = (() => {
+    const present = new Array(16).fill(false);
+    for (const c of board) { present[c.rank] = true; if (c.rank === 14) present[1] = true; }
+    let best = 0;
+    for (let lo = 1; lo <= 10; lo++) {
+      let cnt = 0;
+      for (let k = 0; k < 5; k++) if (present[lo + k]) cnt++;
+      if (cnt > best) best = cnt;
+    }
+    return best;
+  })();
+
   // primary "height" label
   let height: string;
   let heightSentence: string;
@@ -114,6 +130,8 @@ export function describeTexture(board: Card[]): TextureDescription {
   else if (t.suitPattern === 'twotone') extras.push('Two-Tone');
   if (t.paired) extras.push('Paired');
   else if (t.connected) extras.push('Connected');
+  if (straightRun >= 5) extras.push('Straight on Board');
+  else if (straightRun === 4) extras.push('Four to a Straight');
 
   // on the river there are no more draws — say what IS possible, not what's brewing
   const river = board.length === 5;
@@ -135,17 +153,27 @@ export function describeTexture(board: Card[]): TextureDescription {
   const uniqAsc = [...new Set(board.map((c) => c.rank))].sort((a, b) => a - b);
   let straighty = false;
   for (let i = 0; i + 1 < uniqAsc.length; i++) if (uniqAsc[i + 1] - uniqAsc[i] <= 2) straighty = true;
-  const connSentence = t.paired
-    ? ' The board is paired, which adds trips/full-house combos and removes some straights.'
-    : t.connected
-      ? river
-        ? ' The cards are connected, so straights are live.'
-        : ' The cards are connected, so straights and straight draws are live.'
-      : straighty
-        ? river
-          ? ' A two-gap sits on board, so some straights are possible.'
-          : ' A two-gap sits on board (like 9-7), so gutshot/one-gapper straight draws are live — not bone dry.'
-        : ' The cards are disconnected, so straights are unlikely.';
+  const pairNote = t.paired ? ' The pair also adds trips and full-house combos.' : '';
+  const connSentence =
+    straightRun >= 5
+      ? ' Five to a straight lie on the board — every player already has it, so it is a chop unless someone holds a card that makes a higher straight.' + pairNote
+      : straightRun === 4
+        ? (river
+            ? ' Four to a straight are already on the board — anyone with a single connecting card has a straight, so even an overpair is only a bluff-catcher here.'
+            : ' Four to a straight are on the board — a straight is one card away and a big share of the deck completes it; one-pair hands are very vulnerable.') + pairNote
+        : t.paired
+          ? straightRun === 3
+            ? ' The board is paired but also three to a straight — it adds trips/full houses, yet straights are live enough that a bare overpair is closer to a bluff-catcher than a lock.'
+            : ' The board is paired, which adds trips/full-house combos and removes some straights.'
+          : t.connected
+            ? river
+              ? ' The cards are connected, so straights are live.'
+              : ' The cards are connected, so straights and straight draws are live.'
+            : straighty
+              ? river
+                ? ' A two-gap sits on board, so some straights are possible.'
+                : ' A two-gap sits on board (like 9-7), so gutshot/one-gapper straight draws are live — not bone dry.'
+              : ' The cards are disconnected, so straights are unlikely.';
 
   // who it favours (single-raised-pot heuristic)
   const favours =

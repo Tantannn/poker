@@ -280,7 +280,21 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
         // so it is a genuine value hand; only overpairs, trips and better kickers get
         // there. A pair BELOW a higher board card (a 6 on 776, 99 on AAQT) has that
         // overcard AND the shared pair against it — the real bluff-catcher.
-        if (own >= topBoard) {
+        // Pocket pair ABOVE the whole board (AA on 7-6-5-5-4) is an OVERPAIR plus
+        // the board's pair, not "top pair". own > topBoard is only reachable with a
+        // pocket pair: a hole-card pair of rank X needs a board card of rank X, so a
+        // non-pocket pair can never exceed topBoard.
+        if (pocket && hero[0].rank === own && own > topBoard) {
+          return {
+            label: 'Overpair + Board Pair',
+            blurb:
+              'An overpair on a paired board — you beat all air and every one-pair hand, so it is a value hand, not a pure bluff-catcher. But it can\'t improve: trips, full houses, and any straight the board allows still beat you. Bet thinly, keep the pot medium, and DON\'T stack off — on a connected board (four to a straight) it collapses to a bluff-catcher.',
+            strength: 3,
+          };
+        }
+        // A hole card pairing the TOP unpaired board card (a 7 on 766) is genuine
+        // top pair on a paired board.
+        if (own === topBoard) {
           return {
             label: `Top Pair + Board Pair`,
             blurb:
