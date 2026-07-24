@@ -62,6 +62,13 @@ function classifyBet(eHU: number, eField: number, outs: number, hasMade: boolean
 const classKind = (c: BetClass): ActionOption['kind'] =>
   c === 'value' || c === 'thin' ? 'value' : c === 'marginal' ? 'passive' : 'bluff';
 
+// Realisation of a MARGINAL made hand (a one-pair bluff-catcher) that BETS out of
+// position into a MULTIWAY field. It gets barrelled off later streets and seldom
+// reaches showdown for its raw share, so it realises only ~70% of the called-pot
+// equity the single-street model credits. Used to haircut such bets so they rank
+// at/below Check — matching the 'marginal → check' classification. See addBet.
+const RI_REALIZE_OOP_MW = 0.7;
+
 /** Flush-domination LEVEL: the count (0, 3, 4 or 5) of a single suit on the board
  *  that hero holds NONE of. It matters how many, because the threat is very
  *  different by count:
@@ -221,6 +228,11 @@ export interface PostflopInput {
    *  EV race and bluffs stop working); − for a nit (folds a wider slice, so fold equity
    *  rises and bluffs / bigger bets gain). 0 = balanced / unknown / hero. */
   contBias?: number;
+  /** villain rarely BETS when checked to (low aggression / a passive station). When
+   *  true, checking a strong made hand does NOT set a trap — he won't barrel it for
+   *  you, so a check just checks the pot down and forfeits value; the coach then says
+   *  LEAD for value instead of "check to trap". Undefined/false = bets when checked. */
+  villainPassive?: boolean;
 }
 
 interface Candidate {
@@ -287,7 +299,12 @@ function buildNote(a: {
     const fairPct = Math.round(fair * 100);
     const r = fair > 0 ? a.e / fair : 1; // multiples of an even share
     if (r >= 1.6)
-      s.push(`You'd win about ${ePct}%${field} — well above an even ${fairPct}% share, so you're the favourite of the field (even if the pack as a whole still beats you most hands).`);
+      // The parenthetical only makes sense when hero still loses to the field
+      // more often than not (equity < 50%): "biggest single share, but the pack
+      // beats you most hands". At e ≥ 50% hero beats the whole field outright, so
+      // the caveat would flatly contradict the number (a 91% straight is not
+      // "beaten most hands").
+      s.push(`You'd win about ${ePct}%${field} — well above an even ${fairPct}% share, so you're the favourite of the field${a.e < 0.5 ? ' (even if the pack as a whole still beats you most hands)' : ''}.`);
     else if (r >= 1.15)
       s.push(`You'd win about ${ePct}%${field} — above your ${fairPct}% fair share: ahead of the pack, not behind it.`);
     else if (r >= 0.85)
@@ -378,7 +395,11 @@ function buildNote(a: {
     // fractions so it's usable at the table. Multiway bumps the size up a notch.
     const mw = a.nOpp > 1 ? ', and a notch bigger multiway to charge the whole field' : '';
     if (a.sprKnown && a.spr < 1 && a.eHU >= 0.6)
-      s.push(`SPR is under 1 and you hold a strong hand, so you're committed: the stack goes in over the streets regardless. Any committing size is close in EV — a token ${verb} just gives draws a cheap card first, so ${verb} big (or jam) and take the equity now.`);
+      s.push(
+        a.street === 'river'
+          ? `SPR is under 1 with a strong hand, so you're pot-committed — but it's the river: no more streets, no draws left to deny, equity is fixed. Get the rest in — call, and only ${verb} for value if a WORSE hand can still call (e.g. vs a station); otherwise a ${verb} just folds out the hands you beat and keeps in the ones that beat you.`
+          : `SPR is under 1 and you hold a strong hand, so you're committed: the stack goes in over the streets regardless. Any committing size is close in EV — a token ${verb} just gives draws a cheap card first, so ${verb} big (or jam) and take the equity now.`,
+      );
     else if (a.street !== 'river' && a.wet01 >= 0.35 && a.e >= 0.5 && a.eHU >= 0.6)
       s.push(`How big: size from the BOARD, not the pot in front of you — dry ⅓, semi-wet ½, wet ⅔–pot${mw}. This board is draw-heavy, so favour the bigger end and charge the straight/flush draws. Then the one test: would a WORSE hand still call it? Yes → the size is right; if only better hands call, come down.`);
     else if (a.eHU >= 0.65 && a.e >= 0.5)
@@ -459,6 +480,9 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   // wider (station, +) / tighter (nit, −) THIS opponent continues vs a bet than a
   // balanced player. Threaded into computeAggro's base continue rate. 0 = balanced.
   const contBias = inp.contBias ?? 0;
+  // A passive villain (calling station / low aggression) won't bet when checked to,
+  // so the "check = trap" story fails against him — checking just checks it down.
+  const villainPassive = inp.villainPassive ?? false;
   const eReal = Math.min(1, e * realize);
 
   // ---- depth: effective stack behind + SPR ----
@@ -512,6 +536,8 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     const checkWhy =
       flushDom && e >= 0.5
         ? `${checkBase} You're AHEAD now — but the board is flush-heavy and you hold NONE of that suit, so you have no redraw. Betting folds out the hands you beat and gets called or raised by the made flushes & flush draws that crush or outdraw you. Check to pot-control, keep his bluffs in, and don't bloat a pot you can't safely build with a no-flush hand.`
+        : villainPassive && hasMade && e >= 0.6
+          ? `${checkBase} But this villain is a PASSIVE station — he won't bet when you check, so checking traps nothing and controls nothing; it just checks the pot down and leaves value on the table. LEAD for value: a station calls with worse hands, so bet (size UP — he rarely folds) and make him put the chips in. The "check to trap" line only works vs someone who bets when checked to; he won't.`
         : nearNut
           ? `${checkBase} Your hand is near-unbeatable — almost nothing can outdraw you, so there's no draw to protect and no reason to charge the board. Betting to "build the pot" only works when worse hands CALL — building means getting HIS chips in, not yours, and a lead he folds to builds nothing. Here you often hold the very cards that block his strong continues, so a lead has few customers and mostly folds out the hands you want paying you off. Checking is a TRAP: keep his weaker hands and bluffs in${oop ? ', and out of position it hands the betting lead to the aggressor — he barrels his air and value-bets worse, so you check-raise or check-call and put MORE of his chips in than a lead would' : ''}. Lead to build only when worse hands actually call (a passive player, or a range with hands that can't fold); vs an aggressor who bets when checked to, checking builds the bigger pot.`
           : e >= 0.6
@@ -586,17 +612,27 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     const cls = classifyBet(eHU, e, outs, hasMade);
     const sv = d.streetValue > 0.05;
     const dv = d.denial > 0.05;
+    // REVERSE-IMPLIED-ODDS haircut: a marginal one-pair hand betting OOP into a
+    // multiway field can't realise its called-pot equity (barrelled off later
+    // streets), so the raw multiway "win your >fair-share of a bigger pot" term
+    // over-rates a bet the classifier already calls a check ('marginal'). Discount
+    // the showdown-win term so the bet ranks at/below Check. Narrow by design: flop/
+    // turn, OOP, multiway, non-committed, marginal only — value/thin/semibluff/bluff
+    // and heads-up / in-position are untouched.
+    const marginalOOPmw = !isRiver && cls === 'marginal' && oop && nOpp > 1 && !d.committed;
+    const ri = marginalOOPmw ? d.contFrac * d.e2 * d.calledPot * (1 - RI_REALIZE_OOP_MW) : 0;
+    const evChips = d.ev - ri;
     cands.push({
       id,
       label,
-      ev: d.ev / bb,
+      ev: evChips / bb,
       amount: target,
       sizePct: Math.round((100 * (target - inp.currentBet)) / Math.max(1, potForSize)),
       calledEq: d.e2,
       kind: classKind(cls),
       sizeNote: sizeBalanceNote(frac, isRiver),
-      why: whyBet(cls, e, d, outs, false, isRiver, frac),
-      math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips ≈ ${(d.ev / bb).toFixed(2)} bb${
+      why: whyBet(cls, e, d, outs, false, isRiver, frac) + (marginalOOPmw ? ` And OOP in a ${nOpp + 1}-way pot a marginal one-pair hand realises only ~${Math.round(RI_REALIZE_OOP_MW * 100)}% of its share — it gets barrelled off later streets — so this bet's showdown value is discounted and checking rates higher.` : ''),
+      math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips${marginalOOPmw ? `\n   − ${ri.toFixed(1)} (OOP ${nOpp + 1}-way reverse-implied: a marginal hand realises only ~${Math.round(RI_REALIZE_OOP_MW * 100)}% of its called-pot equity) = ${evChips.toFixed(1)} chips` : ''} ≈ ${(evChips / bb).toFixed(2)} bb${
         d.committed
           ? `\n   (SPR < 1: you're committed, so the effective stack goes in over the streets whatever you bet now — every committing size wins ~the same; only the draws you deny THIS street differ, so sizing is a minor EV choice here)`
           : sv

@@ -77,6 +77,26 @@ describe('readVillainStory', () => {
     const line = playerLine([rec(V, 'flop', 'bet', 10, 30)], 1, V);
     expect(readVillainStory(line, 1).read).toBe('none');
   });
+
+  it('called down then RAISED the river = value/trap, not polar', () => {
+    const line = playerLine(
+      [rec(V, 'flop', 'call', 10, 40), rec(V, 'turn', 'call', 20, 90), rec(V, 'river', 'raise', 60, 240)],
+      1,
+      V,
+    );
+    const v = readVillainStory(line, 3);
+    expect(v.read).toBe('value');
+    expect(v.action).toMatch(/TRAP|fold/i);
+  });
+
+  it('check-called then check-RAISED = value/trap (passive wakes up)', () => {
+    const line = playerLine(
+      [rec(V, 'flop', 'check'), rec(V, 'turn', 'call', 20, 90), rec(V, 'river', 'raise', 60, 240)],
+      1,
+      V,
+    );
+    expect(readVillainStory(line, 3).read).toBe('value');
+  });
 });
 
 describe('readHeroStory', () => {

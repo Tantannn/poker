@@ -6,6 +6,16 @@ import { KIND_COLOR } from './chartColors';
 import { CalcLabel, GlossaryText } from './CalcTip';
 import { ReasonList } from './ReasonList';
 
+// Villain line-shape read → scannable chip. Tone reuses the board-type pill
+// colors: dry = green (favourable to hero), semiwet = gold (caution), wet = red
+// (danger — fold). A value/trap line is the RED one: believe it, don't marry a pair.
+const STORY_LABEL: Record<string, string> = { value: 'Value / trap', polar: 'Polarized', bluffy: 'Capped / bluffy' };
+const STORY_TONE: Record<string, string> = { value: 'wet', polar: 'semiwet', bluffy: 'dry' };
+// River blocker read → chip. Blocking his value OR holding his bluffs both lean
+// fold (red); neutral removal is no help (gold).
+const BLOCKER_LABEL: Record<string, string> = { blockValue: 'Blocks his value', blockBluffs: 'Holds his bluffs', neutral: 'Neutral removal' };
+const BLOCKER_TONE: Record<string, string> = { blockValue: 'wet', blockBluffs: 'wet', neutral: 'semiwet' };
+
 export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boolean }) {
   const [explain, setExplain] = useState(false);
   const [showChart, setShowChart] = useState(false);
@@ -129,10 +139,31 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
                 <div className="gp-hand-blurb"><ReasonList text={ctx.handBlurb} /></div>
                 {fb.equity != null && (
                   <p className="gp-muted">
-                    <CalcLabel id="equity">Equity vs villain's range</CalcLabel>: <b>{(fb.equity * 100).toFixed(1)}%</b>.
+                    <CalcLabel id="equity">{ctx.opponents > 1 ? 'Equity vs the field' : "Equity vs villain's range"}</CalcLabel>: <b>{(fb.equity * 100).toFixed(1)}%</b>.
                   </p>
                 )}
               </div>
+
+              {ctx.villainStory && (
+                <div className="gp-block">
+                  <div className="gp-h">
+                    Villain's story
+                    <span className={`board-type ${STORY_TONE[ctx.villainStory.read] ?? ''}`}>{STORY_LABEL[ctx.villainStory.read] ?? ctx.villainStory.read}</span>
+                  </div>
+                  <p>{ctx.villainStory.why}</p>
+                  <p className="gp-muted"><b>{ctx.villainStory.action}</b></p>
+                </div>
+              )}
+
+              {ctx.blocker?.why && (
+                <div className="gp-block">
+                  <div className="gp-h">
+                    What you block
+                    <span className={`board-type ${BLOCKER_TONE[ctx.blocker.read] ?? ''}`}>{BLOCKER_LABEL[ctx.blocker.read] ?? ctx.blocker.read}</span>
+                  </div>
+                  <p>{ctx.blocker.why}</p>
+                </div>
+              )}
             </>
           )}
 

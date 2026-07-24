@@ -20,6 +20,7 @@ import { useMemo, useState } from 'react';
 import type { Card } from '../engine/cards';
 import { parseCard, sameCard, cardId } from '../engine/cards';
 import { codeToCombos } from '../engine/range';
+import { evaluate7, evaluateBest } from '../engine/evaluator';
 import { classifyHandClass } from '../strategy/handClass';
 import { playGrade } from '../sound';
 import { SpotBoard } from './SpotBoard';
@@ -29,7 +30,12 @@ import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/dril
 // ---- decision logic (pure + exported for tests) --------------------------
 
 export type BlockerAction = 'call' | 'fold' | 'bluff-raise';
-export type BlockerRationale = 'block-value-raise' | 'price-call' | 'block-bluffs-fold' | 'price-fold';
+export type BlockerRationale =
+  | 'block-value-raise'
+  | 'showdown-value-call'
+  | 'price-call'
+  | 'block-bluffs-fold'
+  | 'price-fold';
 
 /** The minimum a pure, testable grade needs: hero's two cards, the board, the
  *  villain's VALUE + BLUFF combos as 169-codes, and the money. */
@@ -51,6 +57,7 @@ export interface BlockerVerdict {
   bluffAfter: number;
   valueBlockRate: number; // share of villain's value your cards remove, 0..1
   bluffBlockRate: number;
+  heroBeatsBluffRate: number; // share of surviving bluff combos hero beats at showdown, 0..1
   bluffFracBefore: number; // bluff / (value + bluff), board-only
   bluffFracAfter: number; //  … after your blockers — the number that decides
   need: number; // break-even equity to call, 0..1
@@ -65,6 +72,11 @@ export interface BlockerVerdict {
 // incidental blocking in a normal bluff-catch spot does not.
 export const VALUE_BLOCK_RAISE = 0.18;
 export const BLUFF_BLOCK_RAISE_MAX = 0.12;
+// A bluff-raise is ONLY correct with a hand that can't win at showdown: if your
+// hand already beats his bluffs you should CALL and collect that value (raising
+// folds out the hands you beat, and gets called only by what beats you). So the
+// raise is gated on hero beating fewer than half of villain's surviving bluffs.
+export const SHOWDOWN_VALUE_MAX = 0.5;
 
 /** Concrete combos of `codes` after deleting any that collide with a `dead`
  *  card (hero's hand + the board). This is the blocker removal — the whole
@@ -109,14 +121,25 @@ export function decideBlocker(input: BlockerInput): BlockerVerdict {
   const valueBlockRate = valueBefore > 0 ? (valueBefore - valueAfter) / valueBefore : 0;
   const bluffBlockRate = bluffBefore > 0 ? (bluffBefore - bluffAfter) / bluffBefore : 0;
 
+  // Showdown value: of the bluff combos still live after removal, what share does
+  // hero's actual hand beat? This is what separates a bluff-CATCH (call and win vs
+  // his air) from a bluff-RAISE (you can't win at showdown, so fold his range out).
+  const heroBeatsBluffRate = beatRate(hero, board, bluff, dead);
+
+  const blocksValue = valueBlockRate >= VALUE_BLOCK_RAISE && bluffBlockRate <= BLUFF_BLOCK_RAISE_MAX;
+  const hasShowdownValue = heroBeatsBluffRate >= SHOWDOWN_VALUE_MAX;
+
   let action: BlockerAction;
   let rationale: BlockerRationale;
-  if (valueBlockRate >= VALUE_BLOCK_RAISE && bluffBlockRate <= BLUFF_BLOCK_RAISE_MAX) {
+  if (blocksValue && !hasShowdownValue) {
+    // strips his value AND can't win by calling → the real blocker bluff-raise.
     action = 'bluff-raise';
     rationale = 'block-value-raise';
   } else if (bluffFracAfter >= need) {
     action = 'call';
-    rationale = 'price-call';
+    // blocked his value but the same card made a hand that beats his bluffs → it's
+    // a bluff-catch, not a raise. Flag it so the reveal teaches the trap.
+    rationale = blocksValue && hasShowdownValue ? 'showdown-value-call' : 'price-call';
   } else {
     action = 'fold';
     // If your cards cut his bluffs and that is what pushed the price out of
@@ -133,12 +156,34 @@ export function decideBlocker(input: BlockerInput): BlockerVerdict {
     bluffAfter,
     valueBlockRate,
     bluffBlockRate,
+    heroBeatsBluffRate,
     bluffFracBefore,
     bluffFracAfter,
     need,
     call,
     potWithBet,
   };
+}
+
+/** Share of `bluff`'s still-live combos (not colliding with `dead` = hero+board)
+ *  that hero's made hand beats at showdown. Deduped like countCombos so
+ *  overlapping codes never skew the rate. */
+export function beatRate(hero: Card[], board: Card[], bluff: string[], dead: Card[]): number {
+  const heroScore = evaluateBest(hero, board).score;
+  const seen = new Set<number>();
+  let live = 0;
+  let beat = 0;
+  for (const code of bluff) {
+    for (const [a, b] of codeToCombos(code)) {
+      if (dead.some((d) => sameCard(d, a) || sameCard(d, b))) continue;
+      const key = cardId(a) < cardId(b) ? cardId(a) * 52 + cardId(b) : cardId(b) * 52 + cardId(a);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      live++;
+      if (evaluate7([a, b, ...board]).score < heroScore) beat++;
+    }
+  }
+  return live > 0 ? beat / live : 0;
 }
 
 // ---- scenarios -----------------------------------------------------------
@@ -169,21 +214,21 @@ export function gradeScenario(s: BlockerScenario): BlockerVerdict {
 // stored — change a hero card and the grade moves.
 export const SCENARIOS: BlockerScenario[] = [
   {
-    id: 'ace-block',
-    title: 'You hold the case-ace blocker',
-    villain: 'A tight villain jams the river only with a set or top two pair (AA / AQ / QQ / 99), plus his busted broadway draws as bluffs (KJ / JT / T8).',
-    heroCards: ['Ah', '5s'],
-    boardCards: ['As', 'Qs', '9d', '4c', '2h'],
-    value: ['AA', 'AQs', 'AQo', 'QQ', '99'],
-    bluff: ['KJs', 'KJo', 'JTs', 'JTo', 'T8s', 'T8o'],
-    pot: 20,
-    bet: 15,
+    id: 'block-value-raise',
+    title: 'Air that blocks his straight — the real bluff-raise',
+    villain: 'On 9-8-7, villain value-bets his straights (JT / 65) and top set (99), and barrels his missed overcards (AK / AQ / KQ) as bluffs.',
+    heroCards: ['Jc', '5d'], // jack-high: blocks the JT nut straight, beats NONE of his overcard bluffs
+    boardCards: ['9h', '8d', '7c', '3s', '2h'],
+    value: ['JTs', 'JTo', '65s', '65o', '99'],
+    bluff: ['AKs', 'AKo', 'AQs', 'AQo', 'KQs', 'KQo'],
+    pot: 24,
+    bet: 18,
   },
   {
     id: 'straight-block',
-    title: 'You block the nut straight',
+    title: "Trap: your pair beats his air — CALL, don't raise",
     villain: 'Villain value-bets the T-high straight (T9) and sets (88 / 66); his bluffs are the missed overcards (AK / AQ / KQ / KJ).',
-    heroCards: ['Td', '8c'],
+    heroCards: ['Td', '8c'], // pair of 8s: you blocked value, but this pair beats every busted overcard → bluff-catch
     boardCards: ['8h', '7s', '6d', '3c', '2h'],
     value: ['T9s', 'T9o', '88', '66'],
     bluff: ['AKs', 'AKo', 'AQs', 'AQo', 'KQs', 'KQo', 'KJs', 'KJo'],
@@ -192,9 +237,9 @@ export const SCENARIOS: BlockerScenario[] = [
   },
   {
     id: 'king-block',
-    title: 'Your king blocks his nut two-pair',
+    title: "Trap: your king made a pair — CALL, don't raise",
     villain: 'On A-K-high, villain bets top two pair and sets (AK / AA / KK / 77); bluffs are the busted draws (QJ / JT / T9).',
-    heroCards: ['Kc', '5s'],
+    heroCards: ['Kc', '5s'], // second pair: blocks his value BUT beats all his bluffs → don't blast off, call
     boardCards: ['Ah', 'Kd', '7s', '4c', '2h'],
     value: ['AKs', 'AKo', 'AA', 'KK', '77'],
     bluff: ['QJs', 'QJo', 'JTs', 'JTo', 'T9s', 'T9o'],
@@ -203,9 +248,9 @@ export const SCENARIOS: BlockerScenario[] = [
   },
   {
     id: 'topset-block',
-    title: 'You block top set AND top two',
+    title: 'Trap: pair of jacks beats his draws — CALL',
     villain: 'Villain only bets the nutted part of his range — top two pair (JT) and sets (JJ / TT) — bluffing his busted straight draws (Q9 / 98 / 87).',
-    heroCards: ['Jd', '5h'],
+    heroCards: ['Jd', '5h'], // pair of jacks: blocks his sets/two-pair but crushes his busted draws → call
     boardCards: ['Js', 'Td', '6c', '3s', '2h'],
     value: ['JTs', 'JTo', 'JJ', 'TT'],
     bluff: ['Q9s', 'Q9o', '98s', '98o', '87s', '87o'],
@@ -307,7 +352,9 @@ function whyText(v: BlockerVerdict): string {
   const vRemoved = v.valueBefore - v.valueAfter;
   switch (v.rationale) {
     case 'block-value-raise':
-      return `Your cards remove ${vRemoved} of villain's ${v.valueBefore} value combos (${pct(v.valueBlockRate)}) while leaving all ${v.bluffAfter} of his bluffs in his range. When you raise, he almost never has a hand strong enough to continue — so turn your hand into a bluff-raise and make his air fold. Blocking the nuts ⇒ raise, not just call.`;
+      return `Your cards remove ${vRemoved} of villain's ${v.valueBefore} value combos (${pct(v.valueBlockRate)}) while leaving all ${v.bluffAfter} of his bluffs in. And — the key — your hand can't win at showdown: it beats only ${pct(v.heroBeatsBluffRate)} of his bluffs, so calling wins nothing. Raising is your ONLY way to win: he almost never has it (you block it) and his air folds. A bluff-raise is for a hand with no showdown value that blocks the nuts.`;
+    case 'showdown-value-call':
+      return `Careful — this is the trap. Yes, you stripped ${pct(v.valueBlockRate)} of his value, but the same card MADE you a hand that beats ${pct(v.heroBeatsBluffRate)} of his bluffs. Raising would fold out the very hands you already beat and get called only by what beats you — that's turning showdown value into a bluff. Just CALL: he's ${bf} bluffs after removals vs the ${nd} you need, so let his air pay you off. Block value ⇒ raise ONLY when you can't win at showdown.`;
     case 'price-call':
       return `After removing the combos your cards account for, villain's river bet is ${bf} bluffs, and at this price you only need ${nd} equity to break even. ${bf} ≥ ${nd} ⇒ your bluff-catcher shows a profit — call.`;
     case 'block-bluffs-fold':
@@ -356,9 +403,11 @@ export function BlockerDrill() {
       <p className="sub">
         Counting combos tells you <i>how many</i> hands villain has. This drills the next step: do
         <b> your two cards</b> make the river a <b>call</b>, a <b>fold</b>, or a <b>bluff-raise</b>?
-        Holding a card of his value class deletes his nut combos (raise); holding his busted-draw
-        cards deletes his bluffs (fold). Every answer is honest combinatorics — villain's combos are
-        enumerated and the ones your hand blocks are removed, then compared to your pot-odds price.
+        Deleting his busted-draw cards ⇒ fold; deleting his nut combos ⇒ raise <i>only if your hand
+        can't win at showdown</i> — if your blocker also made a hand that beats his bluffs, you have a
+        bluff-catch and should call. Every answer is honest combinatorics: villain's combos are
+        enumerated, the ones your hand blocks are removed, and your hand is run to showdown against
+        what's left.
       </p>
 
       <div className="quiz-bar">
@@ -433,6 +482,14 @@ export function BlockerDrill() {
               <div className="big-stat">{pct(verdict.need)}</div>
               <div className="stat-lbl">equity you need to call</div>
             </div>
+            <div className="lab-eq" style={{ padding: '0.4rem 0.6rem' }}>
+              <div className="big-stat" style={{ color: verdict.heroBeatsBluffRate >= 0.5 ? '#4ea1ff' : '#ff6b6b' }}>
+                {pct(verdict.heroBeatsBluffRate)}
+              </div>
+              <div className="stat-lbl">
+                of his bluffs YOU beat{verdict.heroBeatsBluffRate >= 0.5 ? ' · call, don’t raise' : ' · no showdown value'}
+              </div>
+            </div>
           </div>
 
           <div className="lab-why">
@@ -459,12 +516,13 @@ export function BlockerDrill() {
       <div className="bsd-cheat">
         <h4>Blockers on the river — the rule</h4>
         <div className="bsd-cheat-grid">
-          <div><span className="bsd-pill polar">Block value ⇒ raise</span> Hold a card of villain's nut class (nut flush ace, a card of his straight / top two / set) and he rarely has it. Raise: your blocker becomes fold equity, and you unblock the bluffs that fold.</div>
+          <div><span className="bsd-pill polar">Block value ⇒ raise</span> Hold a card of villain's nut class AND have no showdown value (a busted draw). He rarely has it, so raising folds his range out — your blocker is pure fold equity. The raise is your only way to win the hand.</div>
           <div><span className="bsd-pill check">Block bluffs ⇒ fold</span> Hold the cards of his busted draws and he has fewer bluffs than the board suggests. His range is now value-heavy — your bluff-catcher gets there less often. Fold.</div>
           <div><span className="bsd-pill small">Good price ⇒ call</span> When you block neither, it's pure pot odds: call if his bluff% (after removals) ≥ what you need. Small bet = cheap price = call wider.</div>
           <div><span className="bsd-pill big">Bad price ⇒ fold</span> Big bet / overbet ⇒ you need more bluffs to call. A value-heavy jammer with few bluffs doesn't lay you the price. Fold.</div>
           <div><span className="bsd-pill pos">The maths</span> Need = call ÷ (pot + call). Villain bluff% = bluffs ÷ (value + bluffs), counted AFTER deleting the combos your hand + the board remove. bluff% ≥ need ⇒ call, else fold.</div>
           <div><span className="bsd-pill polar">Same card, opposite jobs</span> An ace can BLOCK his value (⇒ raise) or, on another board, BE his missing bluff (⇒ fold). Read what your specific cards remove, not just the raw combo count.</div>
+          <div><span className="bsd-pill warn">Blocker MADE a hand? ⇒ call</span> The classic trap: your blocker (a king, a pair) also beats his bluffs. Then it's a bluff-CATCH, not a raise — raising folds out the hands you beat and gets called only by better. Never turn showdown value into a bluff. Bluff-raise ONLY when you can't win at showdown.</div>
         </div>
         <p className="bsd-note">
           Core idea: <b>combos aren't fixed — your hand edits them</b>. Before you price a river call,

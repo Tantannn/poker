@@ -24,19 +24,36 @@ describe('countCombos — honest blocker removal', () => {
 });
 
 describe('decideBlocker — verdict is computed from the cards, never hardcoded', () => {
-  // (a) Blocking VALUE flips a marginal spot toward the raise. Same board /
-  //     range / price; only hero's cards change.
-  it('blocking villain value flips a call into a bluff-raise', () => {
+  // (a) A made hand that blocks value is still a CALL, not a raise: raising would
+  //     fold out the bluffs it already beats. Same board / range / price.
+  it('a made hand that blocks value CALLS — showdown value is not a bluff-raise', () => {
     const board = cards('Ah', 'Kd', '7s', '4c', '2h');
     const value = ['AKs', 'AKo', 'AA', 'KK', '77'];
     const bluff = ['QJs', 'QJo', 'JTs', 'JTo', 'T9s', 'T9o'];
-    const withBlocker = decideBlocker({ hero: cards('Kc', '5s'), board, value, bluff, pot: 26, bet: 20 });
+    const madeBlocker = decideBlocker({ hero: cards('Kc', '5s'), board, value, bluff, pot: 26, bet: 20 });
     const noBlocker = decideBlocker({ hero: cards('6c', '5s'), board, value, bluff, pot: 26, bet: 20 });
 
     expect(noBlocker.action).toBe('call'); // holding no blocker → pure bluff-catch
-    expect(withBlocker.action).toBe('bluff-raise'); // the king strips his nut combos
-    expect(withBlocker.valueBlockRate).toBeGreaterThan(noBlocker.valueBlockRate);
-    expect(withBlocker.valueAfter).toBeLessThan(withBlocker.valueBefore);
+    // the king strips his value, but it ALSO made second pair that beats his
+    // busted bluffs — so it's a bluff-catch, never a bluff-raise.
+    expect(madeBlocker.action).toBe('call');
+    expect(madeBlocker.rationale).toBe('showdown-value-call');
+    expect(madeBlocker.heroBeatsBluffRate).toBeGreaterThanOrEqual(0.5);
+    expect(madeBlocker.valueBlockRate).toBeGreaterThan(noBlocker.valueBlockRate);
+  });
+
+  // The genuine bluff-raise: blocks his value AND has no showdown value (jack-high
+  // loses even to his overcard bluffs), so raising to fold him out is the only win.
+  it('air that blocks value with no showdown value IS a bluff-raise', () => {
+    const board = cards('9h', '8d', '7c', '3s', '2h');
+    const value = ['JTs', 'JTo', '65s', '65o', '99'];
+    const bluff = ['AKs', 'AKo', 'AQs', 'AQo', 'KQs', 'KQo'];
+    const v = decideBlocker({ hero: cards('Jc', '5d'), board, value, bluff, pot: 24, bet: 18 });
+
+    expect(v.action).toBe('bluff-raise');
+    expect(v.rationale).toBe('block-value-raise');
+    expect(v.heroBeatsBluffRate).toBeLessThan(0.5); // jack-high beats none of his overcards
+    expect(v.valueBlockRate).toBeGreaterThanOrEqual(0.18);
   });
 
   // Blocking BLUFFS flips a call into a fold — same board / range / price.
@@ -74,10 +91,10 @@ describe('decideBlocker — verdict is computed from the cards, never hardcoded'
 
 describe('authored scenarios all grade to their intended line', () => {
   const expected: Record<string, string> = {
-    'ace-block': 'bluff-raise',
-    'straight-block': 'bluff-raise',
-    'king-block': 'bluff-raise',
-    'topset-block': 'bluff-raise',
+    'block-value-raise': 'bluff-raise', // air blocks his value, no showdown value
+    'straight-block': 'call', // pair of 8s beats his air → bluff-catch trap
+    'king-block': 'call', // second pair beats his bluffs → bluff-catch trap
+    'topset-block': 'call', // pair of jacks beats his draws → bluff-catch trap
     'block-bluffs': 'fold',
     'bad-price-overbet': 'fold',
     'bad-price-2': 'fold',

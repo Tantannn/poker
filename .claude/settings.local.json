@@ -158,7 +158,13 @@
       "PowerShell(npx vitest run 2>&1 | Select-Object -Last 18)",
       "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 15)",
       "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6; echo \"=== RUN 2 ===\"; npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6)",
-      "PowerShell(npx vitest run src/strategy/drillDeal.test.ts 2>&1 | Select-Object -Last 30)"
+      "PowerShell(npx vitest run src/strategy/drillDeal.test.ts 2>&1 | Select-Object -Last 30)",
+      "Bash(:)",
+      "Bash(echo \"EXIT tsc=$?\")",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell($procs = Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }; Write-Output \"found $\\($procs.Count\\) vitest node procs\"; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 500; $left = \\(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }\\).Count; Write-Output \"remaining: $left\")",
+      "PowerShell($env:CI='true'; npx vitest run src/strategy src/engine src/analysis src/ai src/store --reporter=dot 2>&1 | Select-Object -Last 12; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell($procs = Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }; Write-Output \"found $\\($procs.Count\\)\"; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 400; Write-Output \"remaining $\\(\\(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }\\).Count\\)\")"
     ]
   }
 }

@@ -485,6 +485,10 @@ export function useGame(initialProfiles: string[]) {
         id: o.id, label: o.label, freq: o.freq, ev: o.ev, kind: o.kind, amount: o.amount, sizePct: o.sizePct, calledEq: o.calledEq,
       })),
       opponents: prev.players.filter((p, i) => i !== 0 && !p.folded).length,
+      // Line-shape + blocker reads, already computed for the live explain panel
+      // (buildFeedbackContext) — persist them so Hand Review shows the same reads.
+      villainStory: fb.context?.villainStory,
+      blocker: fb.context?.blocker,
       villainRange: strat.villainRange ? Array.from(strat.villainRange.entries()) : [],
     });
 

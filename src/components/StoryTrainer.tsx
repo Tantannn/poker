@@ -99,6 +99,7 @@ export interface Scenario {
   line: StreetMove[];
   answer: string; // the reader's verdict — the graded truth (line SHAPE)
   why: string;
+  action: string; // what the read prescribes — the decision rep
   pendingStreet: PostStreet; // hero mode: the street being bet
   // villain mode only — the type + player-count overlay (modulates the read).
   readId?: string;
@@ -120,7 +121,7 @@ export function genScenario(mode: Mode, rng: () => number = Math.random): Scenar
     const profile = pick(PROFILE_LIST, rng);
     const opps = rng() < 0.3 ? (rng() < 0.5 ? 2 : 3) : 1; // sometimes multiway
     return {
-      mode, board, revealed, line, answer: v.read, why: v.why, pendingStreet,
+      mode, board, revealed, line, answer: v.read, why: v.why, action: v.action, pendingStreet,
       readId: tagToType(profile.tag), profileTag: profile.tag, profileName: profile.name, opps,
     };
   }
@@ -128,7 +129,7 @@ export function genScenario(mode: Mode, rng: () => number = Math.random): Scenar
   const specs = pick(HERO_PATTERNS[revealed][target], rng);
   const line = buildLine(specs, rng); // prior streets only
   const h = readHeroStory(line, revealed);
-  return { mode, board, revealed, line, answer: h.read, why: h.why, pendingStreet, opps: 1 };
+  return { mode, board, revealed, line, answer: h.read, why: h.why, action: h.action, pendingStreet, opps: 1 };
 }
 
 // First scenario at module load — React forbids impure Math.random in render.
@@ -287,6 +288,10 @@ export function StoryTrainer() {
           <div className="gp-block">
             <div className="gp-h">Why — the line shape</div>
             <p>{scenario.why}</p>
+          </div>
+          <div className="gp-block st-do">
+            <div className="gp-h">{mode === 'villain' ? '➡ Do — facing this bet' : '➡ Do — your pending bet'}</div>
+            <p>{scenario.action}</p>
           </div>
           {mode === 'villain' && scenario.readId && (
             <div className="gp-block st-mod">

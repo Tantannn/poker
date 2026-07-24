@@ -28,6 +28,14 @@ import { RangeChartModal } from './RangeChartModal';
 import { ReasonList } from './ReasonList';
 
 type G = ReturnType<typeof useGame>;
+
+// Villain line-shape + river blocker reads → scannable chips (same mapping as the
+// live explain panel). Tone reuses board-type pill colors: wet = red (danger —
+// fold/trap), semiwet = gold (caution), dry = green (favourable to hero).
+const STORY_LABEL: Record<string, string> = { value: 'Value / trap', polar: 'Polarized', bluffy: 'Capped / bluffy' };
+const STORY_TONE: Record<string, string> = { value: 'wet', polar: 'semiwet', bluffy: 'dry' };
+const BLOCKER_LABEL: Record<string, string> = { blockValue: 'Blocks his value', blockBluffs: 'Holds his bluffs', neutral: 'Neutral removal' };
+const BLOCKER_TONE: Record<string, string> = { blockValue: 'wet', blockBluffs: 'wet', neutral: 'semiwet' };
 type Street = 'preflop' | 'flop' | 'turn' | 'river';
 const STREETS: Street[] = ['preflop', 'flop', 'turn', 'river'];
 const CARDS_BY_STREET: Record<Street, number> = { preflop: 0, flop: 3, turn: 4, river: 5 };
@@ -288,6 +296,27 @@ function DecisionDeepDive({ d, bigBlind, heroCards, board }: { d: DecisionSnapsh
           <div className="rv-deep-block">
             <div className="rv-deep-h">Sizing</div>
             <div className="gp-muted"><ReasonList text={sizingCoach} /></div>
+          </div>
+        )}
+
+        {d.villainStory && (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">
+              Villain's story
+              <span className={`board-type ${STORY_TONE[d.villainStory.read] ?? ''}`}>{STORY_LABEL[d.villainStory.read] ?? d.villainStory.read}</span>
+            </div>
+            <p>{d.villainStory.why}</p>
+            <p className="gp-muted"><b>{d.villainStory.action}</b></p>
+          </div>
+        )}
+
+        {d.blocker?.why && (
+          <div className="rv-deep-block">
+            <div className="rv-deep-h">
+              What you block
+              <span className={`board-type ${BLOCKER_TONE[d.blocker.read] ?? ''}`}>{BLOCKER_LABEL[d.blocker.read] ?? d.blocker.read}</span>
+            </div>
+            <p>{d.blocker.why}</p>
           </div>
         )}
 

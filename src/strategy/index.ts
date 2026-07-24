@@ -667,6 +667,10 @@ function postflopStrategy(
     cbVp && !cbVp.isHero
       ? Math.max(-0.15, Math.min(0.3, (getProfile(cbVp.profileId).callStation - 0.3) * 0.5))
       : 0;
+  // Passive villain = low aggression (a calling station like LP at 0.25); he won't
+  // bet when checked to, so a "check to trap" line with a strong hand just checks it
+  // down. Flips the check-line coach to "lead for value" (see solvePostflop).
+  const villainPassive = cbVp && !cbVp.isHero ? getProfile(cbVp.profileId).aggression < 0.4 : false;
 
   const strat = solvePostflop({
     hero: hero.holeCards,
@@ -690,6 +694,7 @@ function postflopStrategy(
     comboWeight,
     position,
     contBias,
+    villainPassive,
   });
 
   // Villain-read overlay: name how THIS opponent's tendencies shift the baseline

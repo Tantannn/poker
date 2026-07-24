@@ -929,7 +929,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 /* ---------- rich feedback gameplan ---------- */
 .fb-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .fb-gameplan { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }
-.gp-block { }
+/* .gp-block { } */
 .gp-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gold); margin-bottom: 4px; }
 /* dry/semi/wet board-type chip — colour cues the sizing rule (dry→small, wet→big) */
 .board-type { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; border: 1px solid var(--line); vertical-align: middle; }
@@ -1791,6 +1791,7 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .bsd-pill.polar { background: var(--raise); }
 .bsd-pill.check { background: #6b7a72; color: #e8efe9; }
 .bsd-pill.pos { background: #8a6fd6; color: #f2eefc; }
+.bsd-pill.warn { background: #e0a13a; color: #1a1206; }
 
 /* ---- Mental Game ---- */
 .mg-block { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
@@ -2139,6 +2140,9 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .st-way.multi { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
 .st-hint { margin: 2px 0 8px; }
 .st-mod { border-left: 3px solid var(--gold); padding-left: 10px; }
+/* the action verdict — green left border marks it as the decision rep, not the read */
+.st-do { border-left: 3px solid var(--raise); padding-left: 10px; }
+.st-do .gp-h { color: var(--raise); }
 
 /* ── Mental Game: two-column live routine ─────────────────────────────── */
 .mg-routines { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -2180,3 +2184,24 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .cf-clock-bar { height: 7px; border-radius: 999px; background: var(--bg2); border: 1px solid var(--line); overflow: hidden; }
 .cf-clock-fill { height: 100%; background: var(--gold); border-radius: 999px; transition: width 150ms linear; }
 .cf-clock.low .cf-clock-fill { background: var(--red); }
+
+/* ── Bluff-Catcher drill ──────────────────────────────────────────────── */
+.bc-primer { background: var(--bg2); border: 1px solid var(--line); border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0; padding: 10px 12px; margin: 4px 0 10px; font-size: 12.5px; line-height: 1.55; color: var(--txt); }
+.bc-primer b { color: var(--gold); }
+.bc-price { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.bc-price-row { font-size: 13.5px; line-height: 1.5; }
+.bc-price-row b { color: var(--txt); }
+.bc-need { color: var(--muted); margin-top: 4px; }
+.bc-need b { color: var(--gold); }
+.bc-choices { grid-template-columns: 1fr 1fr; }
+.bc-verdict { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 12px 0 8px; flex-wrap: wrap; }
+.bc-num { text-align: center; }
+.bc-num-v { font-size: 26px; font-weight: 800; color: var(--txt); line-height: 1; }
+.bc-num-l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin-top: 3px; }
+.bc-vs { font-size: 22px; font-weight: 800; color: var(--muted); }
+.bc-call { font-size: 18px; font-weight: 800; padding: 4px 12px; border-radius: 8px; }
+.bc-call.good { color: var(--raise); background: rgba(46,194,126,0.12); }
+.bc-call.bad { color: var(--red); background: rgba(224,87,58,0.12); }
+.bc-bar { position: relative; height: 12px; border-radius: 999px; background: #0c1813; border: 1px solid var(--line); overflow: hidden; margin: 4px 0 12px; }
+.bc-bar-bluff { height: 100%; background: color-mix(in srgb, var(--gold) 70%, transparent); }
+.bc-bar-need { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--red); z-index: 1; }

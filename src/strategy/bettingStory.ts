@@ -70,8 +70,11 @@ export type VillainStory = 'value' | 'polar' | 'bluffy' | 'none';
 
 export interface VillainStoryVerdict {
   read: VillainStory;
-  /** English recap of the line + what it means for the call — the teaching payload. */
+  /** English recap of the line SHAPE — why it reads this way. */
   why: string;
+  /** The action the read prescribes — fold / call wider / bluff-catch. The
+   *  decision rep, split out so the drill can show it as a scannable verdict. */
+  action: string;
 }
 
 /** Read the villain's line up to (and including) the street facing the hero.
@@ -84,6 +87,7 @@ export function readVillainStory(line: StreetMove[], revealed: number): VillainS
     return {
       read: 'none',
       why: recap ? `He ${recap} — passive, nothing aggressive to read yet.` : 'No postflop action to read yet.',
+      action: 'No line to fade — decide on the board and the price, not on a read.',
     };
 
   const last = shown[shown.length - 1];
@@ -97,31 +101,52 @@ export function readVillainStory(line: StreetMove[], revealed: number): VillainS
   if (gaveUp)
     return {
       read: 'bluffy',
-      why: `He ${recap}. He took the lead then slowed down — a capped / give-up line. Value usually keeps firing, so this leans bluff or a weak made hand: bluff-catch wider.`,
+      why: `He ${recap}. He took the lead then slowed down — a capped / give-up line. Value usually keeps firing, so this leans bluff or a weak made hand.`,
+      action: "Call wider — bluff-catch even marginal hands. Don't fold to a give-up line.",
     };
-  if (last.kind === 'raise')
+  if (last.kind === 'raise') {
+    // A raise that is his FIRST aggression, after only calls/checks, is NOT the
+    // balanced nuts-or-bluff raise of an aggressor. A passive player who calls
+    // down then suddenly wakes up with a raise almost never has a bluff there —
+    // he'd have led it, or has nothing. So read passive-then-raise as VALUE / a
+    // TRAP (fold everything but a monster), not polar. This is the classic
+    // check-call-call-then-river-raise line, and the #1 spot one pair gets
+    // stacked. Only a raise on top of his OWN earlier aggression stays polar.
+    if (aggr.length === 1 && passiveEarly)
+      return {
+        read: 'value',
+        why: `He ${recap}. He called/checked the earlier streets, then RAISED — a passive line that suddenly wakes up. A player who just calls down doesn't balance a river raise with bluffs, so this is almost always the nuts: a slow-played monster or a hand that just got there.`,
+        action:
+          "TRAP — fold everything short of a hand that beats his obvious value. Do NOT pay a passive player's raise off with one pair or an overpair; when he never bluffs here the price is a lie.",
+      };
     return {
       read: 'polar',
-      why: `He ${recap}. A raise is polarized — the nuts or a bluff, little in between. Decide on blockers and the price, not on "he might have it".`,
+      why: `He ${recap}. A raise on top of his own aggression is polarized — the nuts or a bluff, little in between.`,
+      action: 'Decide on blockers + price. No blocker and no bluff-catcher priced in → fold. Never call on "he might have it".',
     };
+  }
   if (aggressiveNow && passiveEarly)
     return last.frac >= 0.85
       ? {
           read: 'polar',
-          why: `He ${recap}. A big fire after passivity is polarized / delayed — value he slow-played OR a bluff picking its spot. Bluff-catch by the price and how often he actually bluffs.`,
+          why: `He ${recap}. A big fire after passivity is polarized / delayed — value he slow-played OR a bluff picking its spot.`,
+          action: 'Call only with a genuine bluff-catcher at the right price; else fold. Weigh how often HE actually bluffs, not the raw price.',
         }
       : {
           read: 'bluffy',
-          why: `He ${recap}. Passive, then a modest stab — a delayed, often thin or bluffy line. His range is weaker than a multi-barrel, so call wider than the raw price suggests.`,
+          why: `He ${recap}. Passive, then a modest stab — a delayed, often thin or bluffy line. His range is weaker than a multi-barrel.`,
+          action: "Call wider than the raw price suggests — his range is capped. Don't fold marginal here.",
         };
   if (aggr.length >= 2 && aggressiveNow)
     return {
       read: 'value',
-      why: `He ${recap}. Multi-street aggression with sizing holding or growing is a linear VALUE story — believe it. Fold marginal hands; only strong bluff-catchers continue.`,
+      why: `He ${recap}. Multi-street aggression with sizing holding or growing is a linear VALUE story — believe it.`,
+      action: "Fold marginal hands — only strong bluff-catchers continue. Don't marry one pair to a value line.",
     };
   return {
     read: 'none',
-    why: `He ${recap}. One bet, no multi-street story yet — decide on the price and the board, not a line read.`,
+    why: `He ${recap}. One bet, no multi-street story yet.`,
+    action: 'No line to read — decide on the price and the board.',
   };
 }
 
@@ -132,6 +157,8 @@ export type HeroStory = 'credible' | 'fresh' | 'broken';
 export interface HeroStoryVerdict {
   read: HeroStory;
   why: string;
+  /** What to do with the pending bet — fire / bet-if-fits / give up. */
+  action: string;
 }
 
 /** Read the hero's OWN line before the pending bet/raise on street `revealed`
@@ -146,15 +173,18 @@ export function readHeroStory(line: StreetMove[], revealed: number): HeroStoryVe
   if (priorAggr)
     return {
       read: 'credible',
-      why: `You ${recap}. This bet continues a hand you've already repped — the value story holds, so a bluff is believable and a value bet gets paid by the range you built.`,
+      why: `You ${recap}. This bet continues a hand you've already repped — the value story holds.`,
+      action: 'Fire — a bluff is believed and a value bet gets paid by the range you built.',
     };
   if (!priorPassive)
     return {
       read: 'fresh',
-      why: `First postflop move of the hand — the story STARTS now. Credible only if this ${streetName} card plausibly hits YOUR range; a bluff needs a board you'd also bet for value.`,
+      why: `First postflop move of the hand — the story STARTS now.`,
+      action: `Bet only if this ${streetName} card plausibly hits YOUR range; a bluff needs a board you'd also value-bet. Else check.`,
     };
   return {
     read: 'broken',
-    why: `You ${recap}, now suddenly betting. Passive-then-big represents almost nothing — a thinking villain won't fold to a line that tells no value story. If bluffing, that's the leak; if value, you let earlier streets go too cheap.`,
+    why: `You ${recap}, now suddenly betting. Passive-then-big represents almost nothing — a thinking villain won't fold to a line that tells no value story.`,
+    action: "Don't bluff — nobody folds to this. Give up / take the free card. (If value, you let earlier streets go too cheap.)",
   };
 }

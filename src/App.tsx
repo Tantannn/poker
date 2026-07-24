@@ -35,10 +35,11 @@ const StoryTrainer = lazy(() => import('./components/StoryTrainer').then((m) => 
 const SizingTellDrill = lazy(() => import('./components/SizingTellDrill').then((m) => ({ default: m.SizingTellDrill })));
 const TournamentDrill = lazy(() => import('./components/TournamentDrill').then((m) => ({ default: m.TournamentDrill })));
 const DisciplineDrill = lazy(() => import('./components/DisciplineDrill').then((m) => ({ default: m.DisciplineDrill })));
+const BluffCatcherDrill = lazy(() => import('./components/BluffCatcherDrill').then((m) => ({ default: m.BluffCatcherDrill })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'bluffcatch' | 'heatmap' | 'analytics' | 'reference' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -81,6 +82,7 @@ const TABS: { id: Tab; label: string; cat: Cat }[] = [
   { id: 'tells', label: '👁 Tells & Timing', cat: 'READS' },
   { id: 'blocker', label: '🚫 Blockers', cat: 'READS' },
   { id: 'plan', label: '🗺 Plan the Hand', cat: 'READS' },
+  { id: 'bluffcatch', label: '🎣 Bluff Catch', cat: 'READS' },
   // MENTAL
   { id: 'mental', label: '🧘 Mental Game', cat: 'MENTAL' },
   { id: 'discipline', label: '🧊 Cold Fold', cat: 'MENTAL' },
@@ -373,6 +375,11 @@ export default function App() {
           {tab === 'discipline' && (
             <div className="content-col">
               <DisciplineDrill />
+            </div>
+          )}
+          {tab === 'bluffcatch' && (
+            <div className="content-col">
+              <BluffCatcherDrill />
             </div>
           )}
           {tab === 'analytics' && (

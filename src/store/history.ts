@@ -45,6 +45,11 @@ export interface DecisionSnapshot {
    *  multiway caution in Hand Review's sizing coach. Optional: hands captured
    *  before this field default to heads-up (1) in review. */
   opponents?: number;
+  /** villain LINE-SHAPE read captured at decision time (turn/river): value/trap,
+   *  polar, or bluffy/capped. Optional — legacy hands lack it. */
+  villainStory?: { read: string; why: string; action: string };
+  /** river blocker read captured at decision time. Optional — legacy hands lack it. */
+  blocker?: { read: string; why: string };
   /** serialized villain WeightedRange (Map) for the range chart. */
   villainRange: [string, number][];
 }

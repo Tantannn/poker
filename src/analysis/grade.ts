@@ -8,6 +8,8 @@ import { evLoss as computeEvLoss, rngPrescription } from '../strategy/types';
 import { matchActionId, primaryVillainIdx } from '../strategy';
 import { describeTexture, boardWetness } from '../engine/board';
 import { classifyHandClass } from '../strategy/handClass';
+import { playerLine, readVillainStory } from '../strategy/bettingStory';
+import { readRiverBlockers } from '../strategy/riverBlockers';
 import { getProfile } from '../ai/profiles';
 import type { ActionClass } from './feedback';
 import type { MoveTier } from '../store/stats';
@@ -41,6 +43,18 @@ export interface FeedbackContext {
   handStrength: number;
   potBB: number;
   toCallBB: number;
+  /** live opponents (not folded, excl. hero). >1 → equity is vs the FIELD, so the
+   *  explain panel labels it "vs the field", matching the multiway EV framing. */
+  opponents: number;
+  /** villain's LINE-SHAPE read (turn/river): value/trap (believe it, don't marry
+   *  one pair), polar (nuts-or-bluff), or bluffy/capped (call wider). Complements
+   *  the archetype bluff% — the STORY his bets tell, independent of the EV number.
+   *  Undefined when there's no multi-street line to read. */
+  villainStory?: { read: string; why: string; action: string };
+  /** river-only: what the hero's EXACT cards remove from villain's range —
+   *  blocking his value (lean fold) vs holding his bluffs (also lean fold) vs
+   *  neutral. A live read that can OVERRIDE the raw price. Undefined pre-river. */
+  blocker?: { read: string; why: string };
 }
 
 export interface NodeFeedback {
@@ -271,6 +285,35 @@ export function buildFeedbackContext(state: GameState, heroIdx: number): Feedbac
     facing = aggressedThisStreet ? 'facing a check' : 'first to act';
   }
 
+  // Two live reads that turn a gut call into a reasoned fold/raise — the skills
+  // this trainer is built around. Both are pure fns; attach only when they say
+  // something. villainStory: the line-shape (turn+river, where a multi-street
+  // story exists). blocker: river-only card removal, framed for the decision hero
+  // faces (call = bluff-catch, else = rep/bluff).
+  let villainStory: FeedbackContext['villainStory'];
+  let blocker: FeedbackContext['blocker'];
+  if (vIdx >= 0 && !villain?.isHero && state.board.length >= 4) {
+    const vs = readVillainStory(playerLine(state.log, state.handNumber, vIdx), state.board.length - 2);
+    if (vs.read !== 'none') villainStory = { read: vs.read, why: vs.why, action: vs.action };
+  }
+  if (state.board.length === 5 && !state.players[heroIdx].folded) {
+    // call-mode (bluff-catch) removal is always relevant when FACING a bet. The
+    // aggressive-mode "what do you rep / fold-equity" framing only makes sense for a
+    // genuine BLUFF — busted air (strength 0-1). A MADE hand betting first-to-act is
+    // either value (wants CALLS, nothing to rep) or a check/showdown hand (middle
+    // pair) — the rep/fold-equity read misleads there (it read as "you're bluffing"
+    // on a straight, and as "lean on your story" on a middle pair vs a station).
+    // strength 0..5; 2 = one pair, 4+ = straight/flush/boat/set/two-pair/overpair.
+    const facingBet = la.callAmount > 0;
+    if (facingBet) {
+      const b = readRiverBlockers(state.players[heroIdx].holeCards, state.board, 'call');
+      if (b.why) blocker = { read: b.read, why: b.why };
+    } else if (hand.strength <= 1) {
+      const b = readRiverBlockers(state.players[heroIdx].holeCards, state.board, 'aggressive');
+      if (b.why) blocker = { read: b.read, why: b.why };
+    }
+  }
+
   return {
     street: state.street,
     facing,
@@ -286,6 +329,9 @@ export function buildFeedbackContext(state: GameState, heroIdx: number): Feedbac
     handStrength: hand.strength,
     potBB: potTotal(state) / bb,
     toCallBB: la.callAmount / bb,
+    opponents: state.players.filter((p, i) => i !== heroIdx && !p.folded).length,
+    villainStory,
+    blocker,
   };
 }
 
