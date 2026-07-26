@@ -159,7 +159,8 @@
       "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 15)",
       "PowerShell(npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6; echo \"=== RUN 2 ===\"; npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-Object -Last 6)",
       "PowerShell(npx vitest run src/strategy/drillDeal.test.ts 2>&1 | Select-Object -Last 30)",
-      "Bash(kill %1)"
+      "Bash(kill %1)",
+      "mcp__plugin_context-mode_context-mode__ctx_search"
     ]
   }
 }
