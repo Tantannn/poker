@@ -71,7 +71,12 @@ Installable as a **PWA** — serve the build over HTTPS, "Add to Home Screen", r
 `F` fold · `C` check/call · `R` raise (min) · `Space` deal next hand.
 
 ## Notes / honesty
-Ranges and the feedback baseline are **teaching-standard approximations**, not a solver.
+Ranges and the feedback baseline are **approximations, not a solver**. The shipped
+preflop charts (`src/data/solverPreflop.json`, 11 of 33 scenarios) are **hand-authored
+~100bb 6-max mixed-frequency charts** — closer to equilibrium than the binary token
+ranges they replace, but authored, not solved. Drop real solver exports in per scenario
+with `scripts/solver-to-preflop.mjs` (`--report` shows what's covered). The postflop
+turn/river CFR solver *is* a real range-vs-range solve; the flop is still heuristic.
 Equity is Monte-Carlo (2,500 sims for the hero HUD), so it wobbles a touch hand-to-hand.
 The architecture is built so a real solver/CFR engine can replace `ai/decide.ts` and the
 baseline in `analysis/feedback.ts` later. Play responsibly.

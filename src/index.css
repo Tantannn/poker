@@ -926,6 +926,23 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .opp-guess-verdict.ok { background: color-mix(in srgb, var(--raise2) 18%, transparent); color: var(--raise2); border: 1px solid var(--raise2); }
 .opp-guess-verdict.bad { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); border: 1px solid var(--red); }
 
+/* ---------- node lock (solve against your read, not the archetype) ---------- */
+.opp-lock { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.opp-lock-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opp-lock-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.opp-lock-obs { font-size: 11.5px; line-height: 1.5; }
+.opp-lock-sliders { display: flex; flex-direction: column; gap: 8px; }
+.opp-lock-slider { display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+.opp-lock-slider input[type='range'] { width: 100%; accent-color: var(--gold); }
+.opp-lock-read { font-size: 12px; line-height: 1.5; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+
+/* exploit delta on the strategy panel: balanced line vs the line that beats THIS villain */
+.strat-exploit { margin-top: 10px; border: 1px solid var(--gold); border-radius: 8px; padding: 9px 11px; background: color-mix(in srgb, var(--gold) 10%, transparent); }
+.strat-exploit-lbl { font-size: 11px; font-weight: 800; color: var(--gold); display: block; margin-bottom: 4px; }
+.strat-exploit-lines { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; align-items: baseline; }
+.strat-exploit-gain { font-weight: 800; color: var(--raise2); }
+.strat-exploit-why { margin: 5px 0 0; font-size: 12px; line-height: 1.5; }
+
 /* ---------- rich feedback gameplan ---------- */
 .fb-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .fb-gameplan { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }

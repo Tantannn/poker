@@ -112,6 +112,10 @@ export function ScenarioBar({ g }: { g: G }) {
           <input type="checkbox" checked={g.anonymousVillains} onChange={(e) => g.setAnonymousVillains(e.target.checked)} />
           Anonymous villains
         </label>
+        <label className="sc-check" title="Solve every postflop node against what you've OBSERVED each villain doing (fold-to-bet, bet frequency) instead of the bot's hidden archetype params — plus any node lock you set in the 🎭 Opponent panel. This is what beating a real regular looks like: the advice follows the read, not a label you can't see. Off = the old archetype-driven advice.">
+          <input type="checkbox" checked={g.readDrivenModel} onChange={(e) => g.setReadDrivenModel(e.target.checked)} />
+          🔒 Exploit from reads
+        </label>
         <label className="sc-check" title="Bias your dealt hole cards toward mixed / range-edge hands so more spots are close decisions. Weights the preflop spot only — the hand still plays out fully.">
           <input type="checkbox" checked={g.edgeFocus} onChange={(e) => g.setEdgeFocus(e.target.checked)} />
           🎯 Focus borderline hands

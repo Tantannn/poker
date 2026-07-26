@@ -24,8 +24,10 @@ import { pickDrillCode } from '../strategy/drillDeal';
 import { decideAction, inPositionPostflop } from '../ai/decide';
 import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
 import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
-import type { NodeStrategy } from '../strategy';
+import type { NodeStrategy, VillainModels } from '../strategy';
 import { getNodeStrategy, primaryVillainIdx } from '../strategy';
+import type { VillainLock } from '../strategy/villainModel';
+import { BALANCED, resolveVillainModel } from '../strategy/villainModel';
 import { getProfile } from '../ai/profiles';
 import { computeHudNode } from '../strategy/hudCompute';
 import type { HudInfo, VillainInfo, HudNodeResult } from '../strategy/hudCompute';
@@ -52,7 +54,7 @@ import { loadHistory, saveHistory, capHistory } from '../store/history';
 import type { GameMode } from '../store/game';
 import { loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '../store/game';
 import type { ObsCounters } from '../analysis/observed';
-import { accumulateHand } from '../analysis/observed';
+import { accumulateHand, toStats } from '../analysis/observed';
 
 export type { HistoryHand } from '../store/history';
 
@@ -187,9 +189,55 @@ export function useGame(initialProfiles: string[]) {
   const guessVillain = useCallback((seat: number, profileId: string) => {
     setVillainGuesses((m) => ({ ...m, [seat]: profileId }));
   }, []);
-  // per-seat observed stats (VPIP/PFR/AF), accumulated hand-by-hand because the
-  // engine's action log only keeps the last ~10 hands. Session-scoped like guesses.
+  // per-seat observed stats (VPIP/PFR/AF/fold-to-bet/bet-freq), accumulated
+  // hand-by-hand because the engine's action log only keeps the last ~10 hands.
+  // Session-scoped like guesses.
   const [obsCounters, setObsCounters] = useState<Record<number, ObsCounters>>({});
+  // NODE LOCK. Per-seat manual assertions about a villain ("he folds to 70% of
+  // barrels") that the strategy engine solves against. Persisted, because a read on
+  // a specific opponent is the thing you want to keep across a session — and it is
+  // the exploit workflow the app exists for: spot the leak, lock it, play the
+  // counter-strategy. See strategy/villainModel.ts.
+  const [villainLocks, setVillainLocks] = useState<Record<number, VillainLock>>(SAVED?.villainLocks ?? {});
+  // When on (default), the engine models each villain from OBSERVED behaviour rather
+  // than the bot's hidden archetype params. Off restores the old archetype-driven
+  // advice, which is useful for A/B but is strictly information the player can't see.
+  const [readDrivenModel, setReadDrivenModel] = useState<boolean>(SAVED?.readDrivenModel ?? true);
+
+  const setVillainLock = useCallback((seat: number, lock: VillainLock | null) => {
+    setVillainLocks((m) => {
+      const next = { ...m };
+      if (lock == null) delete next[seat];
+      else next[seat] = lock;
+      return next;
+    });
+  }, []);
+
+  // The villain models the strategy engine solves against, one per seat. Rebuilt
+  // whenever a read or a lock changes; passed into every getNodeStrategy path (HUD
+  // worker, grader) so the live advice, the grade and the panel all agree.
+  //
+  // The PRIOR matters: when archetypes are visible the bot's own params are a fair
+  // starting point (the UI already shows them), but in anonymous mode the prior must
+  // be BALANCED or the engine would quietly use what the mode hides.
+  const villainModels = useMemo<VillainModels>(() => {
+    const out: VillainModels = {};
+    for (const p of game.players) {
+      if (p.isHero) continue;
+      const prof = getProfile(p.profileId);
+      const prior =
+        readDrivenModel && anonymousVillains
+          ? BALANCED
+          : { bluffFreq: prof.bluffFreq, callStation: prof.callStation };
+      const obs = readDrivenModel ? toStats(obsCounters[p.id]) : null;
+      out[p.id] = resolveVillainModel(prior, obs, villainLocks[p.id]);
+    }
+    return out;
+  }, [game.players, obsCounters, villainLocks, readDrivenModel, anonymousVillains]);
+  // Ref so the grader (heroAct, a useCallback that must not re-create per read) can
+  // read the current models without taking them as a dependency.
+  const villainModelsRef = useRef<VillainModels>(villainModels);
+  villainModelsRef.current = villainModels;
 
   // resolve which difficulty drives a given seat's bot
   const diffFor = useCallback(
@@ -226,6 +274,7 @@ export function useGame(initialProfiles: string[]) {
     setProfiles(next);
     setVillainGuesses({}); // new lineup — old archetype guesses no longer apply
     setObsCounters({}); // …and old observed stats describe the old lineup
+    setVillainLocks({}); // …and a lock names a SEAT, which now holds someone else
     setGame(createGame(tableSize, stackDepth, BIG_BLIND, next, mode === 'tourney'));
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
@@ -245,6 +294,7 @@ export function useGame(initialProfiles: string[]) {
     setTableSize(size);
     setVillainGuesses({}); // seats moved — old archetype guesses no longer apply
     setObsCounters({});
+    setVillainLocks({}); // a lock names a SEAT, and the seats just changed hands
     setGame(createGame(size, stackDepth, BIG_BLIND, profiles, mode === 'tourney'));
     newSession(mode);
     recordedHand.current = -1; // new session: don't let a reused handNumber skip its first hand
@@ -424,7 +474,9 @@ export function useGame(initialProfiles: string[]) {
     const prev = game;
     if (prev.toAct !== 0) return;
     const la = legalActions(prev);
-    const strat = strategyRef.current ?? getNodeStrategy(prev, 0, 900);
+    // Same villain models the live HUD used, so the grade can't disagree with the
+    // advice the player was just shown.
+    const strat = strategyRef.current ?? getNodeStrategy(prev, 0, 900, undefined, villainModelsRef.current);
     const roll = rollRef.current;
     const fb = gradeNode(strat, action, la.callAmount, roll, { state: prev, heroIdx: 0 });
     // immediate (drill): reveal the answer now. deferred (exam): withhold it —
@@ -585,11 +637,12 @@ export function useGame(initialProfiles: string[]) {
     saveSettings({
       profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
       anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode,
+      villainLocks, readDrivenModel,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, villainLocks, readDrivenModel, tournament, mode, sessionId]);
 
   // ---- HUD + strategy compute on hero's turn ----
   // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
@@ -621,14 +674,14 @@ export function useGame(initialProfiles: string[]) {
           apply(ev.data.result);
         };
         w.addEventListener('message', onMsg);
-        w.postMessage({ seq, state: game });
+        w.postMessage({ seq, state: game, models: villainModelsRef.current });
       } else {
-        apply(computeHudNode(game));
+        apply(computeHudNode(game, villainModelsRef.current));
       }
     }, 30);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.handNumber, game.street, game.toAct, game.board.length]);
+  }, [game.handNumber, game.street, game.toAct, game.board.length, villainLocks, readDrivenModel]);
 
   // ---- record hand result + history on completion ----
   // This effect reacts to a one-shot terminal transition (street → 'complete')
@@ -896,6 +949,11 @@ export function useGame(initialProfiles: string[]) {
     villainGuesses,
     guessVillain,
     obsCounters,
+    villainLocks,
+    setVillainLock,
+    readDrivenModel,
+    setReadDrivenModel,
+    villainModels,
     finishHand,
     setSpeed,
     setScenario,

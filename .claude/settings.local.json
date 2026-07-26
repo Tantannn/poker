@@ -166,7 +166,27 @@
       "PowerShell($env:CI='true'; npx vitest run src/strategy src/engine src/analysis src/ai src/store --reporter=dot 2>&1 | Select-Object -Last 12; Write-Output \"EXIT=$LASTEXITCODE\")",
       "PowerShell($procs = Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }; Write-Output \"found $\\($procs.Count\\)\"; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 400; Write-Output \"remaining $\\(\\(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }\\).Count\\)\")",
       "Bash(kill %1)",
-      "mcp__plugin_context-mode_context-mode__ctx_search"
+      "mcp__plugin_context-mode_context-mode__ctx_search",
+      "Bash(awk '/id=\"blinds\"/,/^      <Section id=\"postflop\"/' src/components/Reference.tsx)",
+      "Bash(sort -u -t: -k3)",
+      "Bash(echo \"=== TSC EXIT $? ===\")",
+      "Bash(echo \"=== LINT EXIT $? ===\")",
+      "PowerShell(node scripts/authored-preflop.mjs --dry)",
+      "PowerShell(node scripts/authored-preflop.mjs)",
+      "PowerShell(node scripts/solver-to-preflop.mjs --report)",
+      "PowerShell(npx vitest run src/analysis/observed.test.ts src/strategy/villainModel.test.ts src/strategy/solverCharts.test.ts 2>&1 | Select-Object -Last 45)",
+      "PowerShell(Tee-Object *)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 50)",
+      "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 45)",
+      "PowerShell(Remove-Item *)",
+      "Read(//c/Users/tango/AppData/Local/Temp/claude/D--code-poker/a41f0e39-c6dc-42e1-bb9a-ff2ede7cab07/tasks/**)",
+      "Bash(sleep 5)",
+      "PowerShell(npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 35)",
+      "PowerShell(npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts src/strategy/solverCharts.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(node scripts/authored-preflop.mjs; Write-Host \"--- crossCheck + spotRecheck ---\"; npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 20)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 20; Write-Host \"=== full suite ===\"; npx vitest run 2>&1 | Select-Object -Last 22)"
     ]
   }
 }

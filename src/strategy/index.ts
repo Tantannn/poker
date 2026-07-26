@@ -5,14 +5,17 @@
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
 import type { Card } from '../engine/cards';
-import { sameCard } from '../engine/cards';
+import { makeRng, sameCard } from '../engine/cards';
+import { equityVsField, equityVsRange } from '../engine/equity';
 import type { WeightedRange, ComboWeight } from '../engine/range';
 import { rangeFromSet, codeToCombos } from '../engine/range';
 import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import { getProfile } from '../ai/profiles';
-import type { ActionId, ActionOption, NodeStrategy } from './types';
+import type { VillainModel } from './villainModel';
+import { BALANCED, balancedModel, isExploitable } from './villainModel';
+import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
 import { solveRiverNode, solveRiverVsBetNode, solveTurnNode } from './solver/riverAdapter';
@@ -41,6 +44,10 @@ const BASE_EV: Record<NonNullable<ActionOption['kind']>, number> = {
 // purpose so it grades "Wrong", not "Best" — playing outside the range is a leak.
 const OFF_CHART_EV = -0.75;
 
+/** Per-seat villain models (node lock / observed reads), keyed by table seat index.
+ *  Absent seats fall back to the archetype-or-balanced prior resolved here. */
+export type VillainModels = Record<number, VillainModel>;
+
 export function getNodeStrategy(
   state: GameState,
   heroIdx: number,
@@ -48,9 +55,33 @@ export function getNodeStrategy(
   /** precomputed equity (0..1) to reuse instead of an independent MC run, so the
    *  HUD and the solver panel agree exactly. Postflop only; preflop uses charts. */
   equityOverride?: number,
+  /** villain models from observed reads or manual node locks (see villainModel.ts).
+   *  Omitted → the engine derives a model from the bot's archetype, which is what it
+   *  always did. Preflop ignores this: the charts already model the population. */
+  models?: VillainModels,
 ): NodeStrategy {
   if (state.street === 'preflop') return preflopStrategy(state, heroIdx);
-  return postflopStrategy(state, heroIdx, iterations, equityOverride);
+  return postflopStrategy(state, heroIdx, iterations, equityOverride, models);
+}
+
+/** The model to solve this villain against. A caller-supplied model (observed read
+ *  or manual lock) wins; otherwise fall back to the bot's archetype parameters,
+ *  which is the behaviour every caller had before node locks existed. A human
+ *  villain, or no villain, is balanced. */
+function modelFor(state: GameState, seatIdx: number, models?: VillainModels): VillainModel {
+  const supplied = models?.[seatIdx];
+  if (supplied) return supplied;
+  if (seatIdx < 0) return balancedModel();
+  const p = state.players[seatIdx];
+  if (!p || p.isHero) return balancedModel();
+  const prof = getProfile(p.profileId);
+  return {
+    bluffFreq: prof.bluffFreq,
+    callStation: prof.callStation,
+    source: 'prior',
+    confidence: 0,
+    label: null,
+  };
 }
 
 // ----------------- preflop -----------------
@@ -73,8 +104,8 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // matched to your position. Only UTG/CO/BTN charts exist → MP↦CO, blinds↦BTN.
     const fbId =
       heroPos === 'UTG' ? 'utg-vs-4bet'
-      : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-4bet'
-      : 'btn-vs-4bet';
+        : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-4bet'
+          : 'btn-vs-4bet';
     return { sc: getScenario(fbId), level: 3 };
   }
   if (raises === 2) {
@@ -83,8 +114,8 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // charts exist, so MP maps to CO (next-tightest) and the blinds to BTN.
     const tbId =
       heroPos === 'UTG' ? 'utg-vs-3bet'
-      : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-3bet'
-      : 'btn-vs-3bet';
+        : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-3bet'
+          : 'btn-vs-3bet';
     return { sc: getScenario(tbId), level: 2 };
   }
   // facing a single open — pick the chart matching BOTH the hero's seat AND the
@@ -98,11 +129,11 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // pick the defense chart matching the ACTUAL opener, not always BTN.
     const bbId =
       raiserPos === 'SB' ? 'bb-vs-sb'
-      : raiserPos === 'BTN' ? 'bb-vs-btn'
-      : raiserPos === 'CO' ? 'bb-vs-co'
-      : raiserPos === 'MP' ? 'bb-vs-mp'
-      : raiserPos === 'UTG' ? 'bb-vs-utg'
-      : 'bb-vs-btn';
+        : raiserPos === 'BTN' ? 'bb-vs-btn'
+          : raiserPos === 'CO' ? 'bb-vs-co'
+            : raiserPos === 'MP' ? 'bb-vs-mp'
+              : raiserPos === 'UTG' ? 'bb-vs-utg'
+                : 'bb-vs-btn';
     return { sc: getScenario(bbId), level: 1 };
   }
   // SB only has a vs-BTN (steal) defence chart — the 3-bet-or-fold shape is right
@@ -242,7 +273,7 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     if (id !== 'open' && id !== 'raise') return undefined;
     const target = level >= 2 ? Math.round(2.3 * state.currentBet)
       : level === 1 ? Math.round(3 * state.currentBet)
-      : Math.round(2.5 * bb);
+        : Math.round(2.5 * bb);
     return Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, target));
   };
 
@@ -334,12 +365,13 @@ const diffSet = (a: Set<string>, b: Set<string>): Set<string> => {
 export function buildVillainRange(
   state: GameState,
   heroIdx: number,
+  models?: VillainModels,
 ): { range: WeightedRange; note: string; comboWeight?: ComboWeight } {
   // The preflop range is the STARTING set; comboWeight then conditions it on the
   // board + this street's action (see villainActionWeight). Both panels and the
   // bots run their equity through it, so "he bet a 3-flush board" actually shifts
   // his range toward flushes instead of treating every preflop combo as a bettor.
-  const comboWeight = villainActionWeight(state, heroIdx);
+  const comboWeight = villainActionWeight(state, heroIdx, models);
   const villain = primaryVillain(state, heroIdx);
   if (villain < 0) {
     // No single villain (a field). Use a neutral, CAPPED continue range — tighter
@@ -401,9 +433,21 @@ export function roleBaseRange(state: GameState, seatIdx: number): { baseSet: Set
     baseSet = flat;
     note = `${pos}'s flat-call range vs a ${openerPos} open (capped${earlyOpener ? ' + tightened vs the early raiser' : ' — premiums 3-bet'})`;
   } else {
-    // limped / no clear preflop action → a capped continue range
-    baseSet = diffSet(RFI_RANGES[pos] ?? RFI_RANGES.BTN, THREEBET_RANGE);
-    note = `${pos}'s continuing range`;
+    // No preflop aggression logged, yet they're still in the pot postflop → they
+    // CONTINUED. That is a call range, not an opening range, and the difference
+    // matters: an opening range's weak tail is hands you open to steal and give up
+    // with, and handing every such opponent the full opener made the field read too
+    // wide and too weak. Hero's marginal hands then showed inflated equity, and the
+    // EV model started value-betting them — it tipped an underpair on a paired board
+    // into a ¾-pot bet four-way (crossCheck.test.ts's bluff-catcher sweep). The
+    // `called` branch above already applies this reasoning vs an early opener, and
+    // the no-single-villain branch in buildVillainRange documents it too ("a random
+    // continuer isn't opening the button"); this branch was the one that skipped it.
+    // Same 0.5 floor as the flat-call case, so the two agree; pairs (≥0.76) always
+    // survive it.
+    const opener = diffSet(RFI_RANGES[pos] ?? RFI_RANGES.BTN, THREEBET_RANGE);
+    baseSet = new Set([...opener].filter((code) => preflopStrength(code) >= 0.5));
+    note = `${pos}'s continuing range (capped — premiums 3-bet, steal-tail folds)`;
   }
   // Safety: never return an empty range (e.g. RFI_RANGES.BB is empty by design).
   if (baseSet.size === 0) baseSet = pos === 'BB' ? BB_DEFEND_RANGE : RFI_RANGES.BTN;
@@ -461,7 +505,7 @@ export function summarizeRange(
 /** Builds the per-combo multiplier that conditions a villain's preflop range on
  *  the current board + the action they just took. Returns undefined preflop (the
  *  charts already model that). */
-function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | undefined {
+function villainActionWeight(state: GameState, heroIdx: number, models?: VillainModels): ComboWeight | undefined {
   const board = state.board;
   if (board.length < 3) return undefined;
   const hero = state.players[heroIdx];
@@ -474,19 +518,23 @@ function villainActionWeight(state: GameState, heroIdx: number): ComboWeight | u
   // bet-inclusive pot understated every size (a real ¾-pot barrel read as ~43%),
   // so big bets never polarized fully and junk kept too much weight.
   const betFrac = pot - toCall > 0 ? toCall / (pot - toCall) : 1;
-  // ARCHETYPE-AWARE BLUFF WEIGHT. How value-heavy a villain's BET range is depends
+  // VILLAIN-AWARE BLUFF WEIGHT. How value-heavy a villain's BET range is depends
   // on how often he bluffs, not just his position. A loose-passive calling station
   // (bluffFreq ~0.08) barrels almost only value; a maniac (0.7) fires tons of air.
   // Position-only conditioning modelled everyone as a balanced barreler, so it kept
   // phantom bluffs/semi-bluffs in a station's range — and a bluff-catcher like
   // ace-high then showed inflated equity (it "beats" bluffs that a station never
   // has), turning a clear fold into a +EV call. Scale the non-made (bluff/semi-bluff/
-  // air) part of the bet range by the villain's bluff tendency vs a ~0.33 GTO
+  // air) part of the bet range by the villain's bluff tendency vs the 0.33 balanced
   // baseline; made value is untouched. Human hero / unknown → 1 (balanced).
+  //
+  // The tendency comes from villainModel.ts — an observed read or a manual node lock
+  // when one is supplied, the bot's archetype otherwise. It used to read the hidden
+  // profile unconditionally, which both leaked what anonymous mode hides and had no
+  // meaning against a real opponent.
   const vIdx = primaryVillain(state, heroIdx);
-  const vp = vIdx >= 0 ? state.players[vIdx] : null;
-  const bluffFreq = vp && !vp.isHero ? getProfile(vp.profileId).bluffFreq : 0.33;
-  const bluffMult = Math.max(0.12, Math.min(1.6, bluffFreq / 0.33));
+  const bluffFreq = modelFor(state, vIdx, models).bluffFreq;
+  const bluffMult = Math.max(0.12, Math.min(1.6, bluffFreq / BALANCED.bluffFreq));
   return (a: Card, b: Card) => betConditionedWeight(a, b, board, facingBet, betFrac, bluffMult);
 }
 
@@ -543,11 +591,12 @@ function postflopStrategy(
   heroIdx: number,
   iterations?: number,
   equityOverride?: number,
+  models?: VillainModels,
 ): NodeStrategy {
   const hero = state.players[heroIdx];
   const la = legalActions(state);
   const pot = potTotal(state);
-  const { range, note, comboWeight } = buildVillainRange(state, heroIdx);
+  const { range, note, comboWeight } = buildVillainRange(state, heroIdx, models);
 
   // every still-live opponent — in a multiway pot hero must beat all of them, so
   // the EV model gets the whole field (approximated as each holding `range`).
@@ -655,24 +704,20 @@ function postflopStrategy(
     }
   }
 
-  // ARCHETYPE STICKINESS for the bet-EV model. When HERO bets, how big to size is
+  // VILLAIN STICKINESS for the bet-EV model. When HERO bets, how big to size is
   // driven by how much of villain's range keeps calling — which depends on his type,
-  // not just the board. Map the primary villain's callStation (GTO baseline ~0.30) to a
-  // continue-rate shift: a station (0.85 → +0.28) keeps calling big sizes, so the model
-  // now recommends bigger value and stops recommending bluffs; a nit (0.10 → −0.10)
+  // not just the board. Map the primary villain's callStation (0.30 balanced baseline)
+  // to a continue-rate shift: a station (0.85 → +0.28) keeps calling big sizes, so the
+  // model recommends bigger value and stops recommending bluffs; a nit (0.10 → −0.10)
   // folds more, so fold equity rises. hero / unknown → 0 (balanced, unchanged).
   const cbVIdx = primaryVillain(state, heroIdx);
-  const cbVp = cbVIdx >= 0 ? state.players[cbVIdx] : null;
-  const contBias =
-    cbVp && !cbVp.isHero
-      ? Math.max(-0.15, Math.min(0.3, (getProfile(cbVp.profileId).callStation - 0.3) * 0.5))
-      : 0;
-  // Passive villain = low aggression (a calling station like LP at 0.25); he won't
-  // bet when checked to, so a "check to trap" line with a strong hand just checks it
-  // down. Flips the check-line coach to "lead for value" (see solvePostflop).
-  const villainPassive = cbVp && !cbVp.isHero ? getProfile(cbVp.profileId).aggression < 0.4 : false;
 
-  const strat = solvePostflop({
+  const model = modelFor(state, cbVIdx, models);
+  const contBiasOf = (callStation: number) =>
+    Math.max(-0.15, Math.min(0.3, (callStation - BALANCED.callStation) * 0.5));
+  const contBias = cbVIdx >= 0 && !state.players[cbVIdx].isHero ? contBiasOf(model.callStation) : 0;
+
+  const solveArgs = {
     hero: hero.holeCards,
     board: state.board,
     oppRange: range,
@@ -690,54 +735,166 @@ function postflopStrategy(
     rangeNote: note,
     heroCode: handCode(hero.holeCards),
     effStack,
+    position,
+  };
+
+  const strat = solvePostflop({
+    ...solveArgs,
     precomputedEquity: equityOverride,
     comboWeight,
-    position,
     contBias,
     villainPassive,
   });
 
+  // EXPLOIT DELTA. When the villain model came from a READ or a manual node lock and
+  // is meaningfully off-balanced, solve the node a SECOND time against a balanced
+  // opponent. If the two solves prefer different actions, that gap is the exploit —
+  // "GTO checks here; vs this villain bet 75% for +0.4bb" — which is the whole point
+  // of tracking reads. Skipped for an archetype-only prior (source 'prior'): the bot's
+  // hidden type is not something the player has earned a read on, so presenting it as
+  // an exploit would be the engine telling on itself.
+  //
+  // The gain is measured in the EXPLOIT solve's frame: how much the exploit action
+  // beats the baseline action *against this villain*. That is the question being
+  // asked ("what does deviating win me?"), not how the lines compare vs a phantom
+  // balanced player.
+  let exploit: ExploitDelta | undefined;
+  if ((model.source === 'observed' || model.source === 'locked') && isExploitable(model) && cbVIdx >= 0) {
+    const balanced = { ...(models ?? {}), [cbVIdx]: balancedModel() };
+    const base = buildVillainRange(state, heroIdx, balanced);
+    // The comparison pair must differ ONLY by the villain model. That means BOTH
+    // sides get an equity measured the same way — conditioned on their own
+    // comboWeight, same seed, same trial count — so the pair is re-solved here
+    // rather than reusing `strat`. `strat` came from whatever equity the CALLER
+    // supplied (1400 trials in the HUD, an unseeded internal run in the grader), and
+    // solvePostflop's internal fallback both ignores comboWeight for the main equity
+    // and reseeds per call. Comparing against either would fold Monte-Carlo noise and
+    // a conditioned/unconditioned gap into what is supposed to be the model's effect,
+    // and would make the box flicker between renders of the same node.
+    //
+    // `strat` is still what gets DISPLAYED — this pair only decides which two actions
+    // to name and what the gap between them is worth.
+    const pair = (r: typeof range, cw: ComboWeight | undefined, cb: number) =>
+      solvePostflop({
+        ...solveArgs,
+        oppRange: r,
+        oppRanges: Array.from({ length: Math.max(1, liveOpps) }, () => r),
+        comboWeight: cw,
+        contBias: cb,
+        precomputedEquity: seededEquity(state, hero.holeCards, r, liveOpps, cw),
+      });
+    const baseStrat = pair(base.range, base.comboWeight, 0);
+    const exStrat = pair(range, comboWeight, contBias);
+    if (baseStrat.bestId !== exStrat.bestId) {
+      const baselineInExploitFrame = exStrat.options.find((o) => o.id === baseStrat.bestId);
+      const gainBb = round2(exStrat.bestEv - (baselineInExploitFrame?.ev ?? exStrat.bestEv));
+      // 0.05bb floor, not 0: the two solves still carry independent Monte-Carlo
+      // noise, and a box that appears for a 0.02bb "edge" is noise dressed as a read.
+      if (gainBb > 0.05) {
+        exploit = {
+          baselineId: baseStrat.bestId,
+          baselineLabel: baseStrat.options.find((o) => o.id === baseStrat.bestId)?.label ?? baseStrat.bestId,
+          exploitId: exStrat.bestId,
+          exploitLabel: exStrat.options.find((o) => o.id === exStrat.bestId)?.label ?? exStrat.bestId,
+          gainBb,
+          why: model.label ?? 'this villain deviates from balanced play',
+          confidence: model.confidence,
+          source: model.source,
+        };
+      }
+    }
+  }
+
   // Villain-read overlay: name how THIS opponent's tendencies shift the baseline
   // (balanced) line — the "normally X, vs this villain Y" the user asked for. The EV
-  // numbers already bake the archetype in (bluffMult when hero FACES a bet; contBias
-  // when hero BETS), so this just says WHY in words — no second solve is needed. Only
-  // added when the read is meaningfully off-balanced (a station / a heavy bluffer); a
-  // balanced villain gets nothing.
-  const vnote = villainReadNote(state, heroIdx, la.callAmount);
+  // numbers already bake the model in (bluffMult when hero FACES a bet; contBias
+  // when hero BETS), so this just says WHY in words. Only added when the read is
+  // meaningfully off-balanced (a station / a heavy bluffer); a balanced villain gets
+  // nothing.
+  const vnote = villainReadNote(state, heroIdx, la.callAmount, model);
+  const notes = [...(strat.notes ?? [])];
+  let noteText = strat.note;
   if (vnote) {
-    return { ...strat, note: `${strat.note} ${vnote}`, notes: [...(strat.notes ?? []), vnote] };
+    notes.push(vnote);
+    noteText = `${noteText} ${vnote}`;
   }
-  return strat;
+  if (exploit) {
+    const ex = `Exploit: balanced play prefers ${exploit.baselineLabel}, but vs this villain ${exploit.exploitLabel} is worth +${exploit.gainBb.toFixed(2)}bb.`;
+    notes.push(ex);
+    noteText = `${noteText} ${ex}`;
+  }
+  if (!vnote && !exploit) return strat;
+  return { ...strat, note: noteText, notes, exploit };
 }
 
 /** One-line, spot-specific villain read for the Explain panel: how this opponent's
  *  tendencies shift the baseline (balanced) recommendation. Text only — no second
  *  solve — it names the DIRECTION the archetype implies (value-heavy vs air-heavy
  *  bet; station vs bluffer). Returns null for a balanced/unknown villain. */
-function villainReadNote(state: GameState, heroIdx: number, callAmount: number): string | null {
+function villainReadNote(
+  state: GameState,
+  heroIdx: number,
+  callAmount: number,
+  model: VillainModel,
+): string | null {
   if (state.board.length < 3) return null;
   const vIdx = primaryVillain(state, heroIdx);
   if (vIdx < 0 || state.players[vIdx].isHero) return null;
-  const p = getProfile(state.players[vIdx].profileId);
-  const name = state.players[vIdx].name;
-  const bluffPct = Math.round(p.bluffFreq * 100);
+  const vp = state.players[vIdx];
+  const name = vp.name;
+  // Only NAME the archetype when the model actually came from it. On an observed
+  // read or a manual lock the tag is either hidden from the player (anonymous mode)
+  // or beside the point — say where the read came from instead.
+  const provenance =
+    model.source === 'locked' ? ' (locked read)'
+      : model.source === 'observed' ? ` (${Math.round(model.confidence * 100)}% confidence read)`
+        : ` (${getProfile(vp.profileId).tag})`;
+  const bluffPct = Math.round(model.bluffFreq * 100);
   if (callAmount > 0) {
     // facing a bet → the read is about bluff-catching
-    if (p.bluffFreq <= 0.18)
-      return `Villain read: ${name} (${p.tag}) rarely bluffs (~${bluffPct}%), so this bet is value-heavy. Vs a balanced player you'd defend more here — against ${name} bluff-catch tighter and fold marginal hands; there's little to catch.`;
-    if (p.bluffFreq >= 0.42)
-      return `Villain read: ${name} (${p.tag}) bluffs a lot (~${bluffPct}%), so this bet range is wide and air-heavy. Vs a balanced player you'd fold more — against ${name} call down lighter and don't overfold your bluff-catchers.`;
+    if (model.bluffFreq <= 0.18)
+      return `Villain read: ${name}${provenance} rarely bluffs (~${bluffPct}%), so this bet is value-heavy. Vs a balanced player you'd defend more here — against ${name} bluff-catch tighter and fold marginal hands; there's little to catch.`;
+    if (model.bluffFreq >= 0.42)
+      return `Villain read: ${name}${provenance} bluffs a lot (~${bluffPct}%), so this bet range is wide and air-heavy. Vs a balanced player you'd fold more — against ${name} call down lighter and don't overfold your bluff-catchers.`;
     return null;
   }
   // not facing a bet → the read is about how to value/pressure this villain
-  if (p.callStation >= 0.6)
-    return `Villain read: ${name} (${p.tag}) is a calling station — pays off too much, rarely folds. Value bet thin and BIG with made hands, and check back air instead of bluffing (his bluff-catches don't fold).`;
-  if (p.aggression >= 0.8)
-    return `Villain read: ${name} (${p.tag}) is hyper-aggressive — let him do the betting. Check-call / trap strong hands and avoid bluffing into a player who won't fold and barrels for you.`;
+  if (model.callStation >= 0.6)
+    return `Villain read: ${name}${provenance} is a calling station — pays off too much, rarely folds. Value bet thin and BIG with made hands, and check back air instead of bluffing (his bluff-catches don't fold).`;
+  if (model.callStation <= 0.12)
+    return `Villain read: ${name}${provenance} folds far too often facing a bet. Barrel relentlessly and size up — your bluffs print here, and thin value bets get no calls, so bet air over marginal made hands.`;
+  if (model.source === 'prior' && getProfile(vp.profileId).aggression >= 0.8)
+    return `Villain read: ${name}${provenance} is hyper-aggressive — let him do the betting. Check-call / trap strong hands and avoid bluffing into a player who won't fold and barrels for you.`;
   return null;
 }
 
 // ----------------- helpers -----------------
+/** Hero equity vs a range, from a seed derived from the NODE — so the same node
+ *  always yields the same number and only the range/conditioning can move it.
+ *  Mirrors hudCompute's seeding recipe for the same reason it exists there: an
+ *  unseeded second Monte-Carlo run makes two otherwise-identical solves disagree. */
+function seededEquity(
+  state: GameState,
+  hero: Card[],
+  range: WeightedRange,
+  liveOpps: number,
+  comboWeight?: ComboWeight,
+  trials = 1200,
+): number {
+  const seed =
+    (((state.seed ?? 0) >>> 0) ^
+      Math.imul(state.board.length + 1, 0x9e3779b1) ^
+      Math.imul(Math.round(potTotal(state)) + 1, 0x85ebca6b)) >>>
+    0;
+  const rng = makeRng(seed);
+  if (liveOpps > 1) {
+    const ranges = Array.from({ length: liveOpps }, () => range);
+    const oppCW = comboWeight ? ranges.map((_, i) => (i === 0 ? comboWeight : undefined)) : undefined;
+    return equityVsField(hero, state.board, ranges, trials, rng, comboWeight, oppCW).equity;
+  }
+  return equityVsRange(hero, state.board, range, trials, rng, comboWeight).equity;
+}
+
 /** Index of the opponent the hero is primarily up against at this node (-1 if none). */
 export function primaryVillainIdx(state: GameState, heroIdx: number): number {
   return primaryVillain(state, heroIdx);

@@ -17,14 +17,17 @@
 //   node scripts/solver-to-preflop.mjs --in utg.json --scenario rfi-UTG
 //   node scripts/solver-to-preflop.mjs --in bb.json  --scenario bb-vs-btn --format simple
 //   node scripts/solver-to-preflop.mjs --in x.json   --scenario rfi-CO --out /tmp/out.json
+//   node scripts/solver-to-preflop.mjs --report      # coverage of the chart file, converts nothing
 //
 // Flags:
-//   --in <file>        required — the solver export
-//   --scenario <id>    required — target scenario id (see README: rfi-UTG, bb-vs-btn, threebet, …)
+//   --in <file>        required (except --report) — the solver export
+//   --scenario <id>    required (except --report) — target scenario id (see README)
 //   --format <fmt>     texassolver | simple   (default texassolver)
 //   --facing <f>       rfi | raise            (default inferred from the scenario id)
 //   --out <file>       target chart file      (default src/data/solverPreflop.json)
 //   --min <freq>       drop actions below this frequency (default 0.005)
+//   --kinds <on|off>   infer the value/bluff colour kind `k` (default on)
+//   --report           print per-scenario coverage for --out and exit
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
@@ -39,7 +42,9 @@ const scenario = arg('scenario');
 const format = arg('format', 'texassolver');
 const outPath = arg('out', 'src/data/solverPreflop.json');
 const minFreq = parseFloat(arg('min', '0.005'));
-if (!inPath || !scenario) {
+const inferKinds = arg('kinds', 'on') !== 'off';
+const reportOnly = argv.includes('--report');
+if (!reportOnly && (!inPath || !scenario)) {
   console.error('Missing --in and/or --scenario. See the header of this file for usage.');
   process.exit(1);
 }
@@ -129,7 +134,27 @@ function fromSimple(raw) {
   return out;
 }
 
-// ---- normalise { code: {id: freq} } → chart { code: [{a,f}] } ----
+// ---- kind (grid colour) inference ----
+/** Which colour-kind an action gets when the export doesn't say. Inferred from the
+ *  MIX, which is the one thing a solve reliably tells us:
+ *    • fold → fold, call → call
+ *    • a raise mixed with a FOLD is the BLUFF region — at equilibrium you never fold
+ *      part of a value hand preflop, so any raise/fold mix marks a hand raised for
+ *      fold equity rather than for value.
+ *    • a pure raise, or a raise mixed only with a CALL, is VALUE — strong enough to
+ *      always continue; the mix is about line, not about whether the hand is good.
+ *  Without this every converted raise defaulted to `value` in solverCharts'
+ *  defaultKind and the range grid lost its value/bluff split entirely.
+ *  scripts/authored-preflop.mjs applies the identical rule, so authored and
+ *  converted charts colour the same way. --kinds off to skip. */
+function kindFor(id, normalised) {
+  if (id === 'fold') return 'fold';
+  if (id === 'call') return 'call';
+  if (id === 'check') return 'passive';
+  return (normalised.fold ?? 0) > 0.02 ? 'bluff' : 'value';
+}
+
+// ---- normalise { code: {id: freq} } → chart { code: [{a,f,k}] } ----
 function toChart(acc) {
   const chart = {};
   let warned = 0;
@@ -142,11 +167,94 @@ function toChart(acc) {
       warned++;
     }
     // renormalise so each hand's actions sum to exactly 1, round to 3dp
-    chart[code] = entries
-      .map(([a, f]) => ({ a, f: Math.round((f / sum) * 1000) / 1000 }))
+    const norm = {};
+    for (const [a, f] of entries) norm[a] = Math.round((f / sum) * 1000) / 1000;
+    chart[code] = Object.entries(norm)
+      .map(([a, f]) => (inferKinds ? { a, f, k: kindFor(a, norm) } : { a, f }))
       .sort((x, y) => y.f - x.f);
   }
   return chart;
+}
+
+// ---- report ----
+// Every scenario id the app can ask for. Trainer scenarios come from
+// src/strategy/preflopChart.ts SCENARIOS; the last two are OPPONENT-RANGE ids the
+// bots and villain-range builder project to binary sets (src/data/README.md).
+// Keep in sync when a scenario is added — an id here that the app doesn't know is
+// dead data, and an app scenario missing here silently escapes the coverage report.
+const KNOWN_IDS = [
+  'rfi-UTG', 'rfi-MP', 'rfi-CO', 'rfi-BTN', 'rfi-SB',
+  'btn-vs-utg', 'btn-vs-mp', 'btn-vs-co', 'co-vs-utg', 'co-vs-mp',
+  'bb-vs-utg', 'bb-vs-mp', 'bb-vs-co', 'bb-vs-btn', 'bb-vs-sb', 'sb-vs-btn',
+  'btn-vs-3bet', 'co-vs-3bet', 'utg-vs-3bet',
+  'btn-vs-4bet', 'co-vs-4bet', 'utg-vs-4bet',
+  'sq-btn', 'sq-bb', 'iso-btn', 'cold-vs-3bet',
+  'hu-sb-rfi', 'hu-bb-vs-sb', 'hu-sb-vs-3bet', 'hu-bb-vs-limp', 'hu-bb-vs-4bet',
+  'threebet', 'bb-defend',
+];
+
+const comboCount = (code) => (code.length === 2 ? 6 : code.endsWith('s') ? 4 : 12);
+
+function chartStats(chart) {
+  let played = 0;
+  let raised = 0;
+  const bad = [];
+  for (const [code, acts] of Object.entries(chart)) {
+    const n = comboCount(code);
+    const sum = acts.reduce((a, x) => a + x.f, 0);
+    if (Math.abs(sum - 1) > 0.02) bad.push(`${code}=${sum.toFixed(2)}`);
+    played += acts.filter((x) => x.a !== 'fold').reduce((a, x) => a + x.f, 0) * n;
+    raised += acts.filter((x) => x.a === 'raise' || x.a === 'open').reduce((a, x) => a + x.f, 0) * n;
+  }
+  const hands = Object.keys(chart).length;
+  const kinds = Object.values(chart).flat().filter((x) => x.k != null).length;
+  const total = Object.values(chart).flat().length;
+  return {
+    hands,
+    played: (played / 1326) * 100,
+    raised: (raised / 1326) * 100,
+    bad,
+    kinded: total ? (kinds / total) * 100 : 0,
+  };
+}
+
+if (reportOnly) {
+  if (!existsSync(outPath)) {
+    console.error(`No chart file at ${outPath}.`);
+    process.exit(1);
+  }
+  const f = JSON.parse(readFileSync(outPath, 'utf8'));
+  const charts = f.charts ?? {};
+  console.log(`${outPath}`);
+  console.log(`source: ${f.meta?.source || '(unset)'}\n`);
+  console.log('scenario         hands   played%   raise%   kind%   status');
+  let present = 0;
+  for (const id of KNOWN_IDS) {
+    const c = charts[id];
+    if (!c || !Object.keys(c).length) {
+      console.log(`${id.padEnd(16)}     —         —        —       —   MISSING (heuristic fallback)`);
+      continue;
+    }
+    present++;
+    const s = chartStats(c);
+    // A chart that omits hands is a PARTIAL override: solverActions returns null for
+    // an absent hand and the caller drops back to the heuristic for it, so the two
+    // engines are mixed inside one scenario. Worth flagging, not an error.
+    const status = s.bad.length
+      ? `BAD SUMS: ${s.bad.slice(0, 4).join(' ')}${s.bad.length > 4 ? ` +${s.bad.length - 4}` : ''}`
+      : s.hands < 169
+        ? `partial — ${169 - s.hands} hands fall back to heuristic`
+        : 'ok';
+    console.log(
+      `${id.padEnd(16)} ${String(s.hands).padStart(5)}   ${s.played.toFixed(1).padStart(6)}   ${s.raised
+        .toFixed(1)
+        .padStart(6)}   ${s.kinded.toFixed(0).padStart(5)}   ${status}`,
+    );
+  }
+  const unknown = Object.keys(charts).filter((id) => !KNOWN_IDS.includes(id));
+  console.log(`\n${present}/${KNOWN_IDS.length} scenarios populated.`);
+  if (unknown.length) console.log(`⚠ unknown ids (the app never reads these): ${unknown.join(', ')}`);
+  process.exit(0);
 }
 
 // ---- run ----

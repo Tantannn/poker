@@ -12,6 +12,7 @@ import { countOuts, equityVsRange, equityVsField, ruleOf2and4, exactOutsEquity }
 import { potOdds } from '../engine/potOdds';
 import { getProfile } from '../ai/profiles';
 import { buildVillainRange, getNodeStrategy, primaryVillainIdx, summarizeRange } from './index';
+import type { VillainModels } from './index';
 import type { NodeStrategy } from './types';
 
 export interface HudInfo {
@@ -65,10 +66,13 @@ export interface HudNodeResult {
 
 /** Full hero-node read: seeded shared equity, solver strategy, villain info and
  *  every HUD number — the body of useGame's hero-turn effect, minus setState. */
-export function computeHudNode(game: GameState): HudNodeResult {
+export function computeHudNode(game: GameState, models?: VillainModels): HudNodeResult {
   const hero = game.players[0];
   const legal = legalActions(game);
-  const { range, note, comboWeight } = buildVillainRange(game, 0);
+  // The villain models (observed reads / manual node locks) shape the CONDITIONED
+  // range, so they have to be in scope before the equity run — not just inside the
+  // strategy call — or the HUD's equity and the strategy panel's would disagree.
+  const { range, note, comboWeight } = buildVillainRange(game, 0, models);
   // count opponents still live — in a multiway pot you must beat ALL of them,
   // so equity is materially lower than the heads-up (single-villain) number.
   const liveOpps = game.players.filter((p) => !p.isHero && !p.folded).length;
@@ -97,7 +101,7 @@ export function computeHudNode(game: GameState): HudNodeResult {
   // decomposition shown in the HUD tooltip matches this exactly
   const eq = { equity: win + tie / 2, win, tie };
   // solver reads the SAME equity number — no second, independent MC run.
-  const strategy = getNodeStrategy(game, 0, 1100, eq.equity);
+  const strategy = getNodeStrategy(game, 0, 1100, eq.equity, models);
   // Raw equity vs his UNconditioned opening range — for the side-by-side
   // "vs opening range → vs betting range" read. Same seed → the gap is the
   // conditioning (he bet this board), not Monte-Carlo noise.

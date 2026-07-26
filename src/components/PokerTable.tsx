@@ -422,6 +422,9 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               observed={villain ? toStats(g.obsCounters[villain.seat]) : null}
               guessedId={villain ? g.villainGuesses[villain.seat] : undefined}
               onGuess={villain ? (pid) => g.guessVillain(villain.seat, pid) : undefined}
+              model={villain ? g.villainModels[villain.seat] : null}
+              lock={villain ? g.villainLocks[villain.seat] : null}
+              onLock={villain ? (lock) => g.setVillainLock(villain.seat, lock) : undefined}
             />
             <details className="mini-tips">
           <summary>ℹ️ Reading the panels &amp; bet types</summary>

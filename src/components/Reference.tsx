@@ -9,6 +9,7 @@ type NavGroup = 'Core' | 'Preflop' | 'Postflop' | 'Opponents';
 const GROUP_ORDER: NavGroup[] = ['Core', 'Preflop', 'Postflop', 'Opponents'];
 const SECTIONS: { id: string; title: string; group: NavGroup }[] = [
   { id: 'tilt', title: '🧊 Tilt control', group: 'Core' },
+  { id: 'survival', title: '💀 Point of no return', group: 'Core' },
   { id: 'rankings', title: 'Hand rankings', group: 'Core' },
   { id: 'equity', title: 'Reading equity', group: 'Core' },
   { id: 'memorize', title: 'Charts by position', group: 'Core' },
@@ -33,6 +34,51 @@ const SECTIONS: { id: string; title: string; group: NavGroup }[] = [
   { id: 'tag', title: '🎯 TAG / balanced', group: 'Opponents' },
   { id: 'bots', title: 'How the bots play', group: 'Opponents' },
 ];
+
+// ---------- "point of no return" math ----------
+// Two different games. In a TOURNAMENT chips aren't money, you can't reload, and the
+// blinds chase you — so recovery means literally doubling up to an average stack, and
+// the odds of chaining that many all-ins are the whole answer. In CASH chips ARE money
+// and every hand is independent, so there is no in-session cliff at all; the only ruin
+// is the bankroll. Both tables below are COMPUTED from the formula so the prose and the
+// numbers can't drift apart.
+
+const TOURNEY_AVG_BB = 100; // the "back in it" stack we're trying to climb to
+const ALLIN_WIN = 0.45; // your equity when a shove gets CALLED (you jam wider than they call)
+
+/** Doubles needed to climb from `bb` to an average stack. */
+const doublesTo = (bb: number) => Math.log2(TOURNEY_AVG_BB / bb);
+/** Rough floor on "do I get back to average?" — chaining that many all-ins. */
+const comebackOdds = (bb: number) => Math.pow(ALLIN_WIN, doublesTo(bb));
+
+// `sick: false` rows are healthy stacks — showing them a "chance to come back" number
+// would imply they need one, so the column reads "fine" instead.
+const CLIFFS: { bb: string; at: number; dies: string; tone: string; sick: boolean }[] = [
+  { bb: '40bb+', at: 40, dies: 'Nothing. Full game — three streets of leverage.', tone: 'good', sick: false },
+  { bb: '25bb', at: 25, dies: 'Implied odds. 3-bet/fold gets awkward; SC & small pairs lose value.', tone: 'good', sick: false },
+  { bb: '15bb', at: 15, dies: 'Postflop. Jam-or-fold from here — a raise pot-commits you.', tone: 'okv', sick: true },
+  { bb: '10bb', at: 10, dies: 'Choice. Shove or fold, nothing else — but fold equity is still real.', tone: 'okv', sick: true },
+  { bb: '7bb', at: 7, dies: 'Fold equity. Callers start snapping you off wide.', tone: 'bad', sick: true },
+  { bb: '5bb', at: 5, dies: 'Leverage. Pure race, no threat, no outplaying anyone.', tone: 'bad', sick: true },
+  { bb: '2bb', at: 2, dies: 'You. The blinds eat the stack before a hand arrives.', tone: 'bad', sick: true },
+];
+
+// Cash risk of ruin: RoR = e^(−2·μ·B / σ²), μ = winrate bb/100, σ = stdev bb/100,
+// B = bankroll in bb. The classic Brownian-motion approximation — good enough to pick
+// a buy-in count, which is all it's for.
+const WINRATE = 5; // bb/100 — a solid low-stakes winner
+const STDEV = 100; // bb/100 — typical full-ring/6-max NLHE swing
+const BUYIN_BB = 100;
+const ror = (buyins: number) => Math.exp((-2 * WINRATE * buyins * BUYIN_BB) / (STDEV * STDEV));
+const RUIN_BI = [10, 20, 30, 40, 50];
+
+// How long a 3-buy-in hole actually takes to grind back at that winrate.
+const HOLE_BB = 3 * BUYIN_BB;
+const HOLE_HANDS = (HOLE_BB / WINRATE) * 100;
+const HOLE_LIVE_HRS = HOLE_HANDS / 25; // ~25 hands/hr live
+const HOLE_ONLINE_HRS = HOLE_HANDS / 400; // ~400 hands/hr, few tables
+
+const pct = (x: number) => (x >= 0.1 ? `${Math.round(x * 100)}%` : `${(x * 100).toFixed(1)}%`);
 
 function Section({
   id,
@@ -187,6 +233,132 @@ export function Reference() {
             <b> Current downswing</b> line on the session scorecard for the same signal in numbers.
           </p>
         </div>
+      </Section>
+
+      <Section id="survival" title="💀 Point of no return — when you can't come back" open={isOpen('survival')} onToggle={() => toggle('survival')}>
+        <p className="sub">
+          Two different games, two different answers. A <b>tournament</b> has a real cliff: chips aren't money,
+          you can't reload, and the blinds keep rising, so falling far enough is mathematically terminal. A
+          <b> cash game</b> has none — chips <i>are</i> money and every hand is independent, so the only thing
+          you can actually lose for good is the bankroll (or your head).
+        </p>
+
+        <h3>🏆 Tournament — the cliff is real</h3>
+        <p className="sub">
+          "Coming back" means climbing to an average stack ({TOURNEY_AVG_BB}bb), and the only ladder is doubling
+          up. Each rung is one all-in — so the question is just <b>how many all-ins in a row do I need?</b>
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Eff. stack</th>
+              <th>What dies</th>
+              <th>Doubles to avg</th>
+              <th>≈ Odds back</th>
+            </tr>
+          </thead>
+          <tbody>
+            {CLIFFS.map((c) => (
+              <tr key={c.bb}>
+                <td><b className={c.tone}>{c.bb}</b></td>
+                <td>{c.dies}</td>
+                <td className="num">{doublesTo(c.at).toFixed(1)}×</td>
+                <td>
+                  {c.sick
+                    ? <b className={c.tone}>{pct(comebackOdds(c.at))}</b>
+                    : <span className="muted">— you're fine</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="sub">
+          <b>Odds back</b> = {ALLIN_WIN.toFixed(2)}<sup>doubles</sup> — a shove that gets <i>called</i> runs about{' '}
+          {Math.round(ALLIN_WIN * 100)}% (you jam wider than anyone calls). Treat it as a floor: blinds you steal
+          uncontested help, rising blinds hurt, and they roughly cancel.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>Why 5bb is the line</h4>
+            <ul className="tips">
+              <li><b>No fold equity.</b> At 5bb nobody folds to your jam — you've stopped playing poker and
+                started flipping coins. Every edge you have is gone.</li>
+              <li><b>You need {doublesTo(5).toFixed(1)} doubles</b> and get about {pct(comebackOdds(5))}. And each
+                one only returns you to "still short", because the level went up while you waited.</li>
+              <li><b>Compare 10bb:</b> {pct(comebackOdds(10))} — better odds, but the real difference is that a
+                10bb jam still <i>wins pots uncontested</i>. A 5bb jam never does. That's the lesson: the chips
+                aren't what you ran out of, the <b>threat</b> is.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>So what do you do about it?</h4>
+            <ul className="tips">
+              <li><b>Move at 12–15bb, not at 6bb.</b> Take the marginal +EV jam while it still has fold equity.
+                Waiting for a premium is how you arrive at 5bb holding a hand that no longer matters.</li>
+              <li><b>Folding is not free.</b> Every orbit costs 1.5bb and the blinds climb — passivity is a
+                slow all-in you don't get to win uncontested.</li>
+              <li><b>Above 25bb, relax.</b> You have a real stack. Short-stack panic at 30bb spews more chips
+                than any cooler.</li>
+            </ul>
+            <p className="sub">
+              The trainer enforces this: at <b>≤15bb effective</b> the strategy engine drops the cash charts and
+              grades you against the push/fold jam ranges instead — same switch the bots use.
+            </p>
+          </div>
+        </div>
+
+        <h3>💵 Cash — no cliff in the session</h3>
+        <p className="sub">
+          There is nothing to come back from. Hands are independent; losing three buy-ins does not make hand
+          #4,001 any worse, and the deck has no memory of your afternoon. <b>Reload to a full stack and keep
+          playing your game</b> — or leave because the game got bad, never because you're "stuck". Chasing a
+          number is how a normal loss becomes a real one.
+        </p>
+        <div className="two-col">
+          <div>
+            <h4>The three things that actually can kill you</h4>
+            <ul className="tips">
+              <li><b>1 · Short stack (free to fix).</b> Under ~40bb you can't realize implied odds with suited
+                connectors or small pairs. Not fatal, just leaky — <b>top up between hands.</b></li>
+              <li><b>2 · Bankroll (slow death).</b> The table below. Under-rolled turns normal variance into a
+                permanent exit.</li>
+              <li><b>3 · Tilt (the real one).</b> The point of no return in cash happens in your head, not your
+                stack. Three buy-ins lost is a Tuesday; three buy-ins <i>tilted</i> is the bankroll.
+                See <b>🧊 Tilt control</b> above.</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Risk of ruin — how deep a roll you need</h4>
+            <table>
+              <thead>
+                <tr><th>Bankroll</th><th>Chance you go broke</th></tr>
+              </thead>
+              <tbody>
+                {RUIN_BI.map((bi) => {
+                  const r = ror(bi);
+                  return (
+                    <tr key={bi}>
+                      <td>{bi} buy-ins</td>
+                      <td><b className={r > 0.1 ? 'bad' : r > 0.03 ? 'okv' : 'good'}>{pct(r)}</b></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="sub">
+              <b>RoR = e<sup>−2μB/σ²</sup></b> · μ = {WINRATE}bb/100 winrate, σ = {STDEV}bb/100 stdev,
+              B = bankroll in bb. Beating the game is not enough — <b>{RUIN_BI[1]} buy-ins still busts a real
+              winner {pct(ror(RUIN_BI[1]))} of the time.</b> {RUIN_BI[2]}+ is the working minimum;
+              go deeper if your winrate is thinner or your swings are bigger.
+            </p>
+          </div>
+        </div>
+        <p className="sub">
+          <b>And the timescale nobody tells you:</b> digging out of a {HOLE_BB / BUYIN_BB}-buy-in hole at{' '}
+          {WINRATE}bb/100 takes about <b>{HOLE_HANDS.toLocaleString('en-US')} hands</b> — roughly{' '}
+          {Math.round(HOLE_LIVE_HRS)} hours live, or {Math.round(HOLE_ONLINE_HRS)} online. You are not winning it
+          back tonight. You win it back over months, by not letting tonight turn into five buy-ins.
+        </p>
       </Section>
 
       <Section id="rankings" title="Hand rankings & all-in match-ups" open={isOpen('rankings')} onToggle={() => toggle('rankings')}>
