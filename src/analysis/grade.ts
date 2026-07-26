@@ -209,15 +209,46 @@ export function buildCheckLineCoach(
   loss: number,
   handStrength: number | null,
   oop: boolean | null,
+  handLabel?: string | null,
 ): string | undefined {
   if (strategy.source !== 'postflop-model') return undefined;
   if (strategy.bestId !== 'check' || !isAggro(chosen) || loss <= 0.05) return undefined;
   const chosenOpt = strategy.options.find((o) => o.id === chosen);
   if (!chosenOpt) return undefined;
 
+  const label = handLabel ?? '';
+  // A DRAW (no made value yet) the solver wants CHECKED is NOT a "you're too weak to
+  // build the pot" spot — betting it is a semi-bluff, and made-hand value logic ("a
+  // bet folds out worse, gets called by better") is the wrong lesson for it. Detect
+  // draw labels (Combo Draw, Flush Draw, …, + Open-Ender / + Gutshot / Two Overcards).
+  const isDraw = /Draw$|Open-Ender|Gutshot|Two Overcards/.test(label);
+  // A genuinely strong MADE hand (flush/straight/two-pair+/set/full house/quads/SF —
+  // strength 4–5) TRAPS: betting finds no worse callers, so check to induce. This is
+  // the fix for a Nut Flush (strength 4, so the old `>= 5` gate missed it) being told
+  // it was "not strong enough to build the pot".
+  const isStrong =
+    !isDraw &&
+    (/(Straight Flush|Four of a Kind|Full House|Flush|Straight|Set|Trips|Two Pair)/.test(label) ||
+      (handStrength != null && handStrength >= 5));
+
   const lead = `⚠ Betting was the leak — Check beat ${chosenOpt.label} by ${loss.toFixed(2)} bb. The fix isn't a smaller bet, it's checking.`;
   const bullets: string[] = [];
-  if (handStrength != null && handStrength >= 5) {
+  if (isDraw) {
+    bullets.push(
+      `You hold a DRAW, not a made hand — betting it is a semi-bluff, and here the fold equity you'd pick up doesn't beat simply checking and realising your outs.`,
+    );
+    bullets.push(
+      oop === true
+        ? `Out of position, a bet invites a raise that blows you off a hand with big equity — checking guarantees you see the next card and get to your draw cheaply.`
+        : `Checking takes a cheap card to your outs and keeps the pot small while your hand still needs to improve.`,
+    );
+    bullets.push(
+      `You're not folding — you have the equity to continue. You're just not bloating a pot with a hand that isn't made yet.`,
+    );
+    bullets.push(
+      `Beat-the-mids caveat: vs a player who folds too much, semi-bluffing this IS good — fold equity plus your outs both print. The check is the solver's edge vs a disciplined villain, not a rule against ever betting a draw.`,
+    );
+  } else if (isStrong) {
     bullets.push(
       `With a near-nut hand almost nothing can outdraw you, so there's no draw to protect — the usual reason to bet is gone.`,
     );
@@ -391,7 +422,14 @@ export function gradeNode(
   // leak is genuinely one of SIZE, so keep the oversizing coach.
   const coach =
     strategy.bestId === 'check'
-      ? buildCheckLineCoach(strategy, chosen, loss, hand?.strength ?? null, ctx ? heroIsOOP(ctx.state, ctx.heroIdx) : null)
+      ? buildCheckLineCoach(
+          strategy,
+          chosen,
+          loss,
+          hand?.strength ?? null,
+          ctx ? heroIsOOP(ctx.state, ctx.heroIdx) : null,
+          hand?.label ?? null,
+        )
       : buildSizingCoach(strategy, chosen, loss, nOpp, handLabel);
 
   return {

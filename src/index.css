@@ -1902,6 +1902,15 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .bsd-lesson-tag { display: inline-block; font-size: 11px; font-weight: 800; color: var(--gold); margin-bottom: 4px; }
 .bsd-lesson p { margin: 0; font-size: 13px; color: var(--txt); }
 
+/* newbie decoder for the bluff% / price tiles — blue tint, distinct from the green rule + orange lesson */
+.bsd-decode {
+  margin: 8px 0; padding: 10px 12px; border-radius: 8px; line-height: 1.55;
+  background: rgba(78, 161, 255, 0.1); border: 1px solid rgba(78, 161, 255, 0.35);
+}
+.bsd-decode-tag { display: inline-block; font-size: 11px; font-weight: 800; color: #4ea1ff; margin-bottom: 4px; }
+.bsd-decode p { margin: 4px 0 0; font-size: 13px; color: var(--txt); }
+.bsd-decode p:first-of-type { margin-top: 2px; }
+
 /* ---------- postflop gameplan ---------- */
 .gp-framing { margin: 6px 0 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5;
   background: var(--bg2); border: 1px solid var(--line); border-left: 4px solid var(--gold); }
@@ -2025,6 +2034,7 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
   font-size: 10px; font-weight: 700; line-height: 1; cursor: pointer;
   border: 1px solid var(--line); border-radius: 3px; color: var(--txt);
   display: flex; align-items: center; justify-content: center;
+  user-select: none; -webkit-user-select: none; touch-action: none; /* smooth drag-to-paint, no text select / scroll */
 }
 .hr-cell sup { font-size: 7px; }
 .hr-cell:disabled { cursor: default; }
