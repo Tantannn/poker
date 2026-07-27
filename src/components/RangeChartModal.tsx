@@ -5,7 +5,7 @@
 import { useEffect, useRef } from 'react';
 import type { NodeStrategy } from '../strategy';
 import { EQUITY_RULES_OF_THUMB } from '../engine/equity';
-import { getScenario } from '../strategy/preflopChart';
+import { getScenario, scenarioKinds } from '../strategy/preflopChart';
 import { MiniRangeGrid } from './MiniRangeGrid';
 import { KIND_COLOR, KIND_LABEL } from './chartColors';
 
@@ -31,6 +31,13 @@ export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy;
   // push/fold chart would show the UTG-open note.
   const preSc = isPreflop && strategy.scenarioId ? getScenario(strategy.scenarioId) : null;
   const mnemonic = preSc && preSc.id === strategy.scenarioId ? preSc.mnemonic : undefined;
+  // Legend rows follow the kinds the *chart* uses (not the hero's own mix, which
+  // would drop a row whose color is still on screen). An RFI chart has no Call
+  // and no 3-bet, so listing those rows just mislabels the colors.
+  const preKinds = preSc && preSc.id === strategy.scenarioId ? scenarioKinds(preSc) : new Set(['value', 'call', 'bluff', 'fold']);
+  const isRfi = preSc?.id === strategy.scenarioId && preSc?.facing === 'rfi';
+  const preValueLabel = isRfi ? 'Open (core)' : KIND_LABEL.value;
+  const preBluffLabel = isRfi ? 'Open (light / widest)' : KIND_LABEL.bluff;
   const villainCalls = /defend|call/i.test(strategy.rangeNote ?? '');
   const inRgb = villainCalls ? '58,160,224' : '46,194,126';
   const villainActLabel = villainCalls ? 'Villain calls / defends these' : 'Villain raises (opens) these';
@@ -64,10 +71,10 @@ export function RangeChartModal({ strategy, onClose }: { strategy: NodeStrategy;
                   </details>
                 )}
                 <div className="legend chart-legend">
-                  <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {KIND_LABEL.value}</div>
-                  <div><span className="sw" style={{ background: KIND_COLOR.call }} /> Call</div>
-                  <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> 3-Bet bluff</div>
-                  <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> Fold</div>
+                  {preKinds.has('value') && <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {preValueLabel}</div>}
+                  {preKinds.has('call') && <div><span className="sw" style={{ background: KIND_COLOR.call }} /> {KIND_LABEL.call}</div>}
+                  {preKinds.has('bluff') && <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> {preBluffLabel}</div>}
+                  <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> {KIND_LABEL.fold}</div>
                 </div>
               </>
             ) : (

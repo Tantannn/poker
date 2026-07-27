@@ -511,6 +511,24 @@ export function getScenario(id: string): PreflopScenario {
   return SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0];
 }
 
+const GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+/** All 169 hand codes in grid order (A→2, suited above the diagonal). */
+export const ALL_169: string[] = GRID_RANKS.flatMap((r1, i) =>
+  GRID_RANKS.map((r2, j) => (i === j ? r1 + r1 : i < j ? r1 + r2 + 's' : r2 + r1 + 'o')),
+);
+
+/**
+ * Which colour-kinds a scenario's chart actually uses across all 169 hands.
+ * Legends key off this rather than off `facing`: the solver-override RFI charts
+ * contain bluff (light) opens, so a facing-based rule left orange unexplained.
+ */
+export function scenarioKinds(sc: PreflopScenario): Set<string> {
+  const kinds = new Set<string>();
+  for (const code of ALL_169) for (const o of cellStrategy(sc, code)) kinds.add(o.kind ?? 'fold');
+  return kinds;
+}
+
 /** Aggressive-action word for a facing, e.g. for explanations ("squeeze", "iso-raise"). */
 export function facingRaiseWord(f: Facing): string {
   return f === 'vs4bet' ? '5-bet'
@@ -535,7 +553,9 @@ function raiseLabelFor(f: Facing): string {
 function solverLabel(sc: PreflopScenario, id: ActionId, kind: ActionOption['kind']): string {
   if (id === 'fold') return 'Fold';
   if (id === 'call') return 'Call';
-  if (id === 'open') return 'Open';
+  // RFI charts carry both value and bluff opens; labelling both plain "Open"
+  // made the orange cells indistinguishable from the green ones in the grid.
+  if (id === 'open') return kind === 'bluff' ? 'Open (light)' : 'Open';
   if (id === 'allin') return 'All-in';
   const base = raiseLabelFor(sc.facing);
   return kind === 'bluff' ? `${base} (bluff)` : kind === 'value' ? `${base} (value)` : base;

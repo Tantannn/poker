@@ -195,3 +195,16 @@ grading baseline are explicitly teaching-standard approximations (README says so
 don't quietly present them as solver output). When a strategic concept needs to be
 "remembered" for the user, it belongs in the in-app reference surfaces —
 `EquityAnchors.tsx`, the cheat-sheet components, `Reference.tsx` — not in prose here.
+
+
+## Coding style
+
+- Prefer descriptive names over explanatory comments.
+- Keep functions small enough to be understood without comments.
+- Avoid comments describing *what* the code does.
+- 3 lines max
+- Only write comments for:
+  - poker concepts that are not obvious,
+  - mathematical derivations,
+  - performance hacks,
+  - invariants that future refactors could accidentally break.

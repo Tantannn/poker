@@ -186,7 +186,8 @@
       "PowerShell(npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts src/strategy/solverCharts.test.ts 2>&1 | Select-Object -Last 30)",
       "PowerShell(npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 30)",
       "PowerShell(node scripts/authored-preflop.mjs; Write-Host \"--- crossCheck + spotRecheck ---\"; npx vitest run src/strategy/crossCheck.test.ts src/strategy/spotRecheck.test.ts 2>&1 | Select-Object -Last 20)",
-      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 20; Write-Host \"=== full suite ===\"; npx vitest run 2>&1 | Select-Object -Last 22)"
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 20; Write-Host \"=== full suite ===\"; npx vitest run 2>&1 | Select-Object -Last 22)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 20)"
     ]
   }
 }

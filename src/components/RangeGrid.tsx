@@ -33,6 +33,13 @@ export function RangeGrid() {
   const RAISE_WORD: Record<string, string> = { rfi: 'Open', vsopen: '3-Bet', vs3bet: '4-Bet', vs4bet: '5-Bet', squeeze: 'Squeeze', vslimp: 'Iso-raise' };
   const raiseWord = RAISE_WORD[sc.facing] ?? '3-Bet';
 
+  // Legend/tally rows follow what the chart actually contains, not the facing.
+  // RFI charts sourced from solverPreflop.json do include bluff (light) opens, so
+  // gating the orange row on `facing !== 'rfi'` left those cells unexplained.
+  const has = (k: string) => (tally[k] ?? 0) > 0;
+  const valueLabel = sc.facing === 'rfi' ? 'Open (core)' : `${raiseWord} (value)`;
+  const bluffLabel = sc.facing === 'rfi' ? 'Open (light / widest)' : `${raiseWord} bluff`;
+
   return (
     <div className="card">
       <h2>Preflop Range Charts</h2>
@@ -84,18 +91,19 @@ export function RangeGrid() {
 
         <div className="grid-side">
           <div className="legend chart-legend">
-            <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {sc.facing === 'rfi' ? KIND_LABEL.value : `${raiseWord} (value)`}</div>
-            {sc.facing !== 'rfi' && <div><span className="sw" style={{ background: KIND_COLOR.call }} /> Call</div>}
-            {sc.facing !== 'rfi' && <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> {raiseWord} bluff</div>}
-            <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> Fold</div>
+            {has('value') && <div><span className="sw" style={{ background: KIND_COLOR.value }} /> {valueLabel}</div>}
+            {has('call') && <div><span className="sw" style={{ background: KIND_COLOR.call }} /> {KIND_LABEL.call}</div>}
+            {has('bluff') && <div><span className="sw" style={{ background: KIND_COLOR.bluff }} /> {bluffLabel}</div>}
+            <div><span className="sw" style={{ background: KIND_COLOR.fold }} /> {KIND_LABEL.fold}</div>
           </div>
 
           <div className="info-block">
             <b>{sc.label}</b>
             <div className="tally">
-              <span style={{ color: KIND_COLOR.value }}>Value {combosPct(tally.value)}</span>
-              {sc.facing !== 'rfi' && <span style={{ color: KIND_COLOR.call }}>Call {combosPct(tally.call)}</span>}
-              {sc.facing !== 'rfi' && <span style={{ color: KIND_COLOR.bluff }}>Bluff {combosPct(tally.bluff)}</span>}
+              {has('value') && <span style={{ color: KIND_COLOR.value }}>{valueLabel} {combosPct(tally.value)}</span>}
+              {has('call') && <span style={{ color: KIND_COLOR.call }}>Call {combosPct(tally.call)}</span>}
+              {has('bluff') && <span style={{ color: KIND_COLOR.bluff }}>{bluffLabel} {combosPct(tally.bluff)}</span>}
+              <span className="tally-total">Total {combosPct(tally.value + tally.call + tally.bluff)}</span>
             </div>
           </div>
 
