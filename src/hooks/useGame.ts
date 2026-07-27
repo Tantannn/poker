@@ -235,9 +235,14 @@ export function useGame(initialProfiles: string[]) {
     return out;
   }, [game.players, obsCounters, villainLocks, readDrivenModel, anonymousVillains]);
   // Ref so the grader (heroAct, a useCallback that must not re-create per read) can
-  // read the current models without taking them as a dependency.
+  // read the current models without taking them as a dependency. Synced in an effect,
+  // not during render — a render-phase ref write breaks under StrictMode's double
+  // invoke and concurrent rendering. Both readers (heroAct, the HUD effect) run after
+  // commit, so they never see a stale value.
   const villainModelsRef = useRef<VillainModels>(villainModels);
-  villainModelsRef.current = villainModels;
+  useEffect(() => {
+    villainModelsRef.current = villainModels;
+  }, [villainModels]);
 
   // resolve which difficulty drives a given seat's bot
   const diffFor = useCallback(

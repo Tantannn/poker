@@ -54,6 +54,13 @@ export interface VillainModel {
   bluffFreq: number;
   /** → contBias (vs the 0.30 baseline) in postflopModel */
   callStation: number;
+  /** How often villain folds facing a bet, 0..1 — the PRIMITIVE the fold-side read is
+   *  measured in, carried alongside the derived `callStation`. The per-hand model wants
+   *  the stickiness scalar, but the CFR solver needs the frequency itself to build a
+   *  locked continue policy (solver/riverSolver.ts). Deriving one from the other at the
+   *  call site would round-trip through a clamped affine map and quietly disagree with
+   *  the number the player actually set on the slider. */
+  foldToBet: number;
   source: 'balanced' | 'prior' | 'observed' | 'locked';
   /** 0..1 — how much of the read was trusted after shrinkage. 0 = pure prior. */
   confidence: number;
@@ -64,6 +71,7 @@ export interface VillainModel {
 export const balancedModel = (): VillainModel => ({
   bluffFreq: BALANCED.bluffFreq,
   callStation: BALANCED.callStation,
+  foldToBet: REF.foldToBet,
   source: 'balanced',
   confidence: 0,
   label: null,
@@ -83,6 +91,12 @@ export function bluffFreqFromBetFreq(betFreq: number): number {
  *  15%-folder near 0.66 (station — value bet big, never bluff). */
 export function callStationFromFoldToBet(foldToBet: number): number {
   return clamp(BALANCED.callStation + (REF.foldToBet - foldToBet) * 1.2, 0.05, 0.95);
+}
+
+/** Inverse of the above, for a prior expressed only as a stickiness scalar (the bot
+ *  archetypes are). Unclamped inputs round-trip exactly; clamped ones saturate. */
+export function foldToBetFromCallStation(callStation: number): number {
+  return clamp(REF.foldToBet - (callStation - BALANCED.callStation) / 1.2, 0, 1);
 }
 
 function shrink(observed: number, prior: number, n: number, halfWeight: number): { value: number; weight: number } {
@@ -116,11 +130,18 @@ export function resolveVillainModel(
   obs?: ObservedStats | null,
   lock?: VillainLock | null,
 ): VillainModel {
+  // The prior only carries a stickiness scalar (the bot archetypes are defined that
+  // way), so recover the fold frequency it implies — every path below shrinks and
+  // locks in FOLD-FREQUENCY space and derives callStation from the result, so the two
+  // can never drift apart.
+  const priorFold = foldToBetFromCallStation(prior.callStation);
+
   // A lock is an assertion by the user, not an estimate — no shrinkage, full weight.
   if (lock?.enabled && (lock.foldToBet != null || lock.betFreq != null)) {
     const bluffFreq = lock.betFreq != null ? bluffFreqFromBetFreq(lock.betFreq) : prior.bluffFreq;
+    const foldToBet = lock.foldToBet ?? priorFold;
     const callStation = lock.foldToBet != null ? callStationFromFoldToBet(lock.foldToBet) : prior.callStation;
-    const m = { bluffFreq, callStation };
+    const m = { bluffFreq, callStation, foldToBet };
     return { ...m, source: 'locked', confidence: 1, label: describe(m, true, 1) };
   }
 
@@ -128,18 +149,24 @@ export function resolveVillainModel(
   const hasBet = obs?.betFreq != null && obs.betChanceSample > 0;
   if (!obs || (!hasFold && !hasBet)) {
     const label = describe(prior, false, 0);
-    return { ...prior, source: 'prior', confidence: 0, label };
+    return { ...prior, foldToBet: priorFold, source: 'prior', confidence: 0, label };
   }
 
-  const cs = hasFold
-    ? shrink(callStationFromFoldToBet(obs.foldToBet as number), prior.callStation, obs.facedBetSample, HALF_WEIGHT.facedBet)
-    : { value: prior.callStation, weight: 0 };
+  const fold = hasFold
+    ? shrink(obs.foldToBet as number, priorFold, obs.facedBetSample, HALF_WEIGHT.facedBet)
+    : { value: priorFold, weight: 0 };
   const bf = hasBet
     ? shrink(bluffFreqFromBetFreq(obs.betFreq as number), prior.bluffFreq, obs.betChanceSample, HALF_WEIGHT.betChance)
     : { value: prior.bluffFreq, weight: 0 };
 
-  const confidence = Math.max(cs.weight, bf.weight);
-  const m = { bluffFreq: bf.value, callStation: cs.value };
+  const confidence = Math.max(fold.weight, bf.weight);
+  const m = {
+    bluffFreq: bf.value,
+    // hasFold false → keep the prior's own callStation rather than re-deriving it, so
+    // a clamped archetype (fish at 0.95) isn't silently pulled off its value.
+    callStation: hasFold ? callStationFromFoldToBet(fold.value) : prior.callStation,
+    foldToBet: fold.value,
+  };
   return {
     ...m,
     source: confidence > 0.05 ? 'observed' : 'prior',

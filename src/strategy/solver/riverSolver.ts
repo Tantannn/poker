@@ -22,6 +22,75 @@ export interface Combo {
   w: number; // range weight (0..1+)
 }
 
+/** NODE LOCK. Villain's strategy is FIXED to a fold-frequency read instead of being
+ *  solved, and hero best-responds to it. This is the point of a lock: an equilibrium
+ *  villain is unexploitable by construction, so as long as CFR solves both sides the
+ *  answer to "he over-folds the river" is always "nothing changes". Locking villain
+ *  is what turns a read into a strategy.
+ *
+ *  `foldToBet` is the range-averaged fold frequency at the REFERENCE size below; the
+ *  policy scales it across sizes by pot odds so a locked villain still folds more to
+ *  bigger bets, like a real player. */
+export interface VillainNodeLock {
+  /** 0..1, range-averaged fold frequency vs a reference-sized bet */
+  foldToBet: number;
+}
+
+/** Bet size (fraction of pot) the locked `foldToBet` is quoted at. ¾ pot is the
+ *  size the observed counters mostly sample, and the size the lock slider describes. */
+const LOCK_REF_FRAC = 0.75;
+
+/** Minimum-defence frequency vs a bet of `frac` pot — the balanced continue rate. */
+const mdf = (frac: number) => 1 / (1 + frac);
+
+/**
+ * Locked villain's continue fraction vs each bet size. Anchored so that at
+ * LOCK_REF_FRAC he continues `1 - foldToBet`, then scaled by the MDF ratio so bigger
+ * bets fold out more. A villain who folds 70% to ¾-pot continues ~30% there, less to
+ * a pot bet and more to a ⅓ stab — which is what makes barrelling him print.
+ */
+function lockedContinueBySize(foldToBet: number, betFracs: number[]): number[] {
+  const anchor = Math.max(0.02, Math.min(1, 1 - foldToBet));
+  const refMdf = mdf(LOCK_REF_FRAC);
+  return betFracs.map((f) => Math.max(0.01, Math.min(1, (anchor * mdf(f)) / refMdf)));
+}
+
+/**
+ * Build villain's locked strategy: vs each size, CONTINUE with the top `cont(s)` of
+ * the range by weight, ordered by showdown strength, and fold the rest. A threshold
+ * policy, not a mix — an exploitable player is exactly one who calls his best hands
+ * and folds the rest at the wrong frequency, and a mixed lock would blur the very
+ * thing hero is supposed to attack.
+ *
+ * Returns `[foldProb, callProb]` per (size, villain combo), same shape as the solved
+ * strategy it replaces, so the hero regret update and the EV pass need no changes.
+ * The combo AT the threshold gets the fractional remainder so the range-averaged
+ * continue rate hits the target exactly rather than landing on a combo boundary.
+ */
+function lockedVillainStrategy(V: Combo[], villScore: number[], contBySize: number[]): number[][][] {
+  const order = V.map((_, j) => j).sort((a, b) => villScore[b] - villScore[a]); // strongest first
+  let totalW = 0;
+  for (const v of V) totalW += v.w;
+  return contBySize.map((cont) => {
+    const target = cont * totalW;
+    const out: number[][] = Array.from({ length: V.length }, () => [1, 0]); // default fold
+    let acc = 0;
+    for (const j of order) {
+      const w = V[j].w;
+      if (w <= 0) continue;
+      if (acc + w <= target) {
+        out[j] = [0, 1]; // fully continues
+        acc += w;
+      } else {
+        const part = Math.max(0, Math.min(1, (target - acc) / w));
+        out[j] = [1 - part, part];
+        break;
+      }
+    }
+    return out;
+  });
+}
+
 export interface RiverInput {
   heroRange: Combo[];
   villainRange: Combo[];
@@ -30,6 +99,9 @@ export interface RiverInput {
   effStack: number;
   betSizes: number[]; // fractions of pot, e.g. [0.5, 1.0, 1.5]
   iterations?: number;
+  /** when set, villain does not learn — his strategy is pinned to this read and hero
+   *  best-responds to it (see VillainNodeLock). */
+  villainLock?: VillainNodeLock;
 }
 
 export interface RiverResult {
@@ -105,13 +177,23 @@ export function solveRiver(inp: RiverInput): RiverResult {
   // villain utility when CALLING a bet b against hero sign (+1 hero wins).
   const villCall = (sign: number, b: number) => (sign < 0 ? P + b : sign > 0 ? -b : P / 2);
 
+  // NODE LOCK: villain's strategy is fixed up front and never updated, so hero's
+  // regret update below converges to a BEST RESPONSE to the read rather than to an
+  // equilibrium. Computed once — it doesn't depend on hero's strategy.
+  // Fractions come from `bets`, not inp.betSizes: sizes that round to 0 are filtered
+  // out and a size past the stack is capped to a shove, so only `bets` is guaranteed
+  // parallel to nSizes and to carry the fraction actually being offered.
+  const locked = inp.villainLock
+    ? lockedVillainStrategy(V, villScore, lockedContinueBySize(inp.villainLock.foldToBet, bets.map((b) => b / P)))
+    : null;
+
   for (let t = 0; t < iters; t++) {
     const hStrat = regretH.map(strategyFromRegret);
-    const vStrat = regretV.map((sizeRow) => sizeRow.map(strategyFromRegret));
+    const vStrat = locked ?? regretV.map((sizeRow) => sizeRow.map(strategyFromRegret));
 
     // reach into "villain faces bet_s" from each hero combo = w_i * hero P(bet_s)
-    // --- Villain regret update (per size) ---
-    for (let s = 0; s < nSizes; s++) {
+    // --- Villain regret update (per size) — skipped when locked ---
+    if (!locked) for (let s = 0; s < nSizes; s++) {
       const b = bets[s];
       for (let j = 0; j < nV; j++) {
         // counterfactual values weighted by hero reach betting this size
@@ -175,11 +257,21 @@ export function solveRiver(inp: RiverInput): RiverResult {
 
   // Range-averaged EV per root action + villain call freq per size (diagnostics).
   const hStratAvg = heroStrategy;
+  // When locked, stratSumV was never accumulated — read the locked policy directly.
+  // Falling through to the averaged tables would score hero against an all-zero sum
+  // (which normalises to a 50/50 coin-flip villain), i.e. against a villain who is
+  // neither the equilibrium nor the read.
   const vCallFreq: number[] = [];
   for (let s = 0; s < nSizes; s++) {
     let cw = 0;
     let cc = 0;
     for (let j = 0; j < nV; j++) {
+      const callP = locked ? locked[s][j][1] : null;
+      if (callP != null) {
+        cc += callP * V[j].w;
+        cw += V[j].w;
+        continue;
+      }
       const ss = stratSumV[s][j];
       const tot = ss[0] + ss[1];
       if (tot > 0) {
@@ -191,12 +283,14 @@ export function solveRiver(inp: RiverInput): RiverResult {
   }
 
   // action EV: expected hero chips if the whole range took that action (weighted).
-  const vStratFinal = stratSumV.map((sr) =>
-    sr.map((cell) => {
-      const tot = cell[0] + cell[1];
-      return tot > 0 ? [cell[0] / tot, cell[1] / tot] : [0.5, 0.5];
-    }),
-  );
+  const vStratFinal =
+    locked ??
+    stratSumV.map((sr) =>
+      sr.map((cell) => {
+        const tot = cell[0] + cell[1];
+        return tot > 0 ? [cell[0] / tot, cell[1] / tot] : [0.5, 0.5];
+      }),
+    );
   // Per-combo action EV vs the solved villain strategy (the EV of a SPECIFIC hero
   // hand), normalised by that combo's valid villain weight — this is what the
   // NodeStrategy should report, not the range average.
@@ -330,7 +424,7 @@ export function solveRiverVsBet(inp: RiverVsBetInput): RiverVsBetResult {
 
     // hero regret
     for (let i = 0; i < nH; i++) {
-      let aFold = 0;
+      const aFold = 0;
       let aCall = 0;
       let aRaise = 0;
       for (let j = 0; j < nV; j++) {

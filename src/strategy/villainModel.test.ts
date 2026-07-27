@@ -5,6 +5,7 @@ import {
   balancedModel,
   bluffFreqFromBetFreq,
   callStationFromFoldToBet,
+  foldToBetFromCallStation,
   isExploitable,
   resolveVillainModel,
 } from './villainModel';
@@ -76,11 +77,41 @@ describe('villainModel — shrinkage', () => {
   });
 
   it('is monotone in sample size — more evidence means more movement', () => {
-    const at = (n: number) =>
-      resolveVillainModel(BALANCED, obs({ foldToBet: 0.85, facedBetSample: n }), null).callStation;
-    // folding 85% makes them a nit, so callStation should DROP further as n grows
-    expect(at(30)).toBeLessThan(at(10));
-    expect(at(100)).toBeLessThan(at(30));
+    // Assert on foldToBet, the PRIMITIVE the shrinkage runs in. callStation is a
+    // clamped affine image of it, so at an extreme read (85% folds maps below the 0.05
+    // floor) it saturates and equal values there are correct, not a monotonicity break.
+    const foldAt = (n: number) =>
+      resolveVillainModel(BALANCED, obs({ foldToBet: 0.85, facedBetSample: n }), null).foldToBet;
+    expect(foldAt(30)).toBeGreaterThan(foldAt(10));
+    expect(foldAt(100)).toBeGreaterThan(foldAt(30));
+    expect(foldAt(1000)).toBeLessThanOrEqual(0.85); // never overshoots the observation
+
+    // And the derived stickiness is monotone too, away from the clamp.
+    const stickAt = (n: number) =>
+      resolveVillainModel(BALANCED, obs({ foldToBet: 0.6, facedBetSample: n }), null).callStation;
+    expect(stickAt(30)).toBeLessThan(stickAt(10));
+    expect(stickAt(100)).toBeLessThan(stickAt(30));
+  });
+
+  it('carries foldToBet as the primitive, consistent with the derived callStation', () => {
+    const m = resolveVillainModel(BALANCED, obs({ foldToBet: 0.6, facedBetSample: 200 }), null);
+    expect(m.foldToBet).toBeCloseTo(0.6, 1);
+    expect(m.callStation).toBeCloseTo(callStationFromFoldToBet(m.foldToBet), 6);
+  });
+
+  it('a locked foldToBet reaches the solver verbatim — no lossy round-trip', () => {
+    // The CFR node lock builds villain's continue policy from this number, so it must
+    // be exactly what the slider set, not a value recovered through a clamped map.
+    for (const f of [0.05, 0.3, 0.5, 0.7, 0.95]) {
+      const m = resolveVillainModel(BALANCED, null, { enabled: true, foldToBet: f });
+      expect(m.foldToBet).toBe(f);
+    }
+  });
+
+  it('round-trips a prior expressed only as stickiness', () => {
+    const m = resolveVillainModel({ bluffFreq: 0.33, callStation: 0.5 }, null, null);
+    expect(foldToBetFromCallStation(0.5)).toBeCloseTo(m.foldToBet, 6);
+    expect(callStationFromFoldToBet(m.foldToBet)).toBeCloseTo(0.5, 6);
   });
 
   it('shrinks each read on its own sample — a fold read does not borrow the bet read\'s evidence', () => {
