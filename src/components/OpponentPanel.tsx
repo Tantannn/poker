@@ -10,6 +10,7 @@
 import type { VillainInfo } from '../hooks/useGame';
 import { getProfile, PROFILE_LIST } from '../ai/profiles';
 import type { ObservedStats } from '../analysis/observed';
+import type { VillainLock, VillainModel } from '../strategy/villainModel';
 
 interface Props {
   villain: VillainInfo | null;
@@ -23,7 +24,17 @@ interface Props {
   /** the hero's archetype guess for this seat (profileId), if made */
   guessedId?: string;
   onGuess?: (profileId: string) => void;
+  /** the model the strategy engine is currently solving this villain against */
+  model?: VillainModel | null;
+  /** manual node lock for this seat, if set */
+  lock?: VillainLock | null;
+  /** null clears the lock */
+  onLock?: (lock: VillainLock | null) => void;
 }
+
+/** What a balanced opponent does — the slider anchor, and what the engine assumes
+ *  with no read. Mirrors REF in strategy/villainModel.ts. */
+const BALANCED_REF = { foldToBet: 0.45, betFreq: 0.55 };
 
 const TAG_BLURB: Record<string, string> = {
   TAG: 'Tight-Aggressive',
@@ -34,7 +45,19 @@ const TAG_BLURB: Record<string, string> = {
   GTO: 'Balanced (GTO-ish)',
 };
 
-export function OpponentPanel({ villain, enabled, onToggle, loading, anonymous, observed, guessedId, onGuess }: Props) {
+export function OpponentPanel({
+  villain,
+  enabled,
+  onToggle,
+  loading,
+  anonymous,
+  observed,
+  guessedId,
+  onGuess,
+  model,
+  lock,
+  onLock,
+}: Props) {
   return (
     <div className="opp-panel">
       <div className="hud-head">
@@ -144,11 +167,130 @@ export function OpponentPanel({ villain, enabled, onToggle, loading, anonymous, 
                   <p>{p.exploit}</p>
                 </div>
               )}
+
+              {onLock && <NodeLock observed={observed} model={model} lock={lock} onLock={onLock} />}
             </>
           );
         })()
       )}
     </div>
+  );
+}
+
+/**
+ * Node lock: assert what this villain does and make the strategy engine solve
+ * against that instead of the observed read.
+ *
+ * This is the exploit loop the app is for. The engine has exactly two knobs that
+ * move the recommended line — how often villain folds to a bet, and how often he
+ * fires when checked to — so those are the two things worth locking. Everything
+ * downstream (the recommended action, its EV, the "Exploit:" delta on the strategy
+ * panel) recomputes from them.
+ *
+ * Sliders start from the observed read when there is one, else from the balanced
+ * reference, so opening the control never silently changes the advice.
+ */
+function NodeLock({
+  observed,
+  model,
+  lock,
+  onLock,
+}: {
+  observed?: ObservedStats | null;
+  model?: VillainModel | null;
+  lock?: VillainLock | null;
+  onLock: (lock: VillainLock | null) => void;
+}) {
+  const obsFold = observed?.foldToBet ?? null;
+  const obsBet = observed?.betFreq ?? null;
+  const foldVal = lock?.foldToBet ?? obsFold ?? BALANCED_REF.foldToBet;
+  const betVal = lock?.betFreq ?? obsBet ?? BALANCED_REF.betFreq;
+  const on = !!lock?.enabled;
+
+  const set = (patch: Partial<VillainLock>) =>
+    onLock({ enabled: true, foldToBet: foldVal, betFreq: betVal, ...patch });
+
+  return (
+    <div className="opp-lock">
+      <div className="opp-lock-head">
+        <span className="opp-exploit-lbl">🔒 Node lock</span>
+        <label className="opp-lock-toggle">
+          <input
+            type="checkbox"
+            checked={on}
+            onChange={(e) => (e.target.checked ? set({}) : onLock(null))}
+          />
+          Solve against my read
+        </label>
+      </div>
+
+      <div className="opp-lock-obs gp-muted">
+        Observed: folds to a bet{' '}
+        <b>{obsFold == null ? '—' : `${Math.round(obsFold * 100)}%`}</b>
+        {observed?.facedBetSample ? ` (${observed.facedBetSample} spots)` : ''} · bets when checked to{' '}
+        <b>{obsBet == null ? '—' : `${Math.round(obsBet * 100)}%`}</b>
+        {observed?.betChanceSample ? ` (${observed.betChanceSample} spots)` : ''}
+      </div>
+
+      {on && (
+        <div className="opp-lock-sliders">
+          <LockSlider
+            label="Folds to a bet"
+            v={foldVal}
+            hint={`${Math.round(BALANCED_REF.foldToBet * 100)}% is balanced. Higher → your bluffs print and thin value stops getting paid.`}
+            onChange={(v) => set({ foldToBet: v })}
+          />
+          <LockSlider
+            label="Bets when checked to"
+            v={betVal}
+            hint={`${Math.round(BALANCED_REF.betFreq * 100)}% is balanced. Higher → his bet range is air-heavy, so call down lighter.`}
+            onChange={(v) => set({ betFreq: v })}
+          />
+          <button className="toggle" onClick={() => onLock(null)}>
+            Clear lock
+          </button>
+        </div>
+      )}
+
+      {model?.label && (
+        <div className="opp-lock-read">
+          <b>Engine is solving against:</b> {model.label}
+        </div>
+      )}
+      {!model?.label && (
+        <div className="opp-lock-read gp-muted">
+          No exploitable deviation yet — the engine is solving this node balanced.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LockSlider({
+  label,
+  v,
+  hint,
+  onChange,
+}: {
+  label: string;
+  v: number;
+  hint: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="opp-lock-slider" title={hint}>
+      <span className="opp-bar-lbl">
+        {label} <b>{Math.round(v * 100)}%</b>
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={Math.round(v * 100)}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+      />
+    </label>
   );
 }
 

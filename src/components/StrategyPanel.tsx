@@ -133,9 +133,35 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
               );
             })}
           </div>
+          {strategy.exploit && <ExploitBox x={strategy.exploit} />}
           <div className="strat-note">{strategy.note}</div>
         </>
       )}
+    </div>
+  );
+}
+
+/** The exploit delta: what balanced play does here vs what beats THIS villain, and
+ *  what the deviation is worth. Only rendered when the engine solved the node
+ *  against a read or a manual node lock AND the two lines actually differ — a
+ *  balanced opponent produces no box, which is the honest signal that there is
+ *  nothing to exploit yet. */
+function ExploitBox({ x }: { x: NonNullable<NodeStrategy['exploit']> }) {
+  return (
+    <div className="strat-exploit">
+      <span className="strat-exploit-lbl">
+        🎯 Exploit — {x.source === 'locked' ? 'your locked read' : `read, ${Math.round(x.confidence * 100)}% confidence`}
+      </span>
+      <div className="strat-exploit-lines">
+        <span>
+          Balanced: <b>{x.baselineLabel}</b>
+        </span>
+        <span>
+          Vs this villain: <b>{x.exploitLabel}</b>
+        </span>
+        <span className="strat-exploit-gain">+{x.gainBb.toFixed(2)} bb</span>
+      </div>
+      <p className="strat-exploit-why">{x.why}</p>
     </div>
   );
 }

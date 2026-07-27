@@ -39,6 +39,30 @@ export interface ActionOption {
   sizeNote?: string;
 }
 
+/** The gap between the balanced (GTO-baseline) line and the line that maximises EV
+ *  against a specific, off-balanced opponent. `gainBb` is what the exploit is worth
+ *  per hand at this node — the number that justifies deviating at all.
+ *
+ *  Both lines are solved at the SAME node with the SAME hero range; only the villain
+ *  model differs. `gainBb` is measured in the exploit solve's own EV frame (how much
+ *  the exploit action beats the baseline action against THIS villain), because that
+ *  is the question the player is asking: "what does deviating win me here?" */
+export interface ExploitDelta {
+  /** the action the balanced model prefers */
+  baselineId: ActionId;
+  baselineLabel: string;
+  /** the action the villain-specific model prefers */
+  exploitId: ActionId;
+  exploitLabel: string;
+  /** bb gained by taking the exploit line instead of the baseline line vs this villain */
+  gainBb: number;
+  /** why this villain's tendencies move the line */
+  why: string;
+  /** 'locked' when the user set the read by hand, else how firm the observed read is */
+  confidence: number;
+  source: 'observed' | 'locked';
+}
+
 export interface NodeStrategy {
   options: ActionOption[];
   bestEv: number;
@@ -51,6 +75,10 @@ export interface NodeStrategy {
   /** hero equity vs the opponent range at this node (0..1), when computed. */
   equity?: number;
   rangeNote?: string;
+  /** Set when the node was solved against an off-balanced villain model (a read or a
+   *  manual node lock) AND the balanced line differs — the "GTO says X, vs THIS
+   *  player do Y" delta. Absent when the villain is balanced or the two lines agree. */
+  exploit?: ExploitDelta;
   /** hero's 169-code, for highlighting the cell in the chart popup. */
   heroCode?: string;
   /** preflop scenario id (for the chart popup), when source is preflop-chart. */

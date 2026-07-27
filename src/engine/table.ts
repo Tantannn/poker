@@ -259,9 +259,21 @@ export function startHand(state: GameState): GameState {
     }
   }
 
+  // A hand needs at least two funded seats. Once a tournament collapses to one (or
+  // zero) survivors it is over — bail before the button walk, which would otherwise
+  // spin forever looking for a chipped seat that no longer exists.
+  const funded = activeForButton(state);
+  if (funded.length < 2) {
+    state.toAct = -1;
+    state.message = funded.length === 1
+      ? `${state.players.find((p) => p.id === funded[0])!.name} wins.`
+      : 'Hand cannot start — no chips in play.';
+    return state;
+  }
+
   // advance button to next seat with chips
   let b = (state.buttonIndex + 1) % n;
-  const haveChips = activeForButton(state);
+  const haveChips = funded;
   while (!haveChips.includes(b)) b = (b + 1) % n;
   state.buttonIndex = b;
 

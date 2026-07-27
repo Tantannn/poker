@@ -11,6 +11,8 @@ import { codeToCombos } from '../../engine/range';
 import type { NodeStrategy, ActionId, ActionOption } from '../types';
 import { solveRiver, solveRiverVsBet, type Combo } from './riverSolver';
 import { solveTurn } from './turnSolver';
+import { solveFlop } from './flopSolver';
+import { solveRiver3way, solveTurn3way } from './multiwaySolver';
 import { requiredEquityForBet } from '../../engine/potOdds';
 
 // Live size set — chosen to map onto the existing ActionIds (no overbet id yet).
@@ -22,6 +24,20 @@ const VILLAIN_CAP = 80;
 // Turn caps are smaller: the equity matrix costs O(hero × villain × ~44 rivers).
 const TURN_HERO_CAP = 36;
 const TURN_VILLAIN_CAP = 48;
+// Flop caps are smaller still: the equity matrix enumerates BOTH streets — O(hero ×
+// villain × ~990 turn+river runouts) — and the check line nests a turn solve per bucket.
+const FLOP_HERO_CAP = 20;
+const FLOP_VILLAIN_CAP = 28;
+// 3-way caps. The third player is aggregated into scalars, so per-iteration cost stays
+// O(hero × villain); the river solve is exact (score-based) so it can carry near-HU caps.
+const MW_RIVER_HERO_CAP = 40;
+const MW_RIVER_VILLAIN_CAP = 48;
+const MW_RIVER_THIRD_CAP = 48;
+// The turn 3-way enumerates three river-equity matrices AND nests a river 3-way per bucket,
+// so it takes the tightest caps of all.
+const MW_TURN_HERO_CAP = 22;
+const MW_TURN_VILLAIN_CAP = 28;
+const MW_TURN_THIRD_CAP = 28;
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 const dead = (c: Card, cards: Card[]) => cards.some((x) => sameCard(x, c));
@@ -318,6 +334,120 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     p.bigBlind,
     `Turn solver — range-vs-range with the river runouts enumerated for showdown ` +
       `equity. Frequencies are the solved mix.` +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+  );
+}
+
+/** Solve a hero-first heads-up FLOP node range-vs-range (turn+river runouts enumerated
+ *  for showdown equity, the CHECK line nesting a real turn subgame per texture bucket) and
+ *  adapt to NodeStrategy. Smallest caps of the three streets — the equity matrix costs
+ *  O(hero × villain × ~990 runouts) and the check line nests a turn solve per bucket. */
+export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
+  if (p.board.length !== 3 || p.heroCards.length !== 2) return null;
+  const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, FLOP_VILLAIN_CAP, p.villainComboWeight);
+  const heroCombos = buildCombos(p.heroRange, p.board, [], FLOP_HERO_CAP, undefined, heroActual);
+  if (villainCombos.length === 0 || heroCombos.length === 0) return null;
+
+  const result = solveFlop({
+    heroRange: heroCombos,
+    villainRange: villainCombos,
+    board: p.board,
+    pot: p.pot,
+    effStack: p.effStack,
+    betSizes: RIVER_SIZES,
+    iterations: 700,
+    turnNestIterations: 220,
+  });
+
+  return heroFirstNodeStrategy(
+    result,
+    heroCombos,
+    heroActual,
+    p.board,
+    p.pot,
+    p.bigBlind,
+    `Flop solver — range-vs-range with turn+river runouts enumerated for showdown equity; ` +
+      `the check line nests a turn subgame. Turn cards are bucketed by texture (a disclosed ` +
+      `abstraction, not a solver-exact flop solve). Frequencies are the solved mix.` +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+  );
+}
+
+export interface Multiway3NodeParams extends RiverSolveParams {
+  thirdRange: WeightedRange;
+  thirdComboWeight?: (a: Card, b: Card) => number;
+}
+
+/** Solve a hero-first 3-WAY river node (hero + primary villain by CFR, the second opponent
+ *  on a fixed MDF policy) and adapt to NodeStrategy. HU-framed per-line reasons are skipped
+ *  (river=false) — they assume one opponent; the note explains the multiway solve. */
+export function solveRiver3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
+  if (p.board.length !== 5 || p.heroCards.length !== 2) return null;
+  const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, MW_RIVER_VILLAIN_CAP, p.villainComboWeight);
+  const thirdCombos = buildCombos(p.thirdRange, p.board, p.heroCards, MW_RIVER_THIRD_CAP, p.thirdComboWeight);
+  const heroCombos = buildCombos(p.heroRange, p.board, [], MW_RIVER_HERO_CAP, undefined, heroActual);
+  if (villainCombos.length === 0 || thirdCombos.length === 0 || heroCombos.length === 0) return null;
+
+  const result = solveRiver3way({
+    heroRange: heroCombos,
+    villainRange: villainCombos,
+    thirdRange: thirdCombos,
+    board: p.board,
+    pot: p.pot,
+    effStack: p.effStack,
+    betSizes: RIVER_SIZES,
+    iterations: 1000,
+  });
+
+  return heroFirstNodeStrategy(
+    result,
+    heroCombos,
+    heroActual,
+    p.board,
+    p.pot,
+    p.bigBlind,
+    `3-way river solver — hero + one villain solved range-vs-range (CFR); the second ` +
+      `opponent follows a fixed MDF policy (defends the top of its range, folds the rest). ` +
+      `Bluffs earn less than heads-up because a bet must get through two players.` +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+  );
+}
+
+/** Solve a hero-first 3-WAY turn node (hero + villain CFR with river runouts enumerated for
+ *  equity; the second opponent on a fixed MDF policy; the check line nests a 3-way river
+ *  subgame per river-texture bucket). Adapt to NodeStrategy. Tightest caps of all paths. */
+export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
+  if (p.board.length !== 4 || p.heroCards.length !== 2) return null;
+  const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, MW_TURN_VILLAIN_CAP, p.villainComboWeight);
+  const thirdCombos = buildCombos(p.thirdRange, p.board, p.heroCards, MW_TURN_THIRD_CAP, p.thirdComboWeight);
+  const heroCombos = buildCombos(p.heroRange, p.board, [], MW_TURN_HERO_CAP, undefined, heroActual);
+  if (villainCombos.length === 0 || thirdCombos.length === 0 || heroCombos.length === 0) return null;
+
+  const result = solveTurn3way({
+    heroRange: heroCombos,
+    villainRange: villainCombos,
+    thirdRange: thirdCombos,
+    board: p.board,
+    pot: p.pot,
+    effStack: p.effStack,
+    betSizes: RIVER_SIZES,
+    iterations: 900,
+    riverNestIterations: 110,
+  });
+
+  return heroFirstNodeStrategy(
+    result,
+    heroCombos,
+    heroActual,
+    p.board,
+    p.pot,
+    p.bigBlind,
+    `3-way turn solver — hero + one villain range-vs-range (CFR, river runouts enumerated); ` +
+      `the second opponent follows a fixed MDF policy and the check line nests a 3-way river ` +
+      `subgame (bucketed by texture). A disclosed multiway approximation, not full 3-way CFR.` +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }

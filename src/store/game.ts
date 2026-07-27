@@ -110,6 +110,14 @@ export interface PersistSettings {
   seatDiffs?: string[];
   /** hide bot archetypes — hero builds reads from observed stats and guesses. */
   anonymousVillains?: boolean;
+  /** manual node locks per seat index: assert what a villain does (fold-to-bet /
+   *  bet frequency) and the strategy engine solves against that instead of the
+   *  observed read. See strategy/villainModel.ts. */
+  villainLocks?: Record<number, { enabled: boolean; foldToBet?: number; betFreq?: number }>;
+  /** use observed reads (VPIP/fold-to-bet/bet-freq) as the villain model the
+   *  strategy engine solves against, instead of the bot's hidden archetype.
+   *  Defaults ON — an archetype the player can't see shouldn't drive the advice. */
+  readDrivenModel?: boolean;
   /** bias the hero's dealt hole cards toward mixed/edge preflop hands. */
   edgeFocus?: boolean;
   /** drill deal-filter: force each dealt hero hand into a starting-hand class

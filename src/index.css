@@ -815,6 +815,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .ref-section.closed .ref-sec-head { opacity: 0.85; }
 .ref-sec-body { margin-top: 14px; }
 .tally { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-weight: 700; font-size: 13px; }
+.tally .tally-total { color: var(--muted); }
 .cell-detail .cell-act { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
 .cell-act .dot { width: 12px; height: 12px; border-radius: 3px; }
 .cell-act-freq { margin-left: auto; font-weight: 800; color: var(--gold); }
@@ -885,9 +886,19 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .equity-explain .equity-rules .equity-rules-hook { color: var(--muted); font-style: italic; }
 .equity-explain .equity-caveat { color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
 
+.mini-grid-wrap { display: flex; flex-direction: column; gap: 8px; }
 .mini-grid { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; width: min(430px, 84vw); aspect-ratio: 1; }
-.mini-cell { display: flex; align-items: center; justify-content: center; font-size: clamp(6px, 1.7vw, 9px); font-weight: 800; color: #fff; border-radius: 2px; letter-spacing: -0.3px; text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.8); overflow: hidden; }
+/* .mini-cell is a <button> (cells are tappable for their exact %) — reset the UA chrome. */
+.mini-cell { display: flex; align-items: center; justify-content: center; font-size: clamp(6px, 1.7vw, 9px); font-weight: 800; font-family: inherit; color: #fff; border: 0; padding: 0; border-radius: 2px; letter-spacing: -0.3px; text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.8); overflow: hidden; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.mini-cell:hover { filter: brightness(1.25); }
 .mini-cell.hl { outline: 2px solid var(--gold); outline-offset: -1px; z-index: 2; font-size: clamp(7px, 1.9vw, 10px); }
+.mini-cell.sel { outline: 2px solid #fff; outline-offset: -1px; z-index: 3; }
+.mini-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 20px; width: min(430px, 84vw); font-size: 12px; color: var(--txt); }
+.mini-detail > b { font-size: 13px; color: var(--gold); }
+.mini-detail-act { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.mini-detail-act b { color: var(--txt); }
+.mini-detail-act .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.mini-detail-hint { color: var(--muted); font-style: italic; }
 
 /* ---------- opponent panel ---------- */
 .opp-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
@@ -925,6 +936,23 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .opp-guess-verdict { border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-weight: 700; margin-bottom: 10px; }
 .opp-guess-verdict.ok { background: color-mix(in srgb, var(--raise2) 18%, transparent); color: var(--raise2); border: 1px solid var(--raise2); }
 .opp-guess-verdict.bad { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); border: 1px solid var(--red); }
+
+/* ---------- node lock (solve against your read, not the archetype) ---------- */
+.opp-lock { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.opp-lock-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opp-lock-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.opp-lock-obs { font-size: 11.5px; line-height: 1.5; }
+.opp-lock-sliders { display: flex; flex-direction: column; gap: 8px; }
+.opp-lock-slider { display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+.opp-lock-slider input[type='range'] { width: 100%; accent-color: var(--gold); }
+.opp-lock-read { font-size: 12px; line-height: 1.5; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+
+/* exploit delta on the strategy panel: balanced line vs the line that beats THIS villain */
+.strat-exploit { margin-top: 10px; border: 1px solid var(--gold); border-radius: 8px; padding: 9px 11px; background: color-mix(in srgb, var(--gold) 10%, transparent); }
+.strat-exploit-lbl { font-size: 11px; font-weight: 800; color: var(--gold); display: block; margin-bottom: 4px; }
+.strat-exploit-lines { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; align-items: baseline; }
+.strat-exploit-gain { font-weight: 800; color: var(--raise2); }
+.strat-exploit-why { margin: 5px 0 0; font-size: 12px; line-height: 1.5; }
 
 /* ---------- rich feedback gameplan ---------- */
 .fb-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }

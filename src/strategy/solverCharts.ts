@@ -59,10 +59,21 @@ export function solverActions(id: string, code: string): SolverActionOut[] | nul
   return actions.map((x) => ({ id: x.a, freq: x.f, kind: x.k, ev: x.ev }));
 }
 
+/** Default inclusion threshold when collapsing a MIXED chart into a BINARY range set.
+ *  Deliberately above ½: a binary set admits a hand at FULL weight, so a 0.5 cut-off
+ *  gives a hand opened 55% of the time the same presence as one opened always, and
+ *  the mixed tail — which is where the wide, weak hands live — gets systematically
+ *  over-represented. That makes every villain range a little too wide and a little
+ *  too weak, which shows up downstream as the EV model value-betting marginal hands
+ *  it should be checking (it tripped the multiway bluff-catcher guard in
+ *  crossCheck.test.ts). 0.6 keeps the hands a villain genuinely plays most of the
+ *  time and drops the coin-flip tail. */
+export const DEFAULT_MIN_PLAY = 0.6;
+
 /** Project a solved chart to a BINARY range Set (the model the ranges use): every
  *  hand whose summed NON-FOLD frequency is at least `minPlay`. Pure — exported for
  *  tests and reused by solverRangeSet. */
-export function projectRangeSet(chart: SolverChart, minPlay = 0.5): Set<string> {
+export function projectRangeSet(chart: SolverChart, minPlay = DEFAULT_MIN_PLAY): Set<string> {
   const s = new Set<string>();
   for (const code in chart) {
     const played = chart[code].filter((x) => x.a !== 'fold').reduce((a, x) => a + x.f, 0);
@@ -72,12 +83,12 @@ export function projectRangeSet(chart: SolverChart, minPlay = 0.5): Set<string> 
 }
 
 /** Binary range Set from a solved chart, or null if there's no chart for this id. */
-export function solverRangeSet(id: string, minPlay = 0.5): Set<string> | null {
+export function solverRangeSet(id: string, minPlay = DEFAULT_MIN_PLAY): Set<string> | null {
   const chart = charts[id];
   return chart ? projectRangeSet(chart, minPlay) : null;
 }
 
 /** Solver range Set when a chart exists for `id`, else the heuristic `fallback`. */
-export function resolveRangeSet(id: string, fallback: Set<string>, minPlay = 0.5): Set<string> {
+export function resolveRangeSet(id: string, fallback: Set<string>, minPlay = DEFAULT_MIN_PLAY): Set<string> {
   return solverRangeSet(id, minPlay) ?? fallback;
 }
