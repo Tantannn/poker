@@ -98,9 +98,29 @@ Sequence so each stage ships value and de-risks the next:
   Ship behind the flag; cross-check.
 - **Stage 2 — TURN (~1 week).** One chance layer; solve the turn with the river
   solver as the leaf evaluator (nested), or CFR with chance sampling.
-- **Stage 3 — FLOP (1–2 weeks).** Two chance layers — heaviest. Requires **range
-  bucketing** (cluster combos) to stay tractable; iteration cap.
-- **Stage 4 — performance / precompute (ongoing).** Cache by canonical spot
+- **Stage 3 — FLOP (1–2 weeks). ✅ BUILT (`flopSolver.ts`).** Two chance layers —
+  heaviest. Realised via the turn solver as the leaf on the check line, with **turn-card
+  bucketing by texture** (pairs board / completes flush / rank tier) instead of clustering
+  combos — one turn subgame per bucket, weighted by bucket size; the bet-call line scores a
+  static two-street showdown over enumerated turn+river runouts. Nested turn solves run
+  `nestRiverForCheck:false` to cap the recursion at two CFR layers. Gated by
+  `FLOP_SOLVER_ENABLED`; hero-first HU only, and only when no meaningful villain read/lock
+  is active (else the per-hand model runs for the exploit delta). The abstraction is
+  disclosed in the node note.
+- **Stage 4 — MULTIWAY, 3-way turn/river (`multiwaySolver.ts`). ✅ BUILT.** Full
+  multiway CFR (every player optimising) is out of scope; a 3-handed pot is approximated by
+  solving hero + ONE villain with CFR while the THIRD player follows a **fixed MDF-by-strength
+  policy** (defends the top 1/(1+f) of its range facing a bet of size f, checks its whole
+  range to a checked pot; ranked by made strength on the river, by equity-vs-bettor on the
+  turn). The tractability key: hero scoops iff he beats every caller, and "beats the third"
+  marginalises into a per-hero scalar (its win-rate vs the third's calling range) that is
+  independent of the villain's specific hand up to card removal — so the third collapses to
+  precomputed scalars and the solve stays O(hero × villain), not O(hero × villain × third).
+  Gated by `MULTIWAY_SOLVER_ENABLED`; hero-first, exactly 3-way (`liveOpps === 2`), no active
+  read (else per-hand model for the exploit delta). The turn nests a 3-way river subgame on
+  the check line (river-texture bucketed, as the flop buckets turns). 4+-way and villain-first
+  multiway stay on the per-hand model. Independence + fixed policy are disclosed in the note.
+- **Stage 5 — performance / precompute (ongoing).** Cache by canonical spot
   (texture + SPR + range pair), worker pooling, optional precomputed DB (C) for
   hot flop nodes.
 

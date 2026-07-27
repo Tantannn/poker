@@ -190,7 +190,13 @@
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 20)",
       "Bash(taskkill //F //IM node.exe)",
       "Bash(echo \"done exit=$?\")",
-      "Bash(tr '\\\\\\\\' '/')"
+      "Bash(tr '\\\\\\\\' '/')",
+      "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts src/strategy/solver/flopWiring.test.ts 2>&1 | Select-Object -Last 60)",
+      "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts -t \"range vs range\" 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts src/strategy/solver/flopWiring.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 50)",
+      "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 20)",
+      "PowerShell(1..3 | ForEach-Object { npx vitest run src/strategy/solver/ src/strategy/nodeLock.test.ts 2>&1 | Select-String -Pattern \"Test Files|Tests \" })"
     ]
   }
 }

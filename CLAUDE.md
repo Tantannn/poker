@@ -50,11 +50,18 @@ There are **two** postflop engines behind that seam:
    every node including multiway. Not a Nash solve.
 2. **`solver/`** — real range-vs-range CFR. `riverSolver.ts` (vector CFR, exact
    showdown), `turnSolver.ts` (nests the river solver as leaf evaluator),
+   `flopSolver.ts` (nests the turn solver, bucketing turn cards by texture — the two
+   chance layers make the flop the heaviest solve, so the bucketing is a disclosed
+   abstraction, not solver-exact), `multiwaySolver.ts` (3-way turn/river: hero + one
+   villain solved by CFR, the third player on a fixed MDF policy — see Node lock below),
    `riverAdapter.ts` (expands ranges → combos, maps the solve onto `NodeStrategy`).
-   Gated by `RIVER_SOLVER_ENABLED` in `index.ts` — flip to `false` to A/B against
-   the per-hand model. Currently applies to heads-up hero-first turn/river nodes
-   and hero-facing-a-bet on the river; multiway always falls back to (1).
-   `docs/range-vs-range-ev-design.md` is the staged plan (flop = not built).
+   Turn/river gated by `RIVER_SOLVER_ENABLED`, flop by `FLOP_SOLVER_ENABLED`, 3-way by
+   `MULTIWAY_SOLVER_ENABLED` (separate flags — flop + multiway carry abstractions), all in
+   `index.ts`; flip to `false` to A/B against the per-hand model. Applies to hero-first
+   flop/turn/river HU nodes, hero-facing-a-bet on the river, and hero-first 3-way (exactly
+   two live opponents) turn/river; 4+-way and villain-first multiway fall back to (1).
+   `docs/range-vs-range-ev-design.md` is the staged plan (flop = Stage 3, multiway = Stage 4,
+   both built).
 
 Preflop never uses either: `preflopChart.ts` holds mixed-frequency charts per
 scenario id, and `pushFold.ts` takes over at ≤15bb effective (mirroring the bot's
@@ -85,8 +92,14 @@ the profile — otherwise the engine uses what the UI deliberately hides. And wh
 read/lock is off-balanced the node is solved **twice** (balanced vs villain-specific)
 to produce `NodeStrategy.exploit`, the "GTO says X, vs this player do Y, worth +Z bb"
 delta; both solves must take their equity from `seededEquity` so the only difference
-between them is the model, not Monte-Carlo noise. Turn/river CFR nodes bypass the
-per-hand model and so carry no exploit delta yet.
+between them is the model, not Monte-Carlo noise. The HU turn/river CFR gates predate the exploit
+delta and bypass the per-hand model, so they carry none yet. The newer **flop** and **3-way**
+gates keep the exploit tool alive via a shared carve-out (`primaryHasRead` in
+`postflopStrategy`): they route to the CFR only when the primary villain has NO meaningful
+read/lock (`isExploitable`) — an active read/lock falls through to the per-hand model, which
+computes the balanced-vs-villain delta. So the CFR is the GTO baseline and the per-hand model
+is the exploit path where both matter. `nodeLock.test.ts` relies on this carve-out (its spots
+are HU flop).
 
 ### Preflop chart override layer
 `src/data/solverPreflop.json` overrides the built-in heuristic preflop charts — per

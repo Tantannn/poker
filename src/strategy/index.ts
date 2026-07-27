@@ -18,12 +18,22 @@ import { BALANCED, balancedModel, isExploitable } from './villainModel';
 import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
-import { solveRiverNode, solveRiverVsBetNode, solveTurnNode } from './solver/riverAdapter';
+import { solveRiverNode, solveRiverVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode } from './solver/riverAdapter';
 
 // Tier-2 (Stage 0): route hero-first heads-up RIVER nodes through the range-vs-range
 // CFR solver instead of the per-hand EV model. Flip to false to A/B against the old
 // engine. Non-river / facing-a-bet / multiway nodes always use the per-hand model.
 export const RIVER_SOLVER_ENABLED = true;
+// Tier-2 Stage 3: route hero-first heads-up FLOP nodes through the range-vs-range flop
+// solver (flopSolver.ts nests the turn solver, bucketing turn cards). Gated separately
+// from the river/turn flag because the flop carries a disclosed texture abstraction and
+// is the heaviest solve — flip to false to A/B the whole street against the per-hand model.
+export const FLOP_SOLVER_ENABLED = true;
+// Tier-2 Stage 4: route hero-first 3-WAY (exactly two live opponents) turn/river nodes
+// through the multiway solver — hero + one villain solved by CFR, the third player on a
+// fixed MDF policy. Full multiway CFR is out of scope; 4+-way and villain-first multiway
+// stay on the per-hand model. Flip to false to A/B the whole street against it.
+export const MULTIWAY_SOLVER_ENABLED = true;
 import { solvePostflop } from './postflopModel';
 
 export type { NodeStrategy } from './types';
@@ -621,6 +631,19 @@ function postflopStrategy(
     position = orderRank(heroIdx) > orderRank(vIdx) ? 'ip' : 'oop';
   }
 
+  // NODE-LOCK CARVE-OUT (shared by the flop + multiway CFR gates). A CFR path carries no
+  // exploit delta, so when the primary villain has a meaningful READ or manual LOCK we fall
+  // through to the per-hand model, which computes the balanced-vs-villain exploit delta.
+  // No read → the CFR runs for the GTO baseline. (The HU river/turn gates predate this and
+  // always take the CFR path; the newer flop + 3-way gates preserve the exploit tool.)
+  const primaryVIdx = primaryVillain(state, heroIdx);
+  const primaryModel = modelFor(state, primaryVIdx, models);
+  const primaryHasRead =
+    primaryVIdx >= 0 &&
+    !state.players[primaryVIdx].isHero &&
+    (primaryModel.source === 'observed' || primaryModel.source === 'locked') &&
+    isExploitable(primaryModel);
+
   // Tier-2 Stage 0: a hero-FIRST heads-up river node (hero can check or bet, not
   // facing a bet) goes through the range-vs-range CFR solver. Everything else —
   // facing a bet, multiway, earlier streets — stays on the per-hand model below.
@@ -649,6 +672,34 @@ function postflopStrategy(
     if (solved) return solved;
   }
 
+  // Tier-2 Stage 4: a hero-FIRST 3-WAY river node → hero + primary villain solved by CFR,
+  // the second opponent on a fixed MDF policy. Both opponents draw from the same population
+  // range (as the per-hand model's multiway does). No read → CFR; a read falls to per-hand.
+  if (
+    MULTIWAY_SOLVER_ENABLED &&
+    !primaryHasRead &&
+    state.street === 'river' &&
+    la.callAmount === 0 &&
+    la.canCheck &&
+    la.canRaise &&
+    liveOpps === 2
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const solved = solveRiver3wayNode({
+      heroCards: hero.holeCards,
+      board: state.board,
+      pot,
+      effStack,
+      heroRange,
+      villainRange: range,
+      thirdRange: range,
+      villainComboWeight: comboWeight,
+      bigBlind: state.bigBlind,
+      rangeNote: note,
+    });
+    if (solved) return solved;
+  }
+
   // Tier-2 Stage 2: a hero-FIRST heads-up TURN node → range-vs-range solve with the
   // river runouts enumerated for showdown equity (captures value / protection / air).
   if (
@@ -661,6 +712,63 @@ function postflopStrategy(
   ) {
     const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
     const solved = solveTurnNode({
+      heroCards: hero.holeCards,
+      board: state.board,
+      pot,
+      effStack,
+      heroRange,
+      villainRange: range,
+      villainComboWeight: comboWeight,
+      bigBlind: state.bigBlind,
+      rangeNote: note,
+    });
+    if (solved) return solved;
+  }
+
+  // Tier-2 Stage 4: a hero-FIRST 3-WAY turn node → hero + villain CFR with river runouts
+  // enumerated for equity, the second opponent on a fixed MDF policy (its call range set
+  // once on the turn). No read → CFR; a read falls to the per-hand model.
+  if (
+    MULTIWAY_SOLVER_ENABLED &&
+    !primaryHasRead &&
+    state.street === 'turn' &&
+    la.callAmount === 0 &&
+    la.canCheck &&
+    la.canRaise &&
+    liveOpps === 2
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const solved = solveTurn3wayNode({
+      heroCards: hero.holeCards,
+      board: state.board,
+      pot,
+      effStack,
+      heroRange,
+      villainRange: range,
+      thirdRange: range,
+      villainComboWeight: comboWeight,
+      bigBlind: state.bigBlind,
+      rangeNote: note,
+    });
+    if (solved) return solved;
+  }
+
+  // Tier-2 Stage 3: a hero-FIRST heads-up FLOP node → range-vs-range solve nesting the
+  // turn solver on the check line (turn cards bucketed by texture). Heaviest street; still
+  // hero-first only (facing a bet stays on the per-hand model, as on the turn). The
+  // node-lock carve-out (primaryHasRead) keeps the exploit tool alive on this street —
+  // nodeLock.test.ts relies on exactly this.
+  if (
+    FLOP_SOLVER_ENABLED &&
+    !primaryHasRead &&
+    state.street === 'flop' &&
+    la.callAmount === 0 &&
+    la.canCheck &&
+    la.canRaise &&
+    liveOpps === 1
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const solved = solveFlopNode({
       heroCards: hero.holeCards,
       board: state.board,
       pot,
