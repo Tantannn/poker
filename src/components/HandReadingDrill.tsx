@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PlayingCard } from './PlayingCard';
 import { handCode } from '../ai/preflop';
 import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
@@ -47,6 +47,48 @@ export function HandReadingDrill() {
     });
   };
 
+  // Drag to paint the whole grid: the first cell you press decides the mode —
+  // press a KEPT cell and you drag to remove; press a REMOVED cell and you drag
+  // to add back. Every cell the pointer touches is set to that one target state,
+  // so a swipe cuts (or restores) a swathe of the range in one gesture.
+  const painting = useRef<boolean | null>(null); // target keep-state while dragging, null = not dragging
+
+  const paint = (code: string, keep: boolean) => {
+    if (shown || !startSet.has(code)) return;
+    setHeroKeep((prev) => {
+      if (prev.has(code) === keep) return prev; // already in target state — no churn
+      const next = new Set(prev);
+      if (keep) next.add(code);
+      else next.delete(code);
+      return next;
+    });
+  };
+
+  const startPaint = (code: string) => {
+    if (shown || !startSet.has(code)) return;
+    const keep = !heroKeep.has(code); // toggle the pressed cell; that becomes the drag mode
+    painting.current = keep;
+    paint(code, keep);
+  };
+
+  const dragOver = (code: string) => {
+    if (painting.current === null) return; // only paint while a drag is in progress
+    paint(code, painting.current);
+  };
+
+  // End the drag on pointer release anywhere (even off the grid).
+  useEffect(() => {
+    const stop = () => {
+      painting.current = null;
+    };
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    return () => {
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+  }, []);
+
   const nextStreet = () => {
     if (revealed < 3) setRevealed((r) => r + 1);
   };
@@ -89,9 +131,9 @@ export function HandReadingDrill() {
       </div>
 
       <p className="note">
-        Put villain on a range. Start with his whole preflop range lit up, then <b>click to remove</b> the hands
-        he <i>wouldn't</i> play this way as the story unfolds. Reveal to see how tight your read was — and what he
-        actually had.
+        Put villain on a range. Start with his whole preflop range lit up, then <b>click — or drag across —</b> to
+        remove the hands he <i>wouldn't</i> play this way as the story unfolds. Drag over kept cells to cut a swathe,
+        drag over cut cells to add them back. Reveal to see how tight your read was — and what he actually had.
       </p>
 
       <div className="hr-villain">
@@ -135,7 +177,17 @@ export function HandReadingDrill() {
                   role="gridcell"
                   className={cls}
                   disabled={shown || !inStart}
-                  onClick={() => toggle(code)}
+                  onPointerDown={(e) => {
+                    e.preventDefault(); // don't grab focus / start a text selection mid-drag
+                    startPaint(code);
+                  }}
+                  onPointerEnter={() => dragOver(code)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggle(code);
+                    }
+                  }}
                   title={code}
                 >
                   {code.replace('s', '').replace('o', '')}

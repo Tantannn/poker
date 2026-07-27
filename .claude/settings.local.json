@@ -164,7 +164,9 @@
       "PowerShell(Get-CimInstance *)",
       "PowerShell($procs = Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }; Write-Output \"found $\\($procs.Count\\) vitest node procs\"; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 500; $left = \\(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }\\).Count; Write-Output \"remaining: $left\")",
       "PowerShell($env:CI='true'; npx vitest run src/strategy src/engine src/analysis src/ai src/store --reporter=dot 2>&1 | Select-Object -Last 12; Write-Output \"EXIT=$LASTEXITCODE\")",
-      "PowerShell($procs = Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }; Write-Output \"found $\\($procs.Count\\)\"; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 400; Write-Output \"remaining $\\(\\(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }\\).Count\\)\")"
+      "PowerShell($procs = Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }; Write-Output \"found $\\($procs.Count\\)\"; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 400; Write-Output \"remaining $\\(\\(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'vitest' }\\).Count\\)\")",
+      "Bash(kill %1)",
+      "mcp__plugin_context-mode_context-mode__ctx_search"
     ]
   }
 }

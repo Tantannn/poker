@@ -84,6 +84,27 @@ describe('buildCheckLineCoach — best line is CHECK, hero bet', () => {
     const betBestNode: NodeStrategy = { ...checkBest(), bestId: 'bet50' };
     expect(buildCheckLineCoach(betBestNode, 'bet33', 2, 5, true)).toBeUndefined();
   });
+
+  // Regression: a Nut Flush is strength 4, so the old `>= 5` gate mis-routed it to
+  // the marginal "you're not strong enough to build the pot" text. It's a strong
+  // made hand and should get the TRAP lesson.
+  it('routes a strong made hand (Nut Flush, strength 4) to the trap lesson', () => {
+    const msg = buildCheckLineCoach(checkBest(), 'bet33', 0.81, 4, true, 'Nut Flush');
+    expect(msg).toContain('near-nut');
+    expect(msg).not.toContain("not strong enough to build");
+  });
+
+  // Regression: a DRAW is not a made hand — betting it is a semi-bluff, so the
+  // made-hand "a bet can't make value / not strong enough to build" text is the
+  // wrong lesson. It gets its own draw branch.
+  it('gives the draw-specific reason for a Combo Draw, not made-hand value logic', () => {
+    const msg = buildCheckLineCoach(checkBest(), 'bet33', 1.04, 3, false, 'Combo Draw');
+    expect(msg).toContain('DRAW');
+    expect(msg).toContain('semi-bluff');
+    expect(msg).toContain('realis'); // "realising your outs"
+    expect(msg).not.toContain("not strong enough to build");
+    expect(msg).not.toContain("can't make value");
+  });
 });
 
 describe('isFreeGiveUp — declining to bluff air is not a real leak', () => {

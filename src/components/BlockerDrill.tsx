@@ -492,6 +492,29 @@ export function BlockerDrill() {
             </div>
           </div>
 
+          {/* Plain-English decoder for the two numbers above — the spot a newbie stalls on. */}
+          <div className="bsd-decode">
+            <span className="bsd-decode-tag">🐣 What these two numbers mean</span>
+            <p>
+              <b>He bluffs {pct(verdict.bluffFracAfter)}</b> — of every hand villain would bet like this, about{' '}
+              {Math.round(verdict.bluffFracAfter * 100)} in 100 are <i>bluffs</i> (busted draws) that your hand beats;
+              the rest are value that beats you. The higher this is, the more often calling snaps off a bluff.
+            </p>
+            <p>
+              <b>You need {pct(verdict.need)}</b> — the <i>price</i>, and it has nothing to do with his cards. To call{' '}
+              {verdict.call}bb and win the {verdict.potWithBet}bb already in the middle, your hand only has to be good{' '}
+              {pct(verdict.need)} of the time to break even. A bigger bet = a worse price = a higher number here.
+            </p>
+            <p>
+              <b>So compare the two:</b> he bluffs {pct(verdict.bluffFracAfter)} and you need {pct(verdict.need)}.{' '}
+              {verdict.bluffFracAfter >= verdict.need ? (
+                <>He bluffs <i>more</i> than the price makes you pay for ({pct(verdict.bluffFracAfter)} ≥ {pct(verdict.need)}), so you catch enough bluffs to profit ⇒ <b className="good">call</b>.</>
+              ) : (
+                <>He bluffs <i>less</i> than the price makes you pay for ({pct(verdict.bluffFracAfter)} &lt; {pct(verdict.need)}), so his bets are too full of value ⇒ <b className="bad">fold</b>.</>
+              )}
+            </p>
+          </div>
+
           <div className="lab-why">
             <div className="lab-why-row">
               <span className="lab-why-tag best">Best · {ACTION_LABEL[verdict.action]}</span>

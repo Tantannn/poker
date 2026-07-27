@@ -236,9 +236,21 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
 
     if (raiseCount >= 3) {
       // facing a 4-bet → 5-bet jam or fold. Flatting a 4-bet is rare (IP only).
-      if ((code === 'AA' || code === 'KK' || code === 'AKs') && la.canRaise) return jamAllIn();
-      if ((code === 'AKo' || code === 'QQ') && la.canRaise && r() < 0.5) return jamAllIn();
-      if (ipPre && (code === 'QQ' || code === 'JJ' || code === 'AKs' || code === 'AKo') && la.callAmount > 0 && r() < 0.3)
+      // A PREMIUM never folds preflop: it jams when it can still raise, and when the
+      // hero already shoved (la.canRaise === false because hero covers us) it CALLS
+      // the shove off instead of folding. The old code only jammed on canRaise, so a
+      // covered AA/KK/AKs fell through to the fold return below — e.g. a maniac 3-bets,
+      // hero 4-bet-jams, and the maniac's AA folded. Aces stack off, always.
+      if (code === 'AA' || code === 'KK' || code === 'AKs') {
+        if (la.canRaise) return jamAllIn();
+        return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
+      }
+      if (code === 'AKo' || code === 'QQ') {
+        if (la.canRaise && r() < 0.5) return jamAllIn();
+        if (la.callAmount > 0 && r() < 0.55) return { type: 'call' }; // mostly stack off vs a 5-bet
+        return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
+      }
+      if (ipPre && (code === 'JJ' || code === 'AKs' || code === 'AKo') && la.callAmount > 0 && r() < 0.3)
         return { type: 'call' };
       return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
     }
