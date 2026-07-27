@@ -20,12 +20,12 @@ describe('cellStrategy — RFI open', () => {
   it('folds trash at 100%', () => {
     expect(cellStrategy(sc, '72o')).toEqual([expect.objectContaining({ id: 'fold', freq: 1 })]);
   });
-  it('splits a mixed-open hand 50/50 open-fold', () => {
-    const opts = cellStrategy(sc, 'A8s'); // in UTG mixOpen
+  it('splits a mixed-open hand open-fold', () => {
+    const opts = cellStrategy(sc, 'A8s'); // authored light-open in the rfi-UTG override
     const open = opts.find((o) => o.id === 'open');
     const fold = opts.find((o) => o.id === 'fold');
-    expect(open?.freq).toBeCloseTo(0.5);
-    expect(fold?.freq).toBeCloseTo(0.5);
+    expect(open?.freq).toBeCloseTo(0.8);
+    expect(fold?.freq).toBeCloseTo(0.2);
   });
 });
 

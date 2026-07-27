@@ -717,6 +717,11 @@ function postflopStrategy(
     Math.max(-0.15, Math.min(0.3, (callStation - BALANCED.callStation) * 0.5));
   const contBias = cbVIdx >= 0 && !state.players[cbVIdx].isHero ? contBiasOf(model.callStation) : 0;
 
+  // A passive station both sticks (high callStation) and rarely bets when checked to
+  // (low bluffFreq) — so a made hand should LEAD for value rather than check to trap.
+  const villainPassive =
+    cbVIdx >= 0 && !state.players[cbVIdx].isHero && model.callStation >= 0.5 && model.bluffFreq <= 0.2;
+
   const solveArgs = {
     hero: hero.holeCards,
     board: state.board,
