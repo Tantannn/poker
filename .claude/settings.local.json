@@ -196,7 +196,15 @@
       "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts src/strategy/solver/flopWiring.test.ts 2>&1 | Select-Object -Last 30)",
       "PowerShell(npx vitest run 2>&1 | Select-Object -Last 50)",
       "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 20)",
-      "PowerShell(1..3 | ForEach-Object { npx vitest run src/strategy/solver/ src/strategy/nodeLock.test.ts 2>&1 | Select-String -Pattern \"Test Files|Tests \" })"
+      "PowerShell(1..3 | ForEach-Object { npx vitest run src/strategy/solver/ src/strategy/nodeLock.test.ts 2>&1 | Select-String -Pattern \"Test Files|Tests \" })",
+      "PowerShell(git log --oneline -3; Write-Host \"=== status ===\"; git status --short; Write-Host \"=== key files ===\"; @\\('scripts/authored-preflop.mjs','src/strategy/villainModel.ts','src/strategy/nodeLock.test.ts','src/analysis/observed.test.ts','src/strategy/villainModel.test.ts'\\) | ForEach-Object { \"$\\($_\\): $\\(Test-Path $_\\)\" })",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 25)",
+      "PowerShell(npx vitest run src/strategy/solver/riverNodeLock.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/solver/riverNodeLock.test.ts src/strategy/villainModel.test.ts src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/villainModel.test.ts src/strategy/nodeLock.test.ts src/strategy/solver 2>&1 | Select-Object -Last 35)",
+      "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(1..4 | ForEach-Object { $r = npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-String \"Tests  \"; Write-Host \"run $_`: $r\" })",
+      "PowerShell(1..5 | ForEach-Object { $r = npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-String \"Tests  \"; Write-Host \"run $_`: $r\" })"
     ]
   }
 }

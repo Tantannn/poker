@@ -225,19 +225,22 @@ export function useGame(initialProfiles: string[]) {
     for (const p of game.players) {
       if (p.isHero) continue;
       const prof = getProfile(p.profileId);
-      const prior =
-        readDrivenModel && anonymousVillains
-          ? BALANCED
-          : { bluffFreq: prof.bluffFreq, callStation: prof.callStation };
+      const archetypeVisible = !(readDrivenModel && anonymousVillains);
+      const prior = archetypeVisible ? { bluffFreq: prof.bluffFreq, callStation: prof.callStation } : BALANCED;
       const obs = readDrivenModel ? toStats(obsCounters[p.id]) : null;
-      out[p.id] = resolveVillainModel(prior, obs, villainLocks[p.id]);
+      out[p.id] = resolveVillainModel(prior, obs, villainLocks[p.id], archetypeVisible);
     }
     return out;
   }, [game.players, obsCounters, villainLocks, readDrivenModel, anonymousVillains]);
   // Ref so the grader (heroAct, a useCallback that must not re-create per read) can
-  // read the current models without taking them as a dependency.
+  // read the current models without taking them as a dependency. Synced in an effect,
+  // not during render — a render-phase ref write breaks under StrictMode's double
+  // invoke and concurrent rendering. Both readers (heroAct, the HUD effect) run after
+  // commit, so they never see a stale value.
   const villainModelsRef = useRef<VillainModels>(villainModels);
-  villainModelsRef.current = villainModels;
+  useEffect(() => {
+    villainModelsRef.current = villainModels;
+  }, [villainModels]);
 
   // resolve which difficulty drives a given seat's bot
   const diffFor = useCallback(

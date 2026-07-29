@@ -14,7 +14,7 @@ import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import { getProfile } from '../ai/profiles';
 import type { VillainModel } from './villainModel';
-import { BALANCED, balancedModel, isExploitable } from './villainModel';
+import { BALANCED, balancedModel, foldToBetFromCallStation, isExploitable } from './villainModel';
 import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
@@ -88,7 +88,9 @@ function modelFor(state: GameState, seatIdx: number, models?: VillainModels): Vi
   return {
     bluffFreq: prof.bluffFreq,
     callStation: prof.callStation,
+    foldToBet: foldToBetFromCallStation(prof.callStation),
     source: 'prior',
+    archetypeVisible: true,
     confidence: 0,
     label: null,
   };
@@ -658,7 +660,7 @@ function postflopStrategy(
     // Hero's range from the SAME role-based builder the villain uses (3-bettor /
     // opener / flat-caller / BB), not a flat position RFI — a big accuracy lift.
     const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
-    const solved = solveRiverNode({
+    const args = {
       heroCards: hero.holeCards,
       board: state.board,
       pot,
@@ -668,8 +670,47 @@ function postflopStrategy(
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
       rangeNote: note,
-    });
-    if (solved) return solved;
+    };
+    // NODE LOCK inside the CFR. Unlike the flop/3-way gates, a read does NOT fall
+    // through to the per-hand model here — instead villain's river strategy is pinned
+    // to the read and hero best-responds, which keeps range-vs-range quality on the
+    // street where an over-fold read pays most. Reweighting his range (comboWeight)
+    // was never enough on its own: hero-first, villain's FOLD frequency is the whole
+    // question, and while CFR solves both sides it is unexploitable by construction.
+    const solved = solveRiverNode(
+      primaryHasRead ? { ...args, villainFoldToBet: primaryModel.foldToBet } : args,
+    );
+    if (solved) {
+      if (!primaryHasRead) return solved;
+      // Exploit delta: what the equilibrium does here vs what beats THIS villain.
+      // Both solves share the node, ranges and seedless-CFR determinism, so the only
+      // difference is whether villain is solving or pinned.
+      const base = solveRiverNode(args);
+      if (base && base.bestId !== solved.bestId) {
+        const baselineInLockedFrame = solved.options.find((o) => o.id === base.bestId);
+        const gainBb = round2(solved.bestEv - (baselineInLockedFrame?.ev ?? solved.bestEv));
+        if (gainBb > 0.05) {
+          const exploitDelta: ExploitDelta = {
+            baselineId: base.bestId,
+            baselineLabel: base.options.find((o) => o.id === base.bestId)?.label ?? base.bestId,
+            exploitId: solved.bestId,
+            exploitLabel: solved.options.find((o) => o.id === solved.bestId)?.label ?? solved.bestId,
+            gainBb,
+            why: primaryModel.label ?? 'this villain deviates from balanced play',
+            confidence: primaryModel.confidence,
+            source: primaryModel.source === 'locked' ? 'locked' : 'observed',
+          };
+          const ex = `Exploit: the equilibrium prefers ${exploitDelta.baselineLabel}, but vs this villain ${exploitDelta.exploitLabel} is worth +${gainBb.toFixed(2)}bb.`;
+          return {
+            ...solved,
+            note: `${solved.note} ${ex}`,
+            notes: [...(solved.notes ?? []), ex],
+            exploit: exploitDelta,
+          };
+        }
+      }
+      return solved;
+    }
   }
 
   // Tier-2 Stage 4: a hero-FIRST 3-WAY river node → hero + primary villain solved by CFR,
@@ -961,7 +1002,8 @@ function villainReadNote(
   const provenance =
     model.source === 'locked' ? ' (locked read)'
       : model.source === 'observed' ? ` (${Math.round(model.confidence * 100)}% confidence read)`
-        : ` (${getProfile(vp.profileId).tag})`;
+        : model.archetypeVisible ? ` (${getProfile(vp.profileId).tag})`
+          : '';
   const bluffPct = Math.round(model.bluffFreq * 100);
   if (callAmount > 0) {
     // facing a bet → the read is about bluff-catching

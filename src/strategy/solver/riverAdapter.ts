@@ -194,6 +194,11 @@ export interface RiverSolveParams {
   villainComboWeight?: (a: Card, b: Card) => number;
   bigBlind: number;
   rangeNote?: string;
+  /** NODE LOCK: villain's fold-to-bet read (0..1). When set, villain's strategy is
+   *  PINNED to it and hero best-responds instead of both sides reaching equilibrium.
+   *  Omit for the GTO baseline — an equilibrium villain can't be exploited, so a
+   *  fold-frequency read only changes the answer once his strategy stops solving. */
+  villainFoldToBet?: number;
 }
 
 /** Solve a hero-first heads-up river node range-vs-range and adapt to NodeStrategy.
@@ -205,6 +210,7 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
   const heroCombos = buildCombos(p.heroRange, p.board, [], HERO_CAP, undefined, heroActual);
   if (villainCombos.length === 0 || heroCombos.length === 0) return null;
 
+  const locked = p.villainFoldToBet != null;
   const result = solveRiver({
     heroRange: heroCombos,
     villainRange: villainCombos,
@@ -213,6 +219,7 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
     effStack: p.effStack,
     betSizes: RIVER_SIZES,
     iterations: 700,
+    villainLock: locked ? { foldToBet: p.villainFoldToBet as number } : undefined,
   });
 
   return heroFirstNodeStrategy(
@@ -222,8 +229,13 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
     p.board,
     p.pot,
     p.bigBlind,
-    `River solver — range-vs-range equilibrium (CFR over both ranges, not the ` +
-      `per-hand estimate). Frequencies are the solved mix.` +
+    (locked
+      ? `River solver — NODE LOCKED to your read: villain folds ~${Math.round(
+          (p.villainFoldToBet as number) * 100,
+        )}% to a ¾-pot bet (scaled by pot odds across sizes) and your line is the BEST RESPONSE to that, ` +
+        `not an equilibrium. An equilibrium villain can't be exploited, which is why the lock has to pin him.`
+      : `River solver — range-vs-range equilibrium (CFR over both ranges, not the ` +
+        `per-hand estimate). Frequencies are the solved mix.`) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
     true,
   );

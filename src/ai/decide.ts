@@ -446,6 +446,14 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // Value/bluff bet size for THIS board — shared so a bluff fires the same fraction a
   // value hand would here (no size tell). Polar (wet) boards bet big; dry bet small.
   const polarBase = wetBoard ? 0.8 : 0.6;
+  // OVERBET. Turn/river only, and only with stack left to make it hurt: a polar
+  // range (near-nuts + pure air) can bet more than the pot because the caller's
+  // range is capped and can never hold the top of it. Deliberately NOT scaled by
+  // textureMult — the classic overbet node is a dry, static board where villain's
+  // range is capped, not a wet one.
+  const overbetSpot = (state.street === 'turn' || isRiver) && behindBB > potBB * 1.2;
+  const rollOverbet = () => r() < diff.overbet;
+  const overbetFrac = () => jitter(1.45);
 
   if (la.callAmount > 0) {
     // facing a bet
@@ -515,9 +523,23 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // and to share a size with bluffs; strong value bets big; thin value sizes down.
   // Vs a river station, value thinner/more often (riverValueTilt).
   if (eqR > 0.62 && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt * (isRiver ? riverValueTilt : 1)) {
-    const nut = equity > 0.9 && behindBB > potBB * 1.5 && wetBoard;
-    const base = nut ? 1.25 : equity > 0.8 ? 0.8 : 0.6;
-    return sizeTo(tFrac(base), true, { willCommit: equity > 0.78 });
+    if (equity > 0.88 && overbetSpot && rollOverbet()) return sizeTo(overbetFrac(), true, { willCommit: true });
+    return sizeTo(tFrac(equity > 0.8 ? 0.8 : 0.6), true, { willCommit: equity > 0.78 });
+  }
+
+  // Bluff side of the overbet — same size as the value side, so the size itself
+  // carries no information. Only tiers that adapt balance it; weaker tiers overbet
+  // their nuts alone and leave the tell in. Heads-up only: an overbet needs one
+  // capped range to attack, not a field.
+  if (
+    overbetSpot &&
+    heads &&
+    diff.adapt > 0 &&
+    equity < 0.25 &&
+    rollOverbet() &&
+    r() < profile.bluffFreq * 0.9 * mood * bluffTilt * blockerMult * (isRiver ? riverBluffTilt : 1)
+  ) {
+    return sizeTo(overbetFrac(), true);
   }
   // continuation / barrel as the aggressor — now MULTIWAY too, scaled by field
   // fold-through (thinning a field on a good board). Flop c-bet wide; turn/river

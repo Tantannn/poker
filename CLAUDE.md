@@ -88,18 +88,42 @@ arg of `getNodeStrategy` and ride in the `hudWorker` request payload; `useGame`
 builds them (`villainModels`) from `obsCounters` + `villainLocks`.
 
 Two invariants worth keeping. In anonymous mode the prior must be `BALANCED`, never
-the profile — otherwise the engine uses what the UI deliberately hides. And when a
+the profile — otherwise the engine uses what the UI deliberately hides — and
+`VillainModel.archetypeVisible` must be false alongside it, since a *balanced* model
+still lets explain text name the tag (`gto` is numerically balanced). It defaults to
+false so a caller that forgets it leaks nothing. And when a
 read/lock is off-balanced the node is solved **twice** (balanced vs villain-specific)
 to produce `NodeStrategy.exploit`, the "GTO says X, vs this player do Y, worth +Z bb"
 delta; both solves must take their equity from `seededEquity` so the only difference
-between them is the model, not Monte-Carlo noise. The HU turn/river CFR gates predate the exploit
-delta and bypass the per-hand model, so they carry none yet. The newer **flop** and **3-way**
-gates keep the exploit tool alive via a shared carve-out (`primaryHasRead` in
-`postflopStrategy`): they route to the CFR only when the primary villain has NO meaningful
-read/lock (`isExploitable`) — an active read/lock falls through to the per-hand model, which
-computes the balanced-vs-villain delta. So the CFR is the GTO baseline and the per-hand model
-is the exploit path where both matter. `nodeLock.test.ts` relies on this carve-out (its spots
-are HU flop).
+between them is the model, not Monte-Carlo noise.
+
+There are **two different ways** a read reaches the postflop engine, and which one a
+node uses depends on its gate:
+
+1. **Fall through to the per-hand model** — the **flop** and **3-way** gates share the
+   `primaryHasRead` carve-out in `postflopStrategy`: they route to the CFR only when the
+   primary villain has NO meaningful read/lock (`isExploitable`). An active read/lock
+   drops to `solvePostflop`, which computes the balanced-vs-villain delta. Here the CFR
+   is the GTO baseline and the per-hand model is the exploit path. `nodeLock.test.ts`'s
+   flop spots rely on exactly this.
+2. **Node-lock inside the CFR** — the **HU river** gate does the opposite: it passes
+   `villainFoldToBet` into `solveRiver`, which pins villain's strategy to a threshold
+   continue policy (`lockedVillainStrategy`) and never updates his regrets, so hero's
+   CFR converges to a **best response** instead of an equilibrium. It then solves a
+   second time unlocked to produce the exploit delta. This keeps range-vs-range quality
+   on the street where an over-fold read pays most.
+
+Why (2) is necessary at all: reweighting villain's *range* (`comboWeight`/`bluffMult`)
+cannot express a fold-frequency read, and while CFR solves both sides the result is
+unexploitable by construction — so "he over-folds the river" would change nothing.
+Locking his strategy is what turns a read into a line. The lock is quoted at ¾ pot
+(`LOCK_REF_FRAC`) and scaled across sizes by MDF, so a locked villain still folds more
+to bigger bets. `VillainModel.foldToBet` is the primitive carried for this; `callStation`
+is its clamped affine image, so shrinkage runs in fold-frequency space to keep them
+consistent.
+
+**HU turn/flop-facing-a-bet still carry no delta** — the turn gate has no lock yet
+(`solveTurn` would need the same treatment, plus its nested river subgames).
 
 ### Preflop chart override layer
 `src/data/solverPreflop.json` overrides the built-in heuristic preflop charts — per
@@ -136,7 +160,10 @@ same presence as one opened always and over-represents the mixed tail.
 ### `src/ai/` — the bots
 `decide.ts` (`decideAction`) is the bot's single decision function; `profiles.ts`
 holds archetypes (tag/lag/lp/gto/nit/fish), `difficulty.ts` layers easy→extreme
-params and per-seat overrides, `blueprint.ts` holds frequency curves. Bots and the
+params and per-seat overrides, `blueprint.ts` holds frequency curves.
+`DifficultyParams.overbet` gates the turn/river polar overbet (1.3–1.75× pot). Every
+tier overbets its nut end; only tiers with `adapt > 0` balance the bluff side at the
+same size, so on easy/normal an overbet *is* a value tell the hero can read. Bots and the
 grader read the same preflop charts, so keeping them in sync is a hard requirement,
 not a nicety.
 

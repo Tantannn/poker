@@ -208,20 +208,25 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               <StreetBreadcrumb street={game.street} started={started} />
             </div>
 
-            {game.players.map((p) => (
-              <Seat
-                key={p.id}
-                player={p}
-                position={positionLabel(p.id, game.buttonIndex, game.players.length)}
-                isButton={p.id === game.buttonIndex && started}
-                isToAct={game.toAct === p.id && !handOver}
-                reveal={reveal && (!supportsHidden || (wasShowdown && !p.folded))}
-                isWinner={winnerIds.has(p.id)}
-                profileName={p.isHero ? undefined : getProfile(p.profileId).tag}
-                slot={p.id}
-                bigBlind={game.bigBlind}
-              />
-            ))}
+            {game.players.map((p) => {
+              // anonymous mode: the seat badge is the archetype, so it must stay '?'
+              // until the hero guesses this seat — same reveal rule as OpponentPanel.
+              const hideTag = g.anonymousVillains && !g.villainGuesses[p.id];
+              return (
+                <Seat
+                  key={p.id}
+                  player={p}
+                  position={positionLabel(p.id, game.buttonIndex, game.players.length)}
+                  isButton={p.id === game.buttonIndex && started}
+                  isToAct={game.toAct === p.id && !handOver}
+                  reveal={reveal && (!supportsHidden || (wasShowdown && !p.folded))}
+                  isWinner={winnerIds.has(p.id)}
+                  profileName={p.isHero ? undefined : hideTag ? '?' : getProfile(p.profileId).tag}
+                  slot={p.id}
+                  bigBlind={game.bigBlind}
+                />
+              );
+            })}
           </div>
         </div>
 

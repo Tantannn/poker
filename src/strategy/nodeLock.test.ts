@@ -34,6 +34,14 @@ function flopState(heroCards: string, boardStr: string, currentBet = 0): GameSta
   } as unknown as GameState;
 }
 
+/** Same table, but a hero-first heads-up RIVER node — which routes to the CFR gate
+ *  rather than the per-hand model, so the lock has to reach the solver itself. */
+function riverState(heroCards: string, boardStr: string): GameState {
+  const s = flopState(heroCards, boardStr) as unknown as { street: string };
+  s.street = 'river';
+  return s as unknown as GameState;
+}
+
 /** models map with seat 1 locked to a given fold-to-bet / bet frequency */
 function locked(foldToBet?: number, betFreq?: number): VillainModels {
   return { 1: resolveVillainModel(undefined, null, { enabled: true, foldToBet, betFreq }) };
@@ -123,6 +131,59 @@ describe('node lock — the exploit delta', () => {
       expect(s.note).toContain('Exploit:');
       expect(s.notes?.some((n) => n.startsWith('Exploit:'))).toBe(true);
     }
+  });
+});
+
+// The HU river gate does NOT fall through to the per-hand model on a read (unlike the
+// flop/3-way gates). It pins villain inside the CFR and hero best-responds, so these
+// assert the lock actually reaches the solver rather than only reweighting the range.
+describe('node lock — heads-up river routes through the CFR with villain pinned', () => {
+  const board = 'Kh 8d 3c 7s 2h'; // dry: no flush, no straight
+  const air = '6c 5d';
+
+  it('says it is node-locked, not at equilibrium', () => {
+    const s = getNodeStrategy(riverState(air, board), 0, undefined, undefined, locked(0.85));
+    expect(s.note).toContain('NODE LOCKED');
+    expect(s.note).toMatch(/85% to a ¾-pot bet/);
+  });
+
+  it('still reports the plain equilibrium when there is no read', () => {
+    const s = getNodeStrategy(riverState(air, board), 0);
+    expect(s.note).toContain('River solver');
+    expect(s.note).not.toContain('NODE LOCKED');
+    expect(s.exploit).toBeUndefined();
+  });
+
+  it('bluffs air more against an over-folder than at equilibrium', () => {
+    const eq = getNodeStrategy(riverState(air, board), 0);
+    const vsNit = getNodeStrategy(riverState(air, board), 0, undefined, undefined, locked(0.85));
+    expect(aggroFreq(vsNit)).toBeGreaterThan(aggroFreq(eq));
+  });
+
+  it('gives up on air against a villain who never folds', () => {
+    const vsStation = getNodeStrategy(riverState(air, board), 0, undefined, undefined, locked(0.03));
+    const vsNit = getNodeStrategy(riverState(air, board), 0, undefined, undefined, locked(0.85));
+    expect(aggroFreq(vsStation)).toBeLessThan(aggroFreq(vsNit));
+  });
+
+  it('surfaces an exploit delta when the locked line differs from the equilibrium line', () => {
+    const spots = [air, 'Qs Jd', '9h 9d', 'Ad Ac'];
+    const found = spots
+      .map((h) => getNodeStrategy(riverState(h, board), 0, undefined, undefined, locked(0.9)).exploit)
+      .filter((x) => x != null);
+    expect(found.length).toBeGreaterThan(0);
+    for (const x of found) {
+      expect(x!.gainBb).toBeGreaterThan(0.05);
+      expect(x!.baselineId).not.toBe(x!.exploitId);
+      expect(x!.source).toBe('locked');
+    }
+  });
+
+  it('is deterministic for the same node and lock', () => {
+    const a = getNodeStrategy(riverState(air, board), 0, undefined, undefined, locked(0.8));
+    const b = getNodeStrategy(riverState(air, board), 0, undefined, undefined, locked(0.8));
+    expect(a.bestId).toBe(b.bestId);
+    expect(a.bestEv).toBeCloseTo(b.bestEv, 6);
   });
 });
 
