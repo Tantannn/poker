@@ -203,6 +203,8 @@ describe('node lock — provenance never leaks the hidden archetype', () => {
       1: resolveVillainModel(undefined, {
         hands: 80, vpip: 0.3, pfr: 0.2, af: 2,
         foldToBet: 0.05, betFreq: null, facedBetSample: 120, betChanceSample: 0,
+        riverBetFreq: null, riverBetChanceSample: 0, turnBetFreq: null,
+        barrelThrough: null, ledFlopSample: 0,
       }, null),
     };
     const s = getNodeStrategy(flopState('As 2d', 'Kh 8d 3c', 12), 0, 1200, undefined, models);

@@ -800,7 +800,7 @@ export function gradeCallChecklist(
   // the note then modulates by the villain TYPE (read question) + player count —
   // the same line means opposite things vs a nit vs a maniac, and multiway.
   if (answers.story != null && villainLine) {
-    const s = readVillainStory(villainLine, revealedStreets(board));
+    const s = readVillainStory(villainLine, revealedStreets(board), board);
     const mod = modulateStory(s.read, answers.read, opps);
     grades.push({ questionId: 'story', ok: answers.story === s.read, note: `${s.why} ${mod.note}` });
   }

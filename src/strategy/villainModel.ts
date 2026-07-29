@@ -30,14 +30,20 @@ import type { ObservedStats } from '../analysis/observed';
 export const BALANCED = { bluffFreq: 0.33, callStation: 0.3 } as const;
 
 /** What a balanced player does, used to convert an observed rate into a parameter.
- *  betFreq: how often a balanced player bets when checked to postflop.
+ *  betFreq: how often a balanced player bets when checked to postflop (all streets).
+ *  riverBetFreq: the same on the RIVER alone — materially lower, because a flop
+ *    c-bet is near-automatic and a river bet is not. Using the pooled 0.55 as the
+ *    reference for a river rate would read a bluff-heavy 45% river barreller as
+ *    "barely bluffs", inverting the read.
  *  foldToBet: how often a balanced player folds facing a bet (MDF-adjacent). */
-const REF = { betFreq: 0.55, foldToBet: 0.45 } as const;
+const REF = { betFreq: 0.55, riverBetFreq: 0.42, foldToBet: 0.45 } as const;
 
 /** Sample sizes at which an observed rate gets half its weight (n/(n+K)). Keyed on
  *  the DECISION count for that specific read, not hands played — a villain can be
- *  40 hands deep and never once have faced a bet. */
-const HALF_WEIGHT = { facedBet: 12, betChance: 15 } as const;
+ *  40 hands deep and never once have faced a bet. `riverBetChance` is lower than the
+ *  pooled `betChance` because river lead spots arrive ~2.5× slower; the read would
+ *  otherwise stay pinned to the prior for hundreds of hands. */
+const HALF_WEIGHT = { facedBet: 12, betChance: 15, riverBetChance: 10 } as const;
 
 /** A user-set lock. Absent fields keep the observed/prior value, so you can lock
  *  fold-to-bet alone and leave the bluff read alone. */
@@ -87,8 +93,8 @@ const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x
 /** Observed bet-when-checked-to rate → what share of his betting range is air.
  *  Proportional to the balanced reference: a villain who bets 80% of the time he
  *  can is firing far more than his made hands, so the extra is bluffs. */
-export function bluffFreqFromBetFreq(betFreq: number): number {
-  return clamp(BALANCED.bluffFreq * (betFreq / REF.betFreq), 0.05, 0.9);
+export function bluffFreqFromBetFreq(betFreq: number, ref: number = REF.betFreq): number {
+  return clamp(BALANCED.bluffFreq * (betFreq / ref), 0.05, 0.9);
 }
 
 /** Observed fold-to-bet → stickiness. Inverted: the more he folds, the less he is a
@@ -153,8 +159,18 @@ export function resolveVillainModel(
     return { ...m, source: 'locked', archetypeVisible, confidence: 1, label: describe(m, true, 1) };
   }
 
+  // The bluff-catch happens on the river, so read the RIVER bet frequency when there
+  // is one and fall back to the pooled rate only until then. Pooled is dominated by
+  // flop c-bets, which are near-automatic and carry almost no information about
+  // whether a river bet is air — the number this knob is supposed to express.
+  const useRiver = obs?.riverBetFreq != null && obs.riverBetChanceSample > 0;
+  const betRate = useRiver ? (obs?.riverBetFreq as number) : obs?.betFreq;
+  const betSample = useRiver ? (obs?.riverBetChanceSample as number) : (obs?.betChanceSample ?? 0);
+  const betRef = useRiver ? REF.riverBetFreq : REF.betFreq;
+  const betHalfWeight = useRiver ? HALF_WEIGHT.riverBetChance : HALF_WEIGHT.betChance;
+
   const hasFold = obs?.foldToBet != null && obs.facedBetSample > 0;
-  const hasBet = obs?.betFreq != null && obs.betChanceSample > 0;
+  const hasBet = betRate != null && betSample > 0;
   if (!obs || (!hasFold && !hasBet)) {
     const label = describe(prior, false, 0);
     return { ...prior, foldToBet: priorFold, source: 'prior', archetypeVisible, confidence: 0, label };
@@ -164,7 +180,7 @@ export function resolveVillainModel(
     ? shrink(obs.foldToBet as number, priorFold, obs.facedBetSample, HALF_WEIGHT.facedBet)
     : { value: priorFold, weight: 0 };
   const bf = hasBet
-    ? shrink(bluffFreqFromBetFreq(obs.betFreq as number), prior.bluffFreq, obs.betChanceSample, HALF_WEIGHT.betChance)
+    ? shrink(bluffFreqFromBetFreq(betRate as number, betRef), prior.bluffFreq, betSample, betHalfWeight)
     : { value: prior.bluffFreq, weight: 0 };
 
   const confidence = Math.max(fold.weight, bf.weight);

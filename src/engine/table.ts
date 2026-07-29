@@ -83,6 +83,9 @@ export interface ActionRecord {
   amount: number;
   street: Street;
   potAfter: number;
+  /** Bet/raise/call that took the player's last chip. A story reader must not
+   *  treat a shove as a CHOSEN size — the stack picked it. Absent on old saves. */
+  allIn?: boolean;
 }
 
 export interface SidePot {
@@ -556,6 +559,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     amount,
     street: state.street,
     potAfter: potTotal(state),
+    ...(p.stack === 0 ? { allIn: true } : {}),
   });
 
   // hand over by folds?

@@ -27,6 +27,21 @@ export interface ObsCounters {
   betChances: number;
   /** …of those, how many were a bet/raise. → how often they fire, drives bluffFreq */
   betTaken: number;
+  // ---- per-street split of the above ----
+  // Pooled `betFreq` is dominated by FLOP spots (the most numerous), and a flop
+  // c-bet is near-automatic — it says nothing about whether a river bet is air.
+  // Splitting lets bluffFreq key on the street the bluff-catch actually happens on.
+  riverBetChances: number;
+  riverBetTaken: number;
+  turnBetChances: number;
+  turnBetTaken: number;
+  /** hands where they took the FLOP lead (bet/raise with no bet ahead) */
+  ledFlop: number;
+  /** …of those, hands where they also led the RIVER. Counted per hand rather than
+   *  as riverBetTaken/flopBetTaken so it stays a true conditional, not a ratio of
+   *  two independent aggregates. Strong hands are rare in any range, so a high
+   *  barrel-through rate is arithmetically bluff-heavy — no showdown needed. */
+  ledFlopThroughRiver: number;
 }
 
 export interface ObservedStats {
@@ -48,6 +63,18 @@ export interface ObservedStats {
   facedBetSample: number;
   /** decisions behind betFreq. */
   betChanceSample: number;
+  /** bets+raises ÷ lead chances on the RIVER only. The number that actually maps to
+   *  "is his river bet air?" — unlike pooled betFreq, which flop c-bets dominate. */
+  riverBetFreq: number | null;
+  /** decisions behind riverBetFreq. Accrues ~2.5× slower than the flop's. */
+  riverBetChanceSample: number;
+  /** turn equivalent, for display — no engine knob reads it yet. */
+  turnBetFreq: number | null;
+  /** of hands he led the flop, the share he also led the river. null = never led a
+   *  flop. The headline "does he bluff" read: observable every hand, no showdown. */
+  barrelThrough: number | null;
+  /** flop leads behind barrelThrough. */
+  ledFlopSample: number;
 }
 
 export function emptyObs(): ObsCounters {
@@ -61,6 +88,12 @@ export function emptyObs(): ObsCounters {
     foldedToBet: 0,
     betChances: 0,
     betTaken: 0,
+    riverBetChances: 0,
+    riverBetTaken: 0,
+    turnBetChances: 0,
+    turnBetTaken: 0,
+    ledFlop: 0,
+    ledFlopThroughRiver: 0,
   };
 }
 
@@ -103,6 +136,9 @@ export function accumulateHand(
   // blind posted in front of everyone, which would read as a permanent "faced bet".
   let street = '';
   let betAhead = false;
+  const ledFlop = new Set<number>();
+  const riverLeadChance = new Set<number>();
+  const ledRiver = new Set<number>();
   for (const l of mine) {
     if (l.street !== street) {
       street = l.street;
@@ -118,11 +154,31 @@ export function accumulateHand(
         c.facedBet++;
         if (l.type === 'fold') c.foldedToBet++;
       } else {
+        const took = l.type === 'bet' || l.type === 'raise';
         c.betChances++;
-        if (l.type === 'bet' || l.type === 'raise') c.betTaken++;
+        if (took) c.betTaken++;
+        if (l.street === 'turn') {
+          c.turnBetChances++;
+          if (took) c.turnBetTaken++;
+        } else if (l.street === 'river') {
+          c.riverBetChances++;
+          if (took) c.riverBetTaken++;
+          riverLeadChance.add(l.playerId);
+          if (took) ledRiver.add(l.playerId);
+        }
+        if (took && l.street === 'flop') ledFlop.add(l.playerId);
       }
     }
     if (l.type === 'bet' || l.type === 'raise') betAhead = true;
+  }
+  // Barrel-through denominator is flop leads that ALSO reached a river lead chance.
+  // A hand the hero ended on the flop, or where the hero led the river himself,
+  // teaches nothing about villain's river tendency — counting it would understate.
+  for (const id of ledFlop) {
+    const c = next[id];
+    if (!c || !riverLeadChance.has(id)) continue;
+    c.ledFlop++;
+    if (ledRiver.has(id)) c.ledFlopThroughRiver++;
   }
   return next;
 }
@@ -139,6 +195,11 @@ export function toStats(c: ObsCounters | undefined): ObservedStats {
       betFreq: null,
       facedBetSample: 0,
       betChanceSample: 0,
+      riverBetFreq: null,
+      riverBetChanceSample: 0,
+      turnBetFreq: null,
+      barrelThrough: null,
+      ledFlopSample: 0,
     };
   return {
     hands: c.hands,
@@ -149,5 +210,10 @@ export function toStats(c: ObsCounters | undefined): ObservedStats {
     betFreq: c.betChances > 0 ? c.betTaken / c.betChances : null,
     facedBetSample: c.facedBet ?? 0,
     betChanceSample: c.betChances ?? 0,
+    riverBetFreq: c.riverBetChances > 0 ? c.riverBetTaken / c.riverBetChances : null,
+    riverBetChanceSample: c.riverBetChances ?? 0,
+    turnBetFreq: c.turnBetChances > 0 ? c.turnBetTaken / c.turnBetChances : null,
+    barrelThrough: c.ledFlop > 0 ? c.ledFlopThroughRiver / c.ledFlop : null,
+    ledFlopSample: c.ledFlop ?? 0,
   };
 }

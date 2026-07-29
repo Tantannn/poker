@@ -19,6 +19,11 @@ const obs = (o: Partial<ObservedStats>): ObservedStats => ({
   betFreq: null,
   facedBetSample: 0,
   betChanceSample: 0,
+  riverBetFreq: null,
+  riverBetChanceSample: 0,
+  turnBetFreq: null,
+  barrelThrough: null,
+  ledFlopSample: 0,
   ...o,
 });
 
@@ -122,6 +127,41 @@ describe('villainModel — shrinkage', () => {
     );
     expect(m.callStation).toBeCloseTo(callStationFromFoldToBet(0.8), 1); // heavily weighted
     expect(m.bluffFreq).toBeCloseTo(BALANCED.bluffFreq, 1); // barely moved
+  });
+
+  it('prefers the RIVER bet read over the pooled one, which flop c-bets dominate', () => {
+    // Pooled says he fires 90% of the time; the river says he fires at the balanced
+    // rate. The river number wins, so the bluff read stays balanced.
+    const m = resolveVillainModel(
+      BALANCED,
+      obs({ betFreq: 0.9, betChanceSample: 200, riverBetFreq: 0.42, riverBetChanceSample: 200 }),
+      null,
+    );
+    expect(m.bluffFreq).toBeCloseTo(BALANCED.bluffFreq, 5);
+    expect(bluffFreqFromBetFreq(0.9)).toBeGreaterThan(0.5); // what pooled WOULD have said
+  });
+
+  it('scores a river rate against the river reference, not the pooled one', () => {
+    // 45% is under the pooled 0.55 (would read as under-bluffing) but over the river
+    // 0.42 — so it must come out ABOVE balanced, not below.
+    const m = resolveVillainModel(
+      BALANCED,
+      obs({ riverBetFreq: 0.45, riverBetChanceSample: 400 }),
+      null,
+    );
+    expect(m.bluffFreq).toBeGreaterThan(BALANCED.bluffFreq);
+    expect(bluffFreqFromBetFreq(0.45)).toBeLessThan(BALANCED.bluffFreq); // the inverted read we avoided
+  });
+
+  it('reads a heavy river barreller as air-heavy', () => {
+    const m = resolveVillainModel(BALANCED, obs({ riverBetFreq: 0.8, riverBetChanceSample: 200 }), null);
+    expect(m.bluffFreq).toBeGreaterThan(0.5);
+    expect(m.label).toContain('barrels a lot');
+  });
+
+  it('falls back to the pooled read until a river spot exists', () => {
+    const m = resolveVillainModel(BALANCED, obs({ betFreq: 0.9, betChanceSample: 200 }), null);
+    expect(m.bluffFreq).toBeGreaterThan(0.5);
   });
 });
 

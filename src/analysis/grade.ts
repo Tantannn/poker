@@ -324,7 +324,7 @@ export function buildFeedbackContext(state: GameState, heroIdx: number): Feedbac
   let villainStory: FeedbackContext['villainStory'];
   let blocker: FeedbackContext['blocker'];
   if (vIdx >= 0 && !villain?.isHero && state.board.length >= 4) {
-    const vs = readVillainStory(playerLine(state.log, state.handNumber, vIdx), state.board.length - 2);
+    const vs = readVillainStory(playerLine(state.log, state.handNumber, vIdx), state.board.length - 2, state.board);
     if (vs.read !== 'none') villainStory = { read: vs.read, why: vs.why, action: vs.action };
   }
   if (state.board.length === 5 && !state.players[heroIdx].folded) {

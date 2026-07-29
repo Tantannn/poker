@@ -4,7 +4,7 @@
 // bluff-catch (99 on AAQT facing a big barrel) as a clearly +EV call.
 import { describe, it, expect } from 'vitest';
 import { solvePostflop } from './postflopModel';
-import { classifyHandClass } from './handClass';
+import { classifyHandClass, riverShowdownCensus } from './handClass';
 import { parseCard } from '../engine/cards';
 import { countOuts } from '../engine/equity';
 import { classifyFlop, describeTexture } from '../engine/board';
@@ -82,11 +82,36 @@ describe('AAQT / 99 spot recheck', () => {
     expect(h.blurb).toContain('pair of 8s');
   });
 
-  it('double-paired board with no hero pair is not "two pair" (A3 on 8877Q = Air + note)', () => {
+  it('double-paired board with no hero pair is not "two pair" — the kicker is the hand (A3 on 8877Q)', () => {
     const h = classifyHandClass(cards('Ah 3d'), cards('8c 8h 7d 7s Qs'));
-    expect(h.label).toBe('Air');
+    expect(h.label).toBe('Nut Kicker + Board Two Pair');
     expect(h.blurb).toContain("board's");
     expect(h.blurb).toContain('two pair (8s and 7s)');
+    expect(h.strength).toBe(3);
+  });
+
+  it('a low kicker on a double-paired board stays a thin bluff-catcher (92 on 6655-3)', () => {
+    const h = classifyHandClass(cards('9h 2d'), cards('6h 6c 3d 5s 5d'));
+    expect(h.label).toBe('9 Kicker + Board Two Pair');
+    expect(h.strength).toBe(1);
+  });
+
+  it('the ace kicker on 6655-3 is a premium bluff-catcher, not Air (the A7 blunder spot)', () => {
+    const h = classifyHandClass(cards('Ah 7s'), cards('6h 6c 3d 5s 5d'));
+    expect(h.label).toBe('Nut Kicker + Board Two Pair');
+    expect(h.blurb).toContain('NOT air');
+    expect(h.strength).toBe(3);
+  });
+
+  it('pins the exact river census on 6655-3 (171 boats = 4 live 5s/6s, 42 pairs after A/7 removal)', () => {
+    const c = riverShowdownCensus(cards('Ah 7s'), cards('6h 6c 3d 5s 5d'));
+    expect([c.beat, c.chop, c.lose, c.total]).toEqual([243, 114, 633, 990]);
+    expect([...c.beatBy].sort()).toEqual([
+      ['Four of a Kind', 2],
+      ['Full House', 171],
+      ['Straight', 28],
+      ['Two Pair', 42],
+    ]);
   });
 
   it('keeps the bluff-catcher read when hero pairs one rank on a double-paired board', () => {

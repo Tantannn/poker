@@ -232,6 +232,19 @@ function NodeLock({
         {observed?.betChanceSample ? ` (${observed.betChanceSample} spots)` : ''}
       </div>
 
+      <div className="opp-lock-obs gp-muted">
+        River bets{' '}
+        <b>{observed?.riverBetFreq == null ? '—' : `${Math.round(observed.riverBetFreq * 100)}%`}</b>
+        {observed?.riverBetChanceSample ? ` (${observed.riverBetChanceSample} spots)` : ''} · barrels flop→river{' '}
+        <b>{observed?.barrelThrough == null ? '—' : `${Math.round(observed.barrelThrough * 100)}%`}</b>
+        {observed?.ledFlopSample ? ` (${observed.ledFlopSample} led flops)` : ''}
+        <div className="gp-muted">
+          Barrelling through a lot is a bluff read on its own — no range holds enough value
+          hands to fire three streets that often. Low → a river bet is value; fold your
+          bluff-catchers.
+        </div>
+      </div>
+
       {on && (
         <div className="opp-lock-sliders">
           <LockSlider

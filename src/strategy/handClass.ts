@@ -5,7 +5,7 @@
 // that mirrors the made-hand + draw vocabulary trainers use.
 
 import type { Card } from '../engine/cards';
-import { rankToChar } from '../engine/cards';
+import { makeDeck, rankToChar } from '../engine/cards';
 import { evaluate7 } from '../engine/evaluator';
 
 export interface HandClass {
@@ -122,6 +122,33 @@ export function canonicalOuts(hero: Card[], board: Card[], counted: number): num
   return counted;
 }
 
+/** Exact river showdown census: of every hole-card pair villain could still hold,
+ *  how many beat / chop / lose to hero, plus the category breakdown of the beats.
+ *  990 evaluate7 calls — cheap, and the only honest way to state what beats a
+ *  board-made hand: a rank threshold can't express a straight the board allows
+ *  (7♠4♠ makes 7-6-5-4-3 on 6-6-3-5-5 with no pair at all). Counts EVERY remaining
+ *  combo, not villain's betting range, so quote it as "hands he could hold". */
+export function riverShowdownCensus(hero: Card[], board: Card[]) {
+  const key = (c: Card) => c.rank * 4 + c.suit;
+  const dead = new Set([...hero, ...board].map(key));
+  const rest = makeDeck().filter((c) => !dead.has(key(c)));
+  const heroScore = evaluate7([...hero, ...board]).score;
+  const beatBy = new Map<string, number>();
+  let beat = 0;
+  let chop = 0;
+  let lose = 0;
+  for (let i = 0; i < rest.length; i++)
+    for (let j = i + 1; j < rest.length; j++) {
+      const v = evaluate7([rest[i], rest[j], ...board]);
+      if (v.score > heroScore) {
+        beat++;
+        beatBy.set(v.category, (beatBy.get(v.category) ?? 0) + 1);
+      } else if (v.score === heroScore) chop++;
+      else lose++;
+    }
+  return { beat, chop, lose, total: beat + chop + lose, beatBy };
+}
+
 export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
   if (hero.length < 2) return { label: 'Unknown', blurb: '', strength: 0 };
 
@@ -203,10 +230,47 @@ export function classifyHandClass(hero: Card[], board: Card[]): HandClass {
     };
   };
 
+  // On a board-made hand every player shares the board's pair(s), so relative
+  // strength is ENTIRELY the fifth card. An ace is the nut kicker: it beats every
+  // unpaired combo and chops with villain's other aces. Only reachable when hero's
+  // best five already beats the board's ("Playing the Board" returns first), so the
+  // kicker provably plays.
+  const classifyBoardKicker = (shared: string): HandClass => {
+    const kicker = Math.max(hero[0].rank, hero[1].rank);
+    const boardHand = made.categoryRank === 3 ? 'Board Trips' : made.categoryRank === 2 ? 'Board Two Pair' : 'Board Pair';
+    const label = `${kicker === 14 ? 'Nut' : RC(kicker)} Kicker + ${boardHand}`;
+    const shareNote = `The ${shared} is the board's, shared by every player, so your own cards make no pair — but your best five still beats the board's, which means your ${RC(kicker)} plays as the fifth card and decides the pot.`;
+    const { beat, chop, lose, total, beatBy } = riverShowdownCensus(hero, board);
+    const threats = [...beatBy.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, n]) => `${n}× ${cat.toLowerCase()}`)
+      .join(', ');
+    const census = `Of the ${total} hands he could still hold, ${beat} beat you${threats ? ` (${threats})` : ''}, ${chop} chop and ${lose} lose — you are ahead of ${Math.round((lose / total) * 100)}%.`;
+    if (made.categoryRank >= 2) {
+      if (kicker === 14)
+        return {
+          label,
+          blurb: `${shareNote} An ace is the best fifth card there is: you beat every unpaired hand villain can hold and chop with his other aces. ${census} That makes this a premium bluff-catcher, NOT air — call unless his line credibly reps only the hands in that beat list.`,
+          strength: 3,
+        };
+      return {
+        label,
+        blurb: `${shareNote} Your ${RC(kicker)} loses to every bigger fifth card on top of the made hands. ${census} A thin bluff-catcher — it only wins the part of his range that missed with lower cards.`,
+        strength: kicker >= 12 ? 2 : 1,
+      };
+    }
+    return {
+      label,
+      blurb: `${shareNote} Only one board pair is shared, so any hole-card pair beats you — this is really ${RC(kicker)}-high. ${census} Check/fold to bets.`,
+      strength: kicker === 14 ? 1 : 0,
+    };
+  };
+
   // No pair of hero's OWN — either true high card, or the evaluator credited the
   // BOARD's own pair/trips, which every player shares. Classify by draws/overcards
   // instead; `shared` names the board-made hand so the blurb can explain it away.
   const classifyDrawOrAir = (shared?: string): HandClass => {
+    if (shared && board.length === 5) return classifyBoardKicker(shared);
     const note = shared ? ` Don't count the ${shared} — that's the board's, shared by every player, so your own cards make no pair.` : '';
     if (fd.draw && (sd === 'oesd' || sd === 'gutshot'))
       return { label: 'Combo Draw', blurb: `A flush draw plus a straight draw — huge equity; semi-bluff aggressively.${note}`, strength: 3 };

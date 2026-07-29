@@ -204,7 +204,14 @@
       "PowerShell(npx vitest run src/strategy/villainModel.test.ts src/strategy/nodeLock.test.ts src/strategy/solver 2>&1 | Select-Object -Last 35)",
       "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 40)",
       "PowerShell(1..4 | ForEach-Object { $r = npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-String \"Tests  \"; Write-Host \"run $_`: $r\" })",
-      "PowerShell(1..5 | ForEach-Object { $r = npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-String \"Tests  \"; Write-Host \"run $_`: $r\" })"
+      "PowerShell(1..5 | ForEach-Object { $r = npx vitest run src/strategy/postflopModel.test.ts 2>&1 | Select-String \"Tests  \"; Write-Host \"run $_`: $r\" })",
+      "PowerShell(npx vitest run src/strategy/handClass.test.ts src/strategy/riverBlockers.test.ts src/strategy/spotRecheck.test.ts src/strategy/crossCheck.test.ts 2>&1 | Select-Object -Last 60)",
+      "PowerShell(npx vitest run src/strategy/handClass.test.ts src/strategy/riverBlockers.test.ts src/strategy/spotRecheck.test.ts src/strategy/crossCheck.test.ts src/strategy/checklist.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/riverBlockers.test.ts 2>&1 | Select-Object -Last 25)",
+      "PowerShell(npx vitest run src/strategy/_census.tmp.test.ts 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx vitest run src/strategy/_census.tmp.test.ts --silent=false 2>&1 | Out-String -Width 400)",
+      "PowerShell(npx vitest run src/strategy/_census.tmp.test.ts 2>&1 | Out-String -Width 500)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 20)"
     ]
   }
 }

@@ -83,9 +83,28 @@ export function readRiverBlockers(
           : `You hold a ${rankToChar(match.rank)}, matching a paired board card — you block some of his trips/boats, so his value is thinner and his bets lean a touch more bluff.`,
       };
     }
+    // No board-rank match, so no trips/boat block — but a card ABOVE the board still
+    // removes the pocket pair of that rank, and on a board-made hand an overpair is
+    // most of what beats hero. An ace additionally kills his A-x boat combos.
+    const over = hero.filter((c) => c.rank > topBoard).sort((a, b) => b.rank - a.rank)[0];
+    if (over) {
+      const r = rankToChar(over.rank);
+      const lowPair = rankToChar(Math.min(...boardRanks.filter((x, i) => boardRanks.indexOf(x) !== i)));
+      return {
+        read: 'blockValue',
+        why:
+          over.rank === 14
+            ? agg
+              ? `You match no board rank, so you block none of the board's own ranks — but the A removes AA and every A${lowPair} combo (his trips/boats), a real slice of what calls a paired-board bluff. Thin blocker edge: your line still has to sell the boat.`
+              : `You match no board rank, so you thin no ${lowPair}-trips directly — but the A removes AA and every A${lowPair} combo, AND it is the best fifth card on a board-made hand: you beat every unpaired combo he holds and chop with his other aces. Removal plus the kicker war both favour calling.`
+            : agg
+            ? `You match no board rank, so no trips/boat block — the ${r} only removes ${r}${r}. Nearly no blocker edge: rep it on your line, not on removal.`
+            : `You match no board rank, so no trips/boat block — the ${r} only removes ${r}${r}, one of the overpairs that beats a board-made hand. Thin: decide on his line and the price.`,
+      };
+    }
     return {
       read: 'neutral',
-      why: `Paired board — trips and full houses are live and your cards match none of it, so you get no removal help. ${
+      why: `Paired board — trips and full houses are live, and every card you hold is below the board, so you get no removal help and lose the kicker war too. ${
         agg ? 'Rep it only if your line sells the boat; you have no blocker edge.' : 'You do not thin his value — decide on his line and the price, not removal.'
       }`,
     };

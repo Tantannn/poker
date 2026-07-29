@@ -6,6 +6,8 @@
 // will be believed. Pure functions (no React) so the reveal NOTES teach the
 // pattern and the drill can unit-test them.
 
+import type { Card } from '../engine/cards';
+import { evaluate7 } from '../engine/evaluator';
 import type { ActionRecord } from '../engine/table';
 
 const POSTFLOP = ['flop', 'turn', 'river'] as const;
@@ -18,6 +20,8 @@ export interface StreetMove {
   kind: 'bet' | 'raise' | 'call' | 'check' | 'none';
   /** aggressive size ÷ pot before the bet (0 when not aggressive). */
   frac: number;
+  /** the move was a shove — `frac` is then an artifact of his stack, not a choice. */
+  allIn?: boolean;
 }
 
 /** Reduce one player's THIS-HAND log into a flop/turn/river line. The street's
@@ -36,7 +40,7 @@ export function playerLine(
     const aggr = [...acts].reverse().find((a) => a.type === 'bet' || a.type === 'raise');
     if (aggr) {
       const before = Math.max(1, aggr.potAfter - aggr.amount);
-      return { street, kind: aggr.type as 'bet' | 'raise', frac: aggr.amount / before };
+      return { street, kind: aggr.type as 'bet' | 'raise', frac: aggr.amount / before, allIn: aggr.allIn };
     }
     const last = acts[acts.length - 1];
     return { street, kind: last.type === 'call' ? 'call' : 'check', frac: 0 };
@@ -49,9 +53,9 @@ const sizeWord = (f: number): string =>
 function describeMove(m: StreetMove): string {
   switch (m.kind) {
     case 'bet':
-      return `bet ${sizeWord(m.frac)} on the ${m.street}`;
+      return m.allIn ? `shoved all-in on the ${m.street}` : `bet ${sizeWord(m.frac)} on the ${m.street}`;
     case 'raise':
-      return `raised the ${m.street}`;
+      return m.allIn ? `raised all-in on the ${m.street}` : `raised the ${m.street}`;
     case 'call':
       return `called the ${m.street}`;
     case 'check':
@@ -77,9 +81,21 @@ export interface VillainStoryVerdict {
   action: string;
 }
 
+/** The board's OWN five cards already make two pair or better, so every player
+ *  shares that hand and the pot is decided by kickers. A big river bet then has
+ *  almost no customers — every one-pair/kicker hand folds, so his value wins
+ *  nothing extra by sizing up while air folds out every kicker that beats him.
+ *  A linear-looking multi-barrel is far more polar here than its shape suggests. */
+function riverBoardOwnsTheHand(board?: Card[]): string | null {
+  if (!board || board.length !== 5) return null;
+  const own = evaluate7(board);
+  return own.categoryRank >= 2 ? own.category.toLowerCase() : null;
+}
+
 /** Read the villain's line up to (and including) the street facing the hero.
- *  `revealed` = postflop streets reached (2 = turn, 3 = river). */
-export function readVillainStory(line: StreetMove[], revealed: number): VillainStoryVerdict {
+ *  `revealed` = postflop streets reached (2 = turn, 3 = river). `board` unlocks the
+ *  board-texture override; omit it to read the line SHAPE alone (what the drills want). */
+export function readVillainStory(line: StreetMove[], revealed: number, board?: Card[]): VillainStoryVerdict {
   const shown = line.slice(0, revealed).filter((m) => m.kind !== 'none');
   const recap = recapOf(shown);
   const aggr = shown.filter((m) => m.kind === 'bet' || m.kind === 'raise');
@@ -97,6 +113,9 @@ export function readVillainStory(line: StreetMove[], revealed: number): VillainS
     (m, i) => (m.kind === 'bet' || m.kind === 'raise') && shown.slice(i + 1).some((n) => n.kind === 'check'),
   );
   const passiveEarly = shown.slice(0, -1).some((m) => m.kind === 'check' || m.kind === 'call');
+  // A shove's size is his STACK, not a choice, so every read that leans on sizing
+  // ("linear value", "a modest stab is capped") loses its ground.
+  const forcedSize = aggressiveNow && last.allIn === true;
 
   if (gaveUp)
     return {
@@ -126,10 +145,12 @@ export function readVillainStory(line: StreetMove[], revealed: number): VillainS
     };
   }
   if (aggressiveNow && passiveEarly)
-    return last.frac >= 0.85
+    return last.frac >= 0.85 || forcedSize
       ? {
           read: 'polar',
-          why: `He ${recap}. A big fire after passivity is polarized / delayed — value he slow-played OR a bluff picking its spot.`,
+          why: forcedSize
+            ? `He ${recap}. Aggression after passivity is polarized — value he slow-played OR a bluff picking its spot. The shove SIZE tells you nothing: it was his whole stack, not a chosen bet.`
+            : `He ${recap}. A big fire after passivity is polarized / delayed — value he slow-played OR a bluff picking its spot.`,
           action: 'Call only with a genuine bluff-catcher at the right price; else fold. Weigh how often HE actually bluffs, not the raw price.',
         }
       : {
@@ -137,12 +158,25 @@ export function readVillainStory(line: StreetMove[], revealed: number): VillainS
           why: `He ${recap}. Passive, then a modest stab — a delayed, often thin or bluffy line. His range is weaker than a multi-barrel.`,
           action: "Call wider than the raw price suggests — his range is capped. Don't fold marginal here.",
         };
-  if (aggr.length >= 2 && aggressiveNow)
+  if (aggr.length >= 2 && aggressiveNow) {
+    const boardOwns = riverBoardOwnsTheHand(board);
+    if (boardOwns && last.frac >= 0.85)
+      return {
+        read: 'polar',
+        why:
+          `He ${recap}. The SHAPE is a linear value story, but the board itself makes ${boardOwns} — every player shares it, so a big river bet has no customers: every one-pair hand folds, his value wins nothing extra, and air folds out every kicker that beats him.` +
+          `${forcedSize ? ' His last bet was also all-in, so even its size was his stack rather than a choice.' : ''} Don't believe the size here.`,
+        action:
+          'Bluff-catch with a strong kicker, or anything that beats the board — a big bet on a board this paired is far more polar than a multi-barrel looks. Fold only the weak kickers.',
+      };
     return {
       read: 'value',
-      why: `He ${recap}. Multi-street aggression with sizing holding or growing is a linear VALUE story — believe it.`,
+      why: forcedSize
+        ? `He ${recap}. Multi-street aggression is a linear VALUE story — but that last bet was ALL-IN, so its SIZE was set by his stack, not chosen. Read the pattern of aggression, not the sizing.`
+        : `He ${recap}. Multi-street aggression with sizing holding or growing is a linear VALUE story — believe it.`,
       action: "Fold marginal hands — only strong bluff-catchers continue. Don't marry one pair to a value line.",
     };
+  }
   return {
     read: 'none',
     why: `He ${recap}. One bet, no multi-street story yet.`,

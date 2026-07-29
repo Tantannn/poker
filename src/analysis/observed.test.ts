@@ -106,6 +106,58 @@ describe('observed — fold-to-bet read', () => {
   });
 });
 
+describe('observed — per-street split and barrel-through', () => {
+  // villain = 1, hero = 2. Villain leads a street only when no bet is ahead of him.
+  const barrel = (streets: ActionRecord['street'][], handNumber = 1) =>
+    streets.flatMap((s) => [
+      { ...rec(1, 'bet', s), handNumber },
+      { ...rec(2, 'call', s), handNumber },
+    ]);
+
+  it('splits lead chances by street so a flop c-bet does not inflate the river read', () => {
+    const c = accumulateHand({}, [...barrel(['flop', 'turn']), ...[rec(1, 'check', 'river'), rec(2, 'check', 'river')]], 1)[1];
+    expect(c.betChances).toBe(3); // pooled: flop + turn + river
+    expect(c.betTaken).toBe(2);
+    expect(c.riverBetChances).toBe(1);
+    expect(c.riverBetTaken).toBe(0);
+    expect(toStats(c).betFreq).toBeCloseTo(2 / 3, 5); // pooled says 67% — flop-driven
+    expect(toStats(c).riverBetFreq).toBe(0); // the river truth: he gave up
+  });
+
+  it('counts a flop→river barrel-through', () => {
+    const c = accumulateHand({}, barrel(['flop', 'turn', 'river']), 1)[1];
+    expect(c.ledFlop).toBe(1);
+    expect(c.ledFlopThroughRiver).toBe(1);
+    expect(toStats(c).barrelThrough).toBe(1);
+  });
+
+  it('excludes a flop lead that never got a river lead chance from the denominator', () => {
+    // hero folds the flop — the hand teaches nothing about villain's river tendency
+    const c = accumulateHand({}, [rec(1, 'bet', 'flop'), rec(2, 'fold', 'flop')], 1)[1];
+    expect(c.ledFlop).toBe(0);
+    expect(toStats(c).barrelThrough).toBeNull();
+  });
+
+  it('excludes a river the HERO led — villain never had the chance to barrel', () => {
+    const log = [
+      ...barrel(['flop']),
+      rec(2, 'bet', 'river'), // hero leads the river
+      rec(1, 'call', 'river'),
+    ];
+    const c = accumulateHand({}, log, 1)[1];
+    expect(c.riverBetChances).toBe(0);
+    expect(c.ledFlop).toBe(0);
+  });
+
+  it('gives up on one hand and barrels the next → 50%', () => {
+    let m = accumulateHand({}, [...barrel(['flop']), rec(1, 'check', 'river'), rec(2, 'check', 'river')], 1);
+    m = accumulateHand(m, barrel(['flop', 'river'], 2), 2);
+    expect(m[1].ledFlop).toBe(2);
+    expect(toStats(m[1]).barrelThrough).toBeCloseTo(0.5, 5);
+    expect(toStats(m[1]).ledFlopSample).toBe(2);
+  });
+});
+
 describe('observed — toStats', () => {
   it('returns nulls for the rate reads with no sample', () => {
     const s = toStats(emptyObs());

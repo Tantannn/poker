@@ -27,8 +27,21 @@ describe('readRiverBlockers', () => {
     expect(v.read).toBe('blockValue');
   });
 
-  it('paired board with no match = neutral (no removal help)', () => {
+  it('paired board, no match but an ace = blocks AA / A-K trips', () => {
     const v = readRiverBlockers(cards('Ac Qd'), cards('Kh Kd 7c 2s 9h'), 'aggressive');
+    expect(v.read).toBe('blockValue');
+    expect(v.why).toContain('AK');
+  });
+
+  it('double-paired board: the ace blocks AA + A5 boats and wins the kicker war', () => {
+    const v = readRiverBlockers(cards('Ah 7s'), cards('6h 6c 3d 5s 5d'), 'call');
+    expect(v.read).toBe('blockValue');
+    expect(v.why).toContain('A5');
+    expect(v.why).toContain('best fifth card');
+  });
+
+  it('paired board with every hero card below the board = neutral', () => {
+    const v = readRiverBlockers(cards('5c 4d'), cards('Kh Kd 7c 2s 9h'), 'aggressive');
     expect(v.read).toBe('neutral');
   });
 

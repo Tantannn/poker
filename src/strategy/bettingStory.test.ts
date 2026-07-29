@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { parseCard } from '../engine/cards';
 import type { ActionRecord } from '../engine/table';
 import { playerLine, readVillainStory, readHeroStory } from './bettingStory';
+
+const cards = (s: string) => s.split(' ').map(parseCard);
 
 // minimal log record; potAfter is set so `amount / (potAfter - amount)` gives the
 // intended bet fraction (e.g. 30 into potAfter 60 → 30/30 = 1.0 = overbet-ish).
@@ -10,6 +13,7 @@ const rec = (
   type: ActionRecord['type'],
   amount = 0,
   potAfter = 0,
+  allIn = false,
 ): ActionRecord => ({
   handNumber: 1,
   playerId,
@@ -19,6 +23,7 @@ const rec = (
   amount,
   street,
   potAfter,
+  ...(allIn ? { allIn: true } : {}),
 });
 
 const V = 1; // villain id
@@ -96,6 +101,40 @@ describe('readVillainStory', () => {
       V,
     );
     expect(readVillainStory(line, 3).read).toBe('value');
+  });
+
+  // The A7 blunder spot: CO barrels 663 → 5 → 5 and jams the river. Neither the
+  // sizing clause nor "believe it" survives contact with the board or the shove.
+  const barrelToRiverJam = () =>
+    playerLine(
+      [rec(V, 'flop', 'bet', 12, 36), rec(V, 'turn', 'bet', 30, 96), rec(V, 'river', 'bet', 55, 106, true)],
+      1,
+      V,
+    );
+
+  it('a shoved river drops the sizing clause and recaps it as all-in, not pot-size', () => {
+    const v = readVillainStory(barrelToRiverJam(), 3);
+    expect(v.read).toBe('value');
+    expect(v.why).toContain('shoved all-in on the river');
+    expect(v.why).toContain('set by his stack, not chosen');
+    expect(v.why).not.toContain('believe it');
+  });
+
+  it('a double-paired river downgrades a linear multi-barrel to polar (his value has no customers)', () => {
+    const v = readVillainStory(barrelToRiverJam(), 3, cards('6h 6c 3d 5s 5d'));
+    expect(v.read).toBe('polar');
+    expect(v.why).toContain('two pair');
+    expect(v.why).toContain('no customers');
+    expect(v.action).toMatch(/bluff-catch/i);
+  });
+
+  it('an unpaired river keeps the linear value read', () => {
+    expect(readVillainStory(barrelToRiverJam(), 3, cards('Kh 9c 4d 2s 7h')).read).toBe('value');
+  });
+
+  it('omitting the board reads the line SHAPE only, so the drills are unaffected', () => {
+    const line = playerLine([rec(V, 'flop', 'bet', 10, 30), rec(V, 'turn', 'bet', 40, 80)], 1, V);
+    expect(readVillainStory(line, 2, undefined).read).toBe('value');
   });
 });
 
