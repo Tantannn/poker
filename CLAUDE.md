@@ -88,7 +88,10 @@ arg of `getNodeStrategy` and ride in the `hudWorker` request payload; `useGame`
 builds them (`villainModels`) from `obsCounters` + `villainLocks`.
 
 Two invariants worth keeping. In anonymous mode the prior must be `BALANCED`, never
-the profile — otherwise the engine uses what the UI deliberately hides. And when a
+the profile — otherwise the engine uses what the UI deliberately hides — and
+`VillainModel.archetypeVisible` must be false alongside it, since a *balanced* model
+still lets explain text name the tag (`gto` is numerically balanced). It defaults to
+false so a caller that forgets it leaks nothing. And when a
 read/lock is off-balanced the node is solved **twice** (balanced vs villain-specific)
 to produce `NodeStrategy.exploit`, the "GTO says X, vs this player do Y, worth +Z bb"
 delta; both solves must take their equity from `seededEquity` so the only difference
@@ -157,7 +160,10 @@ same presence as one opened always and over-represents the mixed tail.
 ### `src/ai/` — the bots
 `decide.ts` (`decideAction`) is the bot's single decision function; `profiles.ts`
 holds archetypes (tag/lag/lp/gto/nit/fish), `difficulty.ts` layers easy→extreme
-params and per-seat overrides, `blueprint.ts` holds frequency curves. Bots and the
+params and per-seat overrides, `blueprint.ts` holds frequency curves.
+`DifficultyParams.overbet` gates the turn/river polar overbet (1.3–1.75× pot). Every
+tier overbets its nut end; only tiers with `adapt > 0` balance the bluff side at the
+same size, so on easy/normal an overbet *is* a value tell the hero can read. Bots and the
 grader read the same preflop charts, so keeping them in sync is a hard requirement,
 not a nicety.
 

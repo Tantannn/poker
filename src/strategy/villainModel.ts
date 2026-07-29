@@ -62,6 +62,10 @@ export interface VillainModel {
    *  the number the player actually set on the slider. */
   foldToBet: number;
   source: 'balanced' | 'prior' | 'observed' | 'locked';
+  /** Whether the bot's archetype is information the player legitimately has. False in
+   *  anonymous mode — explain text must not NAME a tag the UI is hiding, even when the
+   *  numbers behind the model are balanced anyway. */
+  archetypeVisible: boolean;
   /** 0..1 — how much of the read was trusted after shrinkage. 0 = pure prior. */
   confidence: number;
   /** one-line read for the Explain panel, or null when nothing is notable */
@@ -73,6 +77,7 @@ export const balancedModel = (): VillainModel => ({
   callStation: BALANCED.callStation,
   foldToBet: REF.foldToBet,
   source: 'balanced',
+  archetypeVisible: false,
   confidence: 0,
   label: null,
 });
@@ -124,11 +129,14 @@ function describe(m: { bluffFreq: number; callStation: number }, locked: boolean
  *                  anonymous mode so the engine can't use what the UI hides.
  * @param obs       observed stats for this seat, or null.
  * @param lock      manual override; ignored unless `enabled`.
+ * @param archetypeVisible whether the player can see the bot's tag — true exactly
+ *                  when `prior` is the archetype. Carried so explain text can name it.
  */
 export function resolveVillainModel(
   prior: { bluffFreq: number; callStation: number } = BALANCED,
   obs?: ObservedStats | null,
   lock?: VillainLock | null,
+  archetypeVisible = false,
 ): VillainModel {
   // The prior only carries a stickiness scalar (the bot archetypes are defined that
   // way), so recover the fold frequency it implies — every path below shrinks and
@@ -142,14 +150,14 @@ export function resolveVillainModel(
     const foldToBet = lock.foldToBet ?? priorFold;
     const callStation = lock.foldToBet != null ? callStationFromFoldToBet(lock.foldToBet) : prior.callStation;
     const m = { bluffFreq, callStation, foldToBet };
-    return { ...m, source: 'locked', confidence: 1, label: describe(m, true, 1) };
+    return { ...m, source: 'locked', archetypeVisible, confidence: 1, label: describe(m, true, 1) };
   }
 
   const hasFold = obs?.foldToBet != null && obs.facedBetSample > 0;
   const hasBet = obs?.betFreq != null && obs.betChanceSample > 0;
   if (!obs || (!hasFold && !hasBet)) {
     const label = describe(prior, false, 0);
-    return { ...prior, foldToBet: priorFold, source: 'prior', confidence: 0, label };
+    return { ...prior, foldToBet: priorFold, source: 'prior', archetypeVisible, confidence: 0, label };
   }
 
   const fold = hasFold
@@ -170,6 +178,7 @@ export function resolveVillainModel(
   return {
     ...m,
     source: confidence > 0.05 ? 'observed' : 'prior',
+    archetypeVisible,
     confidence,
     label: describe(m, false, confidence),
   };

@@ -181,3 +181,24 @@ describe('villainModel — exploitability gate', () => {
     expect(m.source).toBe('prior');
   });
 });
+
+// Anonymous mode hides the bot's tag, so explain text must not name it. The flag
+// defaults to hidden: a caller that forgets to pass it leaks nothing.
+describe('villainModel — archetype visibility', () => {
+  const thin = obs({ foldToBet: 0.9, facedBetSample: 0 });
+  const solid = obs({ foldToBet: 0.85, facedBetSample: 100 });
+  const lock = { enabled: true, foldToBet: 0.7 };
+
+  it('defaults to hidden on every branch', () => {
+    expect(balancedModel().archetypeVisible).toBe(false);
+    expect(resolveVillainModel(BALANCED, thin, null).archetypeVisible).toBe(false);
+    expect(resolveVillainModel(BALANCED, solid, null).archetypeVisible).toBe(false);
+    expect(resolveVillainModel(BALANCED, null, lock).archetypeVisible).toBe(false);
+  });
+
+  it('rides through every branch when the tag is visible', () => {
+    expect(resolveVillainModel(BALANCED, thin, null, true).archetypeVisible).toBe(true);
+    expect(resolveVillainModel(BALANCED, solid, null, true).archetypeVisible).toBe(true);
+    expect(resolveVillainModel(BALANCED, null, lock, true).archetypeVisible).toBe(true);
+  });
+});

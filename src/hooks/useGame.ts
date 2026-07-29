@@ -225,12 +225,10 @@ export function useGame(initialProfiles: string[]) {
     for (const p of game.players) {
       if (p.isHero) continue;
       const prof = getProfile(p.profileId);
-      const prior =
-        readDrivenModel && anonymousVillains
-          ? BALANCED
-          : { bluffFreq: prof.bluffFreq, callStation: prof.callStation };
+      const archetypeVisible = !(readDrivenModel && anonymousVillains);
+      const prior = archetypeVisible ? { bluffFreq: prof.bluffFreq, callStation: prof.callStation } : BALANCED;
       const obs = readDrivenModel ? toStats(obsCounters[p.id]) : null;
-      out[p.id] = resolveVillainModel(prior, obs, villainLocks[p.id]);
+      out[p.id] = resolveVillainModel(prior, obs, villainLocks[p.id], archetypeVisible);
     }
     return out;
   }, [game.players, obsCounters, villainLocks, readDrivenModel, anonymousVillains]);

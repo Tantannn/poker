@@ -90,6 +90,7 @@ function modelFor(state: GameState, seatIdx: number, models?: VillainModels): Vi
     callStation: prof.callStation,
     foldToBet: foldToBetFromCallStation(prof.callStation),
     source: 'prior',
+    archetypeVisible: true,
     confidence: 0,
     label: null,
   };
@@ -1001,7 +1002,8 @@ function villainReadNote(
   const provenance =
     model.source === 'locked' ? ' (locked read)'
       : model.source === 'observed' ? ` (${Math.round(model.confidence * 100)}% confidence read)`
-        : ` (${getProfile(vp.profileId).tag})`;
+        : model.archetypeVisible ? ` (${getProfile(vp.profileId).tag})`
+          : '';
   const bluffPct = Math.round(model.bluffFreq * 100);
   if (callAmount > 0) {
     // facing a bet → the read is about bluff-catching

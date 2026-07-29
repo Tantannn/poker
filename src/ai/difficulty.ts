@@ -15,6 +15,9 @@ export interface DifficultyParams {
   iters: number; // Monte-Carlo iterations behind its equity (accuracy)
   temp: number; // softness of the call/fold boundary — bigger = more random near
   // the break-even line (human), smaller = sharper/closer to a hard cutoff (GTO).
+  overbet: number; // 0..1 chance to bet >pot in a qualifying turn/river spot. Tiers
+  // with adapt > 0 balance the bluff side at the same size; the rest overbet value
+  // only, which is a readable sizing tell by design.
 }
 
 export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
@@ -27,6 +30,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     adapt: 0,
     iters: 300,
     temp: 0.1,
+    overbet: 0.3,
   },
   normal: {
     id: 'normal',
@@ -37,6 +41,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     adapt: 0,
     iters: 500,
     temp: 0.06,
+    overbet: 0.2,
   },
   hard: {
     id: 'hard',
@@ -47,6 +52,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     adapt: 0.5,
     iters: 700,
     temp: 0.035,
+    overbet: 0.5,
   },
   extreme: {
     id: 'extreme',
@@ -57,6 +63,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     adapt: 1,
     iters: 900,
     temp: 0.015,
+    overbet: 0.75,
   },
 };
 
