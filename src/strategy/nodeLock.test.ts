@@ -42,6 +42,15 @@ function riverState(heroCards: string, boardStr: string): GameState {
   return s as unknown as GameState;
 }
 
+/** Same table, a hero-first heads-up TURN node — routes to the turn CFR gate, which (like
+ *  the river, not the flop carve-out) pins villain to the read instead of falling to the
+ *  per-hand model, so the lock must reach solveTurn and its nested river subgames. */
+function turnState(heroCards: string, boardStr: string): GameState {
+  const s = flopState(heroCards, boardStr) as unknown as { street: string };
+  s.street = 'turn';
+  return s as unknown as GameState;
+}
+
 /** models map with seat 1 locked to a given fold-to-bet / bet frequency */
 function locked(foldToBet?: number, betFreq?: number): VillainModels {
   return { 1: resolveVillainModel(undefined, null, { enabled: true, foldToBet, betFreq }) };
@@ -185,6 +194,48 @@ describe('node lock — heads-up river routes through the CFR with villain pinne
     expect(a.bestId).toBe(b.bestId);
     expect(a.bestEv).toBeCloseTo(b.bestEv, 6);
   });
+});
+
+// The HU turn gate mirrors the river: a read pins villain INSIDE the CFR (and its nested
+// river subgames) and hero best-responds, then a second unlocked solve gives the delta.
+// This is the street CLAUDE.md previously flagged as carrying no lock/delta.
+describe('node lock — heads-up turn routes through the CFR with villain pinned', () => {
+  const board = 'Kh 8d 3c 7s'; // dry turn: no flush, no straight
+  const air = '6c 5d';
+
+  it('says it is node-locked, not at equilibrium', () => {
+    const s = getNodeStrategy(turnState(air, board), 0, undefined, undefined, locked(0.85));
+    expect(s.note).toContain('NODE LOCKED');
+    expect(s.note).toMatch(/85% to a ¾-pot bet/);
+  });
+
+  it('reports the plain turn solve when there is no read', () => {
+    const s = getNodeStrategy(turnState(air, board), 0);
+    expect(s.note).toContain('Turn solver');
+    expect(s.note).not.toContain('NODE LOCKED');
+    expect(s.exploit).toBeUndefined();
+  });
+
+  it('barrels air more against an over-folder than at equilibrium', () => {
+    const eq = getNodeStrategy(turnState(air, board), 0);
+    const vsNit = getNodeStrategy(turnState(air, board), 0, undefined, undefined, locked(0.85));
+    expect(aggroFreq(vsNit)).toBeGreaterThan(aggroFreq(eq));
+  });
+
+  // A turn solve nests a river subgame per runout, so it is ~40× a river solve; the
+  // delta needs TWO solves (locked + unlocked baseline) per spot → generous timeout, few
+  // spots. Air vs an extreme over-folder reliably flips the best line (check → barrel).
+  it('surfaces an exploit delta when the locked line differs from the equilibrium line', () => {
+    const found = [air, 'Qs Jd']
+      .map((h) => getNodeStrategy(turnState(h, board), 0, undefined, undefined, locked(0.9)).exploit)
+      .filter((x) => x != null);
+    expect(found.length).toBeGreaterThan(0);
+    for (const x of found) {
+      expect(x!.gainBb).toBeGreaterThan(0.05);
+      expect(x!.baselineId).not.toBe(x!.exploitId);
+      expect(x!.source).toBe('locked');
+    }
+  }, 30000);
 });
 
 describe('node lock — provenance never leaks the hidden archetype', () => {

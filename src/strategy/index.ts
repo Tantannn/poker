@@ -18,7 +18,7 @@ import { BALANCED, balancedModel, foldToBetFromCallStation, isExploitable } from
 import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
-import { solveRiverNode, solveRiverVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode } from './solver/riverAdapter';
+import { solveRiverNode, solveRiverVsBetNode, solveTurnVsBetNode, solveFlopVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode } from './solver/riverAdapter';
 
 // Tier-2 (Stage 0): route hero-first heads-up RIVER nodes through the range-vs-range
 // CFR solver instead of the per-hand EV model. Flip to false to A/B against the old
@@ -598,6 +598,29 @@ export function betConditionedWeight(a: Card, b: Card, board: Card[], facingBet:
   return w;
 }
 
+/** Attach the exploit-delta to a node-locked CFR solve: compare the best-response line
+ *  (`solved`) with the equilibrium line (`base`, an unlocked solve of the SAME node) and,
+ *  when they differ by a real EV margin, record the "GTO says X, vs this villain do Y,
+ *  worth +Z bb" delta. Shared by the HU river and turn gates so the two can't drift. */
+function exploitAnnotated(solved: NodeStrategy, base: NodeStrategy | null, model: VillainModel): NodeStrategy {
+  if (!base || base.bestId === solved.bestId) return solved;
+  const baselineInLockedFrame = solved.options.find((o) => o.id === base.bestId);
+  const gainBb = round2(solved.bestEv - (baselineInLockedFrame?.ev ?? solved.bestEv));
+  if (gainBb <= 0.05) return solved;
+  const exploitDelta: ExploitDelta = {
+    baselineId: base.bestId,
+    baselineLabel: base.options.find((o) => o.id === base.bestId)?.label ?? base.bestId,
+    exploitId: solved.bestId,
+    exploitLabel: solved.options.find((o) => o.id === solved.bestId)?.label ?? solved.bestId,
+    gainBb,
+    why: model.label ?? 'this villain deviates from balanced play',
+    confidence: model.confidence,
+    source: model.source === 'locked' ? 'locked' : 'observed',
+  };
+  const ex = `Exploit: the equilibrium prefers ${exploitDelta.baselineLabel}, but vs this villain ${exploitDelta.exploitLabel} is worth +${gainBb.toFixed(2)}bb.`;
+  return { ...solved, note: `${solved.note} ${ex}`, notes: [...(solved.notes ?? []), ex], exploit: exploitDelta };
+}
+
 function postflopStrategy(
   state: GameState,
   heroIdx: number,
@@ -646,6 +669,22 @@ function postflopStrategy(
     (primaryModel.source === 'observed' || primaryModel.source === 'locked') &&
     isExploitable(primaryModel);
 
+  // The FIXED second opponent in a 3-way pot (the live, non-hero, non-primary seat). A
+  // read on THIS seat re-anchors its MDF policy inside the multiway solver — the solved
+  // primary's read still routes through the per-hand fallback (primaryHasRead). Only an
+  // observed/locked, off-balanced read applies; a bare profile prior stays parameter-free
+  // MDF, mirroring how the HU river/turn lock ignores a prior.
+  const thirdVIdx = state.players.findIndex(
+    (p, i) => i !== heroIdx && i !== primaryVIdx && !p.folded && !p.isHero,
+  );
+  const thirdModel = modelFor(state, thirdVIdx, models);
+  const thirdFoldToBet =
+    thirdVIdx >= 0 &&
+    (thirdModel.source === 'observed' || thirdModel.source === 'locked') &&
+    isExploitable(thirdModel)
+      ? thirdModel.foldToBet
+      : undefined;
+
   // Tier-2 Stage 0: a hero-FIRST heads-up river node (hero can check or bet, not
   // facing a bet) goes through the range-vs-range CFR solver. Everything else —
   // facing a bet, multiway, earlier streets — stays on the per-hand model below.
@@ -682,34 +721,10 @@ function postflopStrategy(
     );
     if (solved) {
       if (!primaryHasRead) return solved;
-      // Exploit delta: what the equilibrium does here vs what beats THIS villain.
-      // Both solves share the node, ranges and seedless-CFR determinism, so the only
+      // Exploit delta: what the equilibrium does here vs what beats THIS villain. Both
+      // solves share the node, ranges and seedless-CFR determinism, so the only
       // difference is whether villain is solving or pinned.
-      const base = solveRiverNode(args);
-      if (base && base.bestId !== solved.bestId) {
-        const baselineInLockedFrame = solved.options.find((o) => o.id === base.bestId);
-        const gainBb = round2(solved.bestEv - (baselineInLockedFrame?.ev ?? solved.bestEv));
-        if (gainBb > 0.05) {
-          const exploitDelta: ExploitDelta = {
-            baselineId: base.bestId,
-            baselineLabel: base.options.find((o) => o.id === base.bestId)?.label ?? base.bestId,
-            exploitId: solved.bestId,
-            exploitLabel: solved.options.find((o) => o.id === solved.bestId)?.label ?? solved.bestId,
-            gainBb,
-            why: primaryModel.label ?? 'this villain deviates from balanced play',
-            confidence: primaryModel.confidence,
-            source: primaryModel.source === 'locked' ? 'locked' : 'observed',
-          };
-          const ex = `Exploit: the equilibrium prefers ${exploitDelta.baselineLabel}, but vs this villain ${exploitDelta.exploitLabel} is worth +${gainBb.toFixed(2)}bb.`;
-          return {
-            ...solved,
-            note: `${solved.note} ${ex}`,
-            notes: [...(solved.notes ?? []), ex],
-            exploit: exploitDelta,
-          };
-        }
-      }
-      return solved;
+      return exploitAnnotated(solved, solveRiverNode(args), primaryModel);
     }
   }
 
@@ -737,12 +752,17 @@ function postflopStrategy(
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
       rangeNote: note,
+      thirdFoldToBet,
     });
     if (solved) return solved;
   }
 
   // Tier-2 Stage 2: a hero-FIRST heads-up TURN node → range-vs-range solve with the
   // river runouts enumerated for showdown equity (captures value / protection / air).
+  // Like the river (not the flop/3-way carve-out), a read does NOT fall to the per-hand
+  // model: villain's turn strategy — and the nested river subgames on the check line —
+  // are pinned to the read and hero best-responds, then a second unlocked solve gives
+  // the exploit delta. This is the street where a barrel-fold read pays second-most.
   if (
     RIVER_SOLVER_ENABLED &&
     state.street === 'turn' &&
@@ -752,7 +772,7 @@ function postflopStrategy(
     liveOpps === 1
   ) {
     const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
-    const solved = solveTurnNode({
+    const args = {
       heroCards: hero.holeCards,
       board: state.board,
       pot,
@@ -762,8 +782,14 @@ function postflopStrategy(
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
       rangeNote: note,
-    });
-    if (solved) return solved;
+    };
+    const solved = solveTurnNode(
+      primaryHasRead ? { ...args, villainFoldToBet: primaryModel.foldToBet } : args,
+    );
+    if (solved) {
+      if (!primaryHasRead) return solved;
+      return exploitAnnotated(solved, solveTurnNode(args), primaryModel);
+    }
   }
 
   // Tier-2 Stage 4: a hero-FIRST 3-WAY turn node → hero + villain CFR with river runouts
@@ -790,6 +816,7 @@ function postflopStrategy(
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
       rangeNote: note,
+      thirdFoldToBet,
     });
     if (solved) return solved;
   }
@@ -849,6 +876,40 @@ function postflopStrategy(
         bigBlind: state.bigBlind,
         rangeNote: note,
       });
+      if (solved) return solved;
+    }
+  }
+
+  // Tier-2: hero-FACING-A-BET heads-up TURN / FLOP nodes → fold / call / raise
+  // range-vs-range solve, the call/raise terminals scored on hero's equity over the
+  // remaining runouts. Same gate shape as the river vs-bet node, one/two streets earlier;
+  // this is the coverage that used to fall to the per-hand model. No lock/delta yet (facing
+  // a bet, a villain fold-read is not the governing question — hero's fold/call/raise is).
+  if (
+    RIVER_SOLVER_ENABLED &&
+    (state.street === 'turn' || state.street === 'flop') &&
+    la.callAmount > 0 &&
+    la.canRaise &&
+    liveOpps === 1 &&
+    hero.committed === 0
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const b = la.callAmount;
+    const raiseTo = Math.min(la.maxRaiseTo, Math.round(pot + b)); // ~pot-sized raise
+    if (raiseTo > b) {
+      const args = {
+        heroCards: hero.holeCards,
+        board: state.board,
+        potBeforeBet: pot - b,
+        bet: b,
+        raiseTo,
+        heroRange,
+        villainRange: range,
+        villainComboWeight: comboWeight,
+        bigBlind: state.bigBlind,
+        rangeNote: note,
+      };
+      const solved = state.street === 'turn' ? solveTurnVsBetNode(args) : solveFlopVsBetNode(args);
       if (solved) return solved;
     }
   }

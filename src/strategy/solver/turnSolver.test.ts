@@ -91,3 +91,51 @@ describe('turn solver — a CHECK is valued as a river subgame, not an instant s
     expect(betFreq(nested, 1)).toBeGreaterThan(0.6);
   });
 });
+
+describe('turn node lock — villain is pinned to a fold read, hero best-responds', () => {
+  const b = board('Kh 8d 3c 2s'); // dry turn, no flush/straight complete
+  const hero: Combo[] = [
+    { cards: C('Ks Kc'), w: 1 }, // [0] trip kings — value
+    { cards: C('Qh Jh'), w: 1 }, // [1] flush draw — semi-bluff
+    { cards: C('6c 5c'), w: 1 }, // [2] air
+  ];
+  const villain: Combo[] = [
+    { cards: C('Ad Ac'), w: 1 }, { cards: C('Ts Tc'), w: 1 }, { cards: C('9s 9d'), w: 1 },
+    { cards: C('Ah Qd'), w: 1 }, { cards: C('Jc Td'), w: 1 },
+  ];
+  const SIZES = [0.33, 0.5, 0.75, 1.0]; // ¾ pot (index 2) is the reference the lock is quoted at
+  const solveLocked = (foldToBet?: number) =>
+    solveTurn({
+      heroRange: hero, villainRange: villain, board: b, pot: 30, effStack: 300,
+      betSizes: SIZES, iterations: 1500, riverNestIterations: 100,
+      villainLock: foldToBet == null ? undefined : { foldToBet },
+    });
+  const betFreqRow = (row: { action: string; freq: number }[]) =>
+    row.filter((a) => a.action !== 'check').reduce((s, a) => s + a.freq, 0);
+
+  it('a locked villain folds close to the requested frequency at the reference size', () => {
+    const res = solveLocked(0.7);
+    expect(1 - res.villainCallFreq[2]).toBeCloseTo(0.7, 1);
+  });
+
+  it('the locked villain folds MORE to bigger bets (pot-odds scaling)', () => {
+    const folds = solveLocked(0.6).villainCallFreq.map((c) => 1 - c);
+    expect(folds[0]).toBeLessThan(folds[3]);
+    for (let s = 1; s < folds.length; s++) expect(folds[s]).toBeGreaterThanOrEqual(folds[s - 1] - 1e-9);
+  });
+
+  it('hero barrels air more against an over-folder than against a station', () => {
+    const station = solveLocked(0.05);
+    const overFolder = solveLocked(0.85);
+    expect(betFreqRow(overFolder.heroStrategy[2])).toBeGreaterThan(betFreqRow(station.heroStrategy[2]));
+  });
+
+  it('air bet EV rises with villain fold frequency — the reason the line changes', () => {
+    const evAir = (f: number) => Math.max(...solveLocked(f).heroActionEv[2].slice(1));
+    expect(evAir(0.85)).toBeGreaterThan(evAir(0.2));
+  });
+
+  it('is deterministic — the same lock gives the same strategy', () => {
+    expect(solveLocked(0.7).heroStrategy[2]).toEqual(solveLocked(0.7).heroStrategy[2]);
+  });
+});

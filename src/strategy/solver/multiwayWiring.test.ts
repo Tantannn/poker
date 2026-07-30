@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getNodeStrategy } from '../index';
+import { resolveVillainModel } from '../villainModel';
 import { parseCard } from '../../engine/cards';
 import type { GameState } from '../../engine/table';
 
@@ -44,6 +45,16 @@ describe('live wiring: hero-first 3-way nodes route through the multiway solver'
     const total = strat.options.reduce((a, o) => a + o.freq, 0);
     expect(total).toBeGreaterThan(0.95);
     expect(total).toBeLessThan(1.05);
+  });
+
+  it('a read on the FIXED second opponent is applied and disclosed (primary stays solved)', () => {
+    // currentBet 0 → primaryVillain = seat 1 (the SOLVED villain); seat 2 is the fixed
+    // MDF player. Locking seat 2 leaves the primary read-free, so the multiway CFR runs
+    // and the second player's fold read re-anchors its policy.
+    const models = { 2: resolveVillainModel(undefined, null, { enabled: true, foldToBet: 0.85 }) };
+    const strat = getNodeStrategy(threeWayState('As Ac', 'Ah 7d 2c 9h Jd', 'river'), 0, undefined, undefined, models);
+    expect(strat.note).toContain('3-way river');
+    expect(strat.note).toMatch(/fold read/);
   });
 
   it('a 4-way node stays on the per-hand model (multiway CFR is 3-way only)', () => {

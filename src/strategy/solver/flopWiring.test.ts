@@ -50,8 +50,14 @@ describe('live wiring: hero-first flop node routes through the range-vs-range so
     );
   });
 
-  it('facing a bet on the flop stays on the per-hand model (no flop-solver note)', () => {
+  it('facing a bet on the flop routes to the vs-bet solver (fold / call / raise)', () => {
     const strat = getNodeStrategy(flopState('Ks Kc', 'Kh 8h 3c', 12), 0);
-    expect(strat.note ?? '').not.toContain('Flop solver');
+    expect(strat.note).toContain('facing a bet');
+    const ids = strat.options.map((o) => o.id);
+    expect(ids).toContain('fold');
+    expect(ids).toContain('call');
+    // top set on the flop must never fold facing a bet
+    const fold = strat.options.find((o) => o.id === 'fold')!;
+    expect(fold.freq).toBeLessThan(0.05);
   });
 });

@@ -70,4 +70,14 @@ describe('live wiring: river-first node routes through the range-vs-range solver
     expect(fold.freq).toBeLessThan(0.05);
     console.log(`nuts vs bet: ${strat.options.map((o) => `${o.id}:${(o.freq * 100).toFixed(0)}%`).join(' ')}`);
   });
+
+  it('facing a bet on the TURN routes to the turn vs-bet solver', () => {
+    const st = riverState('As Ac', 'Ah 7d 2c 9h', 20); // 4-card board = turn, villain bet 20
+    (st as unknown as { street: string }).street = 'turn';
+    const strat = getNodeStrategy(st, 0);
+    expect(strat.note).toContain('Turn solver');
+    expect(strat.note).toContain('facing a bet');
+    const fold = strat.options.find((o) => o.id === 'fold')!;
+    expect(fold.freq).toBeLessThan(0.05); // trip aces don't fold
+  });
 });

@@ -160,7 +160,14 @@ before committing to turn/flop.
 ## 8. Validation
 
 - **Exploitability** metric per solved node (best-response gap) — the honest
-  "how-close-to-GTO" number this app currently *cannot* produce.
+  "how-close-to-GTO" number. **BUILT for the river** (`solver/exploitability.ts`):
+  `riverExploitability` solves the node then measures each player's unilateral
+  best-response gap by an INDEPENDENT re-evaluation (re-runs showdowns, trusts none of the
+  solver's tables), normalising ranges to probabilities so hero's and villain's gaps sum in
+  one chip scale. Measured ~0.4% pot at 4000 iters (near-Nash); a 3-iter solve reads ~24%,
+  so the metric cleanly detects non-convergence. Turn/flop are deliberately out of scope —
+  with a chance layer the gap measures convergence to the *abstracted* game, not true
+  exploitability.
 - **Reference cross-check**: a few known solver outputs → assert within tolerance.
 - **Regression**: existing invariants in `strategy/crossCheck.test.ts` /
   `spotRecheck.test.ts` (bluff-catchers don't overbet, etc.) still hold.

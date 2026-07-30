@@ -58,8 +58,11 @@ There are **two** postflop engines behind that seam:
    Turn/river gated by `RIVER_SOLVER_ENABLED`, flop by `FLOP_SOLVER_ENABLED`, 3-way by
    `MULTIWAY_SOLVER_ENABLED` (separate flags — flop + multiway carry abstractions), all in
    `index.ts`; flip to `false` to A/B against the per-hand model. Applies to hero-first
-   flop/turn/river HU nodes, hero-facing-a-bet on the river, and hero-first 3-way (exactly
-   two live opponents) turn/river; 4+-way and villain-first multiway fall back to (1).
+   flop/turn/river HU nodes, hero-facing-a-bet on **all three** streets (fold/call/raise —
+   `vsBet.ts` is the shared equity-driven CFR core, fed a per-street equity matrix: exact
+   showdown on the river, equity over the remaining runouts on turn/flop), and hero-first
+   3-way (exactly two live opponents) turn/river; 4+-way and villain-first multiway fall
+   back to (1).
    `docs/range-vs-range-ev-design.md` is the staged plan (flop = Stage 3, multiway = Stage 4,
    both built).
 
@@ -122,8 +125,20 @@ to bigger bets. `VillainModel.foldToBet` is the primitive carried for this; `cal
 is its clamped affine image, so shrinkage runs in fold-frequency space to keep them
 consistent.
 
-**HU turn/flop-facing-a-bet still carry no delta** — the turn gate has no lock yet
-(`solveTurn` would need the same treatment, plus its nested river subgames).
+The **HU turn** now node-locks exactly like the river: the gate passes `villainFoldToBet`
+into `solveTurn`, which pins villain to a threshold continue policy (ordered by his
+equity-vs-hero-range, since a turn draw is a real continue) and rides the lock down into
+the nested river subgames on the check line, so both the bet line and the check line
+best-respond to the *same* read. A second unlocked solve gives the delta
+(`exploitAnnotated` in `index.ts` is shared by the river and turn gates). **Flop and
+turn/flop-facing-a-bet still carry no delta** — those gates have no lock yet.
+
+**Multiway reads.** The 3-way solver's fixed third player is read-aware: when the
+non-primary live seat carries an observed/locked, off-balanced fold-to-bet read, index.ts
+passes it as `thirdFoldToBet` and `mdfCallProbs` re-anchors his continue share to it
+(via the same ¾-pot-referenced `lockedContinueBySize` curve the HU lock uses) instead of
+parameter-free MDF. The *solved* primary's read still routes through the per-hand fallback
+(the `primaryHasRead` carve-out); only the fixed player's read lands in the CFR.
 
 ### Preflop chart override layer
 `src/data/solverPreflop.json` overrides the built-in heuristic preflop charts — per

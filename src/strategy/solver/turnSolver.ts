@@ -8,7 +8,8 @@
 
 import type { Card } from '../../engine/cards';
 import { evaluate7 } from '../../engine/evaluator';
-import { solveRiver, type Combo } from './riverSolver';
+import { solveRiver, lockedContinueBySize, lockedVillainStrategy, type Combo, type VillainNodeLock } from './riverSolver';
+import { solveVsBetEquity, type VsBetResult } from './vsBet';
 
 export interface TurnInput {
   heroRange: Combo[];
@@ -24,6 +25,12 @@ export interface TurnInput {
   nestRiverForCheck?: boolean;
   /** CFR iterations for each nested per-river-card solve (default 200). */
   riverNestIterations?: number;
+  /** NODE LOCK. Pins villain to a fold-frequency read instead of solving him, so hero's
+   *  CFR converges to a BEST RESPONSE (see riverSolver's VillainNodeLock). The lock rides
+   *  down into the nested river subgames on the check line too, so both the bet line and
+   *  the check line best-respond to the SAME villain — otherwise the check would be valued
+   *  against an equilibrium river while the bet line exploits the read. */
+  villainLock?: VillainNodeLock;
 }
 
 export interface TurnResult {
@@ -90,6 +97,7 @@ function checkLineRiverEv(
   effStack: number,
   betSizes: number[],
   riverIters: number,
+  villainLock?: VillainNodeLock,
 ): number[] {
   const nH = H.length;
   const acc = new Array(nH).fill(0);
@@ -117,6 +125,7 @@ function checkLineRiverEv(
         effStack,
         betSizes,
         iterations: riverIters,
+        villainLock,
       });
       // hero's equilibrium value for each combo = its strategy-weighted action EV.
       for (let k = 0; k < Hr.length; k++) {
@@ -161,6 +170,29 @@ export function solveTurn(inp: TurnInput): TurnResult {
     eq.push(er);
   }
 
+  // NODE LOCK: pin villain to the read instead of solving him. He continues by a
+  // threshold policy ordered by his EQUITY vs hero's range (not made-hand strength —
+  // on the turn a strong draw is a legitimate continue), scaled across sizes by pot
+  // odds so bigger barrels fold out more. Ordering by equity mirrors the 3-way turn
+  // solver's fixed-policy ranking (multiwaySolver.ts strengthT).
+  let villEqVsHero: number[] | null = null;
+  if (inp.villainLock) {
+    villEqVsHero = V.map((_, j) => {
+      let acc = 0;
+      let den = 0;
+      for (let i = 0; i < nH; i++) {
+        if (!valid[i][j]) continue;
+        acc += H[i].w * (1 - eq[i][j]);
+        den += H[i].w;
+      }
+      return den > 0 ? acc / den : 0.5;
+    });
+  }
+  const locked =
+    inp.villainLock && villEqVsHero
+      ? lockedVillainStrategy(V, villEqVsHero, lockedContinueBySize(inp.villainLock.foldToBet, bets.map((b) => b / P)))
+      : null;
+
   // Per-combo valid villain weight + the OLD static-showdown check value (avg chips),
   // kept as the fallback. The turn CFR scores actions as villain-weight SUMS, so the
   // check payoff below is rescaled by vwSum[i]; the final per-combo EV table wants the
@@ -185,7 +217,7 @@ export function solveTurn(inp: TurnInput): TurnResult {
   const checkAvg = new Array(nH);
   const nested =
     inp.nestRiverForCheck !== false
-      ? checkLineRiverEv(H, V, inp.board, P, inp.effStack, inp.betSizes, inp.riverNestIterations ?? 200)
+      ? checkLineRiverEv(H, V, inp.board, P, inp.effStack, inp.betSizes, inp.riverNestIterations ?? 200, inp.villainLock)
       : null;
   for (let i = 0; i < nH; i++) {
     const v = nested ? nested[i] : NaN;
@@ -203,9 +235,10 @@ export function solveTurn(inp: TurnInput): TurnResult {
 
   for (let t = 0; t < iters; t++) {
     const hS = regretH.map(strat);
-    const vS = regretV.map((row) => row.map(strat));
+    const vS = locked ?? regretV.map((row) => row.map(strat));
 
-    for (let s = 0; s < nSizes; s++) {
+    // villain regret update — skipped when locked (his strategy is fixed to the read).
+    if (!locked) for (let s = 0; s < nSizes; s++) {
       const b = bets[s];
       for (let j = 0; j < nV; j++) {
         const vFold = 0;
@@ -257,12 +290,17 @@ export function solveTurn(inp: TurnInput): TurnResult {
     const sum = row.reduce((a, v) => a + v, 0) || 1;
     return row.map((v, a) => ({ action: actions[a], freq: v / sum }));
   });
-  const vFinal = stratSumV.map((sr) =>
-    sr.map((c) => {
-      const tot = c[0] + c[1];
-      return tot > 0 ? [c[0] / tot, c[1] / tot] : [0.5, 0.5];
-    }),
-  );
+  // When locked, stratSumV was never accumulated — read the pinned policy directly, or
+  // the averaged tables would score hero against an all-zero sum (a 50/50 coin-flip
+  // villain that is neither the equilibrium nor the read). Mirrors solveRiver.
+  const vFinal =
+    locked ??
+    stratSumV.map((sr) =>
+      sr.map((c) => {
+        const tot = c[0] + c[1];
+        return tot > 0 ? [c[0] / tot, c[1] / tot] : [0.5, 0.5];
+      }),
+    );
   const heroActionEv: number[][] = [];
   for (let i = 0; i < nH; i++) {
     const av = new Array(nHeroActions).fill(0);
@@ -294,4 +332,55 @@ export function solveTurn(inp: TurnInput): TurnResult {
   });
 
   return { heroStrategy, actions, heroActionEv, villainCallFreq };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACING A BET on the turn — hero fold / call / raise vs villain's bet. Same tree as
+// solveRiverVsBet, but the call and raise-called terminals are equities over every river
+// runout (equityVsCombo above) instead of an exact showdown — so a draw with the price
+// calls and a big semi-bluff raise is credited its outs. The generic fold/call/raise CFR
+// lives in vsBet.ts; this only builds the per-matchup equity matrix.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TurnVsBetInput {
+  heroRange: Combo[];
+  villainRange: Combo[]; // villain's BETTING range (already conditioned)
+  board: Card[]; // exactly 4 (turn)
+  potBeforeBet: number; // Q
+  bet: number; // b
+  raiseTo: number; // r (total chips)
+  iterations?: number;
+}
+
+export function solveTurnVsBet(inp: TurnVsBetInput): VsBetResult {
+  const H = inp.heroRange;
+  const V = inp.villainRange;
+  const nH = H.length;
+  const nV = V.length;
+  const valid: Uint8Array[] = [];
+  const eq: Float64Array[] = [];
+  for (let i = 0; i < nH; i++) {
+    const vr = new Uint8Array(nV);
+    const er = new Float64Array(nV);
+    for (let j = 0; j < nV; j++) {
+      if (conflict(H[i], V[j])) {
+        vr[j] = 0;
+        continue;
+      }
+      vr[j] = 1;
+      er[j] = equityVsCombo(H[i].cards, V[j].cards, inp.board);
+    }
+    valid.push(vr);
+    eq.push(er);
+  }
+  return solveVsBetEquity({
+    eq,
+    valid,
+    heroW: H.map((c) => c.w),
+    villW: V.map((c) => c.w),
+    potBeforeBet: inp.potBeforeBet,
+    bet: inp.bet,
+    raiseTo: inp.raiseTo,
+    iterations: inp.iterations,
+  });
 }

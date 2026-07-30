@@ -211,7 +211,20 @@
       "PowerShell(npx vitest run src/strategy/_census.tmp.test.ts 2>&1 | Select-Object -First 40)",
       "PowerShell(npx vitest run src/strategy/_census.tmp.test.ts --silent=false 2>&1 | Out-String -Width 400)",
       "PowerShell(npx vitest run src/strategy/_census.tmp.test.ts 2>&1 | Out-String -Width 500)",
-      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 20)"
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 20)",
+      "PowerShell(npx vitest run src/strategy/solver/turnSolver.test.ts src/strategy/solver/multiwaySolver.test.ts src/strategy/solver/riverNodeLock.test.ts src/strategy/nodeLock.test.ts src/strategy/solver/multiwayWiring.test.ts 2>&1 | Select-Object -Last 60)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 25)",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx eslint src/strategy/solver/turnSolver.ts src/strategy/solver/multiwaySolver.ts src/strategy/solver/riverAdapter.ts src/strategy/solver/riverSolver.ts src/strategy/index.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run src/strategy/solver/exploitability.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 20; Write-Output \"---TSC DONE---\"; npx eslint src/strategy/solver/exploitability.ts src/strategy/solver/exploitability.test.ts src/strategy/solver/riverSolver.ts 2>&1 | Select-Object -Last 20; Write-Output \"---LINT DONE---\")",
+      "PowerShell(npx vitest run src/strategy/solver/vsBet.test.ts src/strategy/solver/riverWiring.test.ts src/strategy/solver/flopWiring.test.ts src/strategy/solver/riverVsBet.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 15; Write-Output \"---TSC DONE---\"; npx eslint src/strategy/solver/vsBet.ts src/strategy/solver/turnSolver.ts src/strategy/solver/flopSolver.ts src/strategy/solver/riverAdapter.ts src/strategy/index.ts 2>&1 | Select-Object -Last 15; Write-Output \"---LINT DONE---\")",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 10; Write-Output \"---TSC---\"; npx eslint src/strategy/postflopExploit.audit.test.ts 2>&1 | Select-Object -Last 10; Write-Output \"---LINT---\"; npx vitest run 2>&1 | Select-Object -Last 8)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 8; Write-Output \"---TSC---\"; npx vitest run 2>&1 | Select-Object -Last 8)",
+      "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts src/strategy/solver/multiwaySolver.test.ts src/strategy/solver/flopWiring.test.ts src/strategy/solver/multiwayWiring.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/solver src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 20)"
     ]
   }
 }

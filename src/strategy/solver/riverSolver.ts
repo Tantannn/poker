@@ -49,7 +49,7 @@ const mdf = (frac: number) => 1 / (1 + frac);
  * bets fold out more. A villain who folds 70% to ¾-pot continues ~30% there, less to
  * a pot bet and more to a ⅓ stab — which is what makes barrelling him print.
  */
-function lockedContinueBySize(foldToBet: number, betFracs: number[]): number[] {
+export function lockedContinueBySize(foldToBet: number, betFracs: number[]): number[] {
   const anchor = Math.max(0.02, Math.min(1, 1 - foldToBet));
   const refMdf = mdf(LOCK_REF_FRAC);
   return betFracs.map((f) => Math.max(0.01, Math.min(1, (anchor * mdf(f)) / refMdf)));
@@ -67,7 +67,7 @@ function lockedContinueBySize(foldToBet: number, betFracs: number[]): number[] {
  * The combo AT the threshold gets the fractional remainder so the range-averaged
  * continue rate hits the target exactly rather than landing on a combo boundary.
  */
-function lockedVillainStrategy(V: Combo[], villScore: number[], contBySize: number[]): number[][][] {
+export function lockedVillainStrategy(V: Combo[], villScore: number[], contBySize: number[]): number[][][] {
   const order = V.map((_, j) => j).sort((a, b) => villScore[b] - villScore[a]); // strongest first
   let totalW = 0;
   for (const v of V) totalW += v.w;
@@ -117,6 +117,10 @@ export interface RiverResult {
   heroActionEv: number[][];
   /** villain call frequency vs each bet size, range-averaged (diagnostic). */
   villainCallFreq: number[];
+  /** villain's solved [fold, call] strategy per (bet size, villain combo) — the average
+   *  strategy (or the pinned lock). Exposed so the exploitability harness can best-respond
+   *  to it independently; unset by the multiway solvers, which reuse this shape. */
+  villainStrategy?: number[][][];
 }
 
 const cardId = (c: Card) => `${c.rank}${c.suit}`;
@@ -325,7 +329,7 @@ export function solveRiver(inp: RiverInput): RiverResult {
     actionEv[actions[a]] = hw > 0 ? ev / hw : 0;
   }
 
-  return { heroStrategy: hStratAvg, actions, actionEv, heroActionEv, villainCallFreq: vCallFreq };
+  return { heroStrategy: hStratAvg, actions, actionEv, heroActionEv, villainCallFreq: vCallFreq, villainStrategy: vStratFinal };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

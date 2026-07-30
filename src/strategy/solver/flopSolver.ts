@@ -11,8 +11,9 @@
 //
 // TRACTABILITY (design doc §5, Stage 3). Enumerating a turn subgame for all ~45 turn
 // cards — each of which itself enumerates ~44 rivers — is far too slow to run live. The
-// turn cards are BUCKETED by strategic texture (pairs the board / completes a flush /
-// rank tier vs the board) and one representative per bucket is solved, weighted by the
+// turn cards are BUCKETED by strategic texture (which board card it pairs / brings a flush
+// draw or completes one / rank tier / straight coordination — see textureBuckets) and one
+// representative per bucket is solved, weighted by the
 // bucket's size. The nested turn solves run with nestRiverForCheck:false (their own check
 // is a static river showdown) so the recursion is two CFR layers deep, not three. This is
 // a DISCLOSED abstraction, not a solver-exact flop solve — matching the app's teaching
@@ -21,6 +22,8 @@
 import type { Card } from '../../engine/cards';
 import { evaluate7 } from '../../engine/evaluator';
 import { solveTurn } from './turnSolver';
+import { solveVsBetEquity, type VsBetResult } from './vsBet';
+import { textureBuckets } from './cardTexture';
 import type { Combo } from './riverSolver';
 
 export interface FlopInput {
@@ -82,33 +85,6 @@ function equityVsCombo(hero: [Card, Card], vill: [Card, Card], board3: Card[]): 
   return n > 0 ? (win + tie / 2) / n : 0.5;
 }
 
-/** Group the available turn cards by strategic texture and return one representative per
- *  bucket, weighted by the bucket's size. Turn strategy pivots mostly on whether the card
- *  pairs the board, completes a flush, and its rank tier vs the flop — cards inside a
- *  bucket play alike, so solving one and weighting by count approximates enumerating all
- *  ~45 at a fraction of the cost. Representative = the first card seen in the bucket. */
-function turnBuckets(board3: Card[]): { card: Card; weight: number }[] {
-  const used = new Set<number>(board3.map(id));
-  const suitCount = [0, 0, 0, 0];
-  for (const c of board3) suitCount[c.suit]++;
-  const maxRank = Math.max(...board3.map((c) => c.rank));
-  const minRank = Math.min(...board3.map((c) => c.rank));
-  const groups = new Map<string, { card: Card; weight: number }>();
-  for (let rank = 2; rank <= 14; rank++) {
-    for (let suit = 0; suit < 4; suit++) {
-      if (used.has(rank * 4 + suit)) continue;
-      const pairsBoard = board3.some((c) => c.rank === rank);
-      const flushComplete = suitCount[suit] + 1 >= 3;
-      const tier = rank > maxRank ? 'over' : rank < minRank ? 'under' : 'mid';
-      const key = `${pairsBoard ? 1 : 0}|${flushComplete ? 1 : 0}|${tier}`;
-      const g = groups.get(key);
-      if (g) g.weight++;
-      else groups.set(key, { card: { rank, suit }, weight: 1 });
-    }
-  }
-  return [...groups.values()];
-}
-
 /** Per-hero-combo EV (chips) of CHECKING the flop, valued as a real turn subgame instead
  *  of a static two-street showdown. For each turn-texture bucket the check line is a
  *  hero-first turn node (hero checked → still OOP, acts first) between both full ranges —
@@ -133,7 +109,7 @@ function checkLineTurnEv(
   const nH = H.length;
   const acc = new Array(nH).fill(0);
   const cnt = new Array(nH).fill(0);
-  for (const { card, weight } of turnBuckets(board3)) {
+  for (const { card, weight } of textureBuckets(board3)) {
     const tid = id(card);
     // combos that don't use the turn card, with a back-map to the original hero index.
     const Hr: Combo[] = [];
@@ -325,4 +301,55 @@ export function solveFlop(inp: FlopInput): FlopResult {
   });
 
   return { heroStrategy, actions, heroActionEv, villainCallFreq };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACING A BET on the flop — hero fold / call / raise vs villain's bet. Same tree as the
+// river/turn vs-bet, but the equity terminals enumerate BOTH remaining streets
+// (equityVsCombo above), so a call/raise is scored on realised two-street equity. Ignores
+// turn/river betting on the call line (a static two-street showdown, the same simplification
+// solveFlop makes on its bet-call line). Generic CFR in vsBet.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FlopVsBetInput {
+  heroRange: Combo[];
+  villainRange: Combo[]; // villain's BETTING range (already conditioned)
+  board: Card[]; // exactly 3 (flop)
+  potBeforeBet: number; // Q
+  bet: number; // b
+  raiseTo: number; // r (total chips)
+  iterations?: number;
+}
+
+export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
+  const H = inp.heroRange;
+  const V = inp.villainRange;
+  const nH = H.length;
+  const nV = V.length;
+  const valid: Uint8Array[] = [];
+  const eq: Float64Array[] = [];
+  for (let i = 0; i < nH; i++) {
+    const vr = new Uint8Array(nV);
+    const er = new Float64Array(nV);
+    for (let j = 0; j < nV; j++) {
+      if (conflict(H[i], V[j])) {
+        vr[j] = 0;
+        continue;
+      }
+      vr[j] = 1;
+      er[j] = equityVsCombo(H[i].cards, V[j].cards, inp.board);
+    }
+    valid.push(vr);
+    eq.push(er);
+  }
+  return solveVsBetEquity({
+    eq,
+    valid,
+    heroW: H.map((c) => c.w),
+    villW: V.map((c) => c.w),
+    potBeforeBet: inp.potBeforeBet,
+    bet: inp.bet,
+    raiseTo: inp.raiseTo,
+    iterations: inp.iterations,
+  });
 }

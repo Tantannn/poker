@@ -102,3 +102,35 @@ describe('3-way turn solver — river runouts enumerated, third player on a fixe
     expect(r.villainCallFreq[0]).toBeGreaterThanOrEqual(r.villainCallFreq[r.villainCallFreq.length - 1] - 0.001);
   });
 });
+
+describe('3-way solvers — a read re-anchors the fixed third player', () => {
+  const b = board('Ah 7d 2c 9h Jd');
+  const hero: Combo[] = [w1('As Ac'), w1('Ks Qs'), w1('Td Tc')]; // nuts, pure bluff, bluff-catcher
+  const villain: Combo[] = [w1('Ad Kc'), w1('9s 9c'), w1('Js Th'), w1('Qs Qc'), w1('8h 6h')];
+  const third: Combo[] = [w1('Ac Qh'), w1('Jc Tc'), w1('7s 7h'), w1('Kd Qd'), w1('5s 4s')];
+  const args = { board: b, pot: 30, effStack: 300, betSizes: [0.5, 0.75, 1.0], iterations: 1200 };
+  const bluffIdx = 1;
+
+  const withRead = (thirdFoldToBet?: number) =>
+    solveRiver3way({ heroRange: hero, villainRange: villain, thirdRange: third, ...args, thirdFoldToBet });
+
+  it('hero bluffs more when the fixed field over-folds than when it is sticky', () => {
+    // The bluff must get through BOTH opponents; an over-folding third clears the field
+    // more often, so the bluff prints more — the whole point of reading the second player.
+    const overFold = withRead(0.85);
+    const station = withRead(0.1);
+    console.log(`3way bluff bet: overfold=${(betFreq(overFold.heroStrategy[bluffIdx]) * 100).toFixed(0)}%  station=${(betFreq(station.heroStrategy[bluffIdx]) * 100).toFixed(0)}%`);
+    expect(betFreq(overFold.heroStrategy[bluffIdx])).toBeGreaterThan(betFreq(station.heroStrategy[bluffIdx]));
+  });
+
+  it("hero's bluff EV rises with the fixed field's fold frequency", () => {
+    const evBluff = (f: number) => Math.max(...withRead(f).heroActionEv[bluffIdx].slice(1));
+    expect(evBluff(0.85)).toBeGreaterThan(evBluff(0.1));
+  });
+
+  it('no read reproduces the parameter-free MDF default exactly', () => {
+    const a = solveRiver3way({ heroRange: hero, villainRange: villain, thirdRange: third, ...args });
+    const b2 = withRead(undefined);
+    expect(a.heroStrategy[bluffIdx]).toEqual(b2.heroStrategy[bluffIdx]);
+  });
+});

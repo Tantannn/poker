@@ -21,7 +21,8 @@
 import type { Card } from '../../engine/cards';
 import { evaluate7 } from '../../engine/evaluator';
 import { mdf } from '../../engine/potOdds';
-import type { Combo, RiverResult } from './riverSolver';
+import { lockedContinueBySize, type Combo, type RiverResult } from './riverSolver';
+import { textureBuckets } from './cardTexture';
 
 export interface Multiway3Input {
   heroRange: Combo[];
@@ -32,6 +33,13 @@ export interface Multiway3Input {
   effStack: number;
   betSizes: number[]; // fractions of pot
   iterations?: number;
+  /** READ ON THE FIXED THIRD PLAYER, 0..1 — how often the second (non-solved) opponent
+   *  folds facing a ¾-pot bet. When set, his MDF-by-strength policy is re-anchored to it
+   *  (an over-folder defends narrower, a station wider), scaled across sizes by pot odds —
+   *  the same ¾-pot-referenced curve the HU node lock uses (lockedContinueBySize). Omit
+   *  for the parameter-free MDF default. Only the fixed player's read lands here; the
+   *  SOLVED villain carries reads via the per-hand fallback in index.ts. */
+  thirdFoldToBet?: number;
 }
 
 const id = (c: Card) => c.rank * 4 + c.suit;
@@ -51,12 +59,19 @@ function strat(regret: number[]): number[] {
  *  `strength` continues (fractional at the boundary combo), the rest folds. On the river
  *  strength = made-hand score; on the turn it is equity vs the bettor's range (a draw with
  *  the odds continues), so the ranking metric is passed in rather than evaluated here. */
-function mdfCallProbs(strength: number[], weights: number[], bets: number[], pot: number): Float64Array[] {
+function mdfCallProbs(
+  strength: number[],
+  weights: number[],
+  bets: number[],
+  pot: number,
+  contBySize?: number[],
+): Float64Array[] {
   const order = strength.map((_, i) => i).sort((a, b) => strength[b] - strength[a]); // strongest first
   const totalW = weights.reduce((s, w) => s + w, 0);
-  return bets.map((b) => {
+  return bets.map((b, s) => {
     const cp = new Float64Array(strength.length);
-    let target = mdf(pot, b) * totalW;
+    // Read-anchored continue share when supplied (a fold-to-bet lock), else parameter-free MDF.
+    let target = (contBySize ? contBySize[s] : mdf(pot, b)) * totalW;
     for (const idx of order) {
       if (target <= 0) break;
       const w = weights[idx];
@@ -152,7 +167,9 @@ export function solveRiver3way(inp: Multiway3Input): RiverResult {
     hvWin.push(hw);
   }
 
-  const callProb = mdfCallProbs(thirdScore, T.map((c) => c.w), bets, P);
+  const thirdCont =
+    inp.thirdFoldToBet != null ? lockedContinueBySize(inp.thirdFoldToBet, bets.map((b) => b / P)) : undefined;
+  const callProb = mdfCallProbs(thirdScore, T.map((c) => c.w), bets, P, thirdCont);
   const aggH = buildThirdAgg(H, T, callProb, (i, m) => wr(heroScore[i], thirdScore[m]), nSizes);
   const aggV = buildThirdAgg(V, T, callProb, (j, m) => wr(villScore[j], thirdScore[m]), nSizes);
 
@@ -328,31 +345,6 @@ function eqOverRiver(a: [Card, Card], b: [Card, Card], board4: Card[]): number {
   return n > 0 ? (win + tie / 2) / n : 0.5;
 }
 
-/** Group the legal river cards by texture (pairs board / completes flush / rank tier), one
- *  representative per bucket weighted by count — the same abstraction the flop solver uses
- *  for turn cards, one street later. Bounds the nested-subgame count on the check line. */
-function riverBuckets(board4: Card[]): { card: Card; weight: number }[] {
-  const used = new Set<number>(board4.map(id));
-  const suitCount = [0, 0, 0, 0];
-  for (const c of board4) suitCount[c.suit]++;
-  const maxRank = Math.max(...board4.map((c) => c.rank));
-  const minRank = Math.min(...board4.map((c) => c.rank));
-  const groups = new Map<string, { card: Card; weight: number }>();
-  for (let rank = 2; rank <= 14; rank++) {
-    for (let suit = 0; suit < 4; suit++) {
-      if (used.has(rank * 4 + suit)) continue;
-      const pairsBoard = board4.some((c) => c.rank === rank);
-      const flushComplete = suitCount[suit] + 1 >= 3;
-      const tier = rank > maxRank ? 'over' : rank < minRank ? 'under' : 'mid';
-      const key = `${pairsBoard ? 1 : 0}|${flushComplete ? 1 : 0}|${tier}`;
-      const g = groups.get(key);
-      if (g) g.weight++;
-      else groups.set(key, { card: { rank, suit }, weight: 1 });
-    }
-  }
-  return [...groups.values()];
-}
-
 /** Per-hero-combo EV (chips) of CHECKING the turn 3-way, valued as a real 3-way river
  *  subgame per river-texture bucket (solveRiver3way as the leaf) rather than a static
  *  checkdown — so the check keeps its river potential instead of being scored as give-up. */
@@ -365,11 +357,12 @@ function checkLineRiver3wayEv(
   effStack: number,
   betSizes: number[],
   riverIters: number,
+  thirdFoldToBet?: number,
 ): number[] {
   const nH = H.length;
   const acc = new Array(nH).fill(0);
   const cnt = new Array(nH).fill(0);
-  for (const { card, weight } of riverBuckets(board4)) {
+  for (const { card, weight } of textureBuckets(board4)) {
     const rid = id(card);
     const Hr: Combo[] = [];
     const hMap: number[] = [];
@@ -390,6 +383,7 @@ function checkLineRiver3wayEv(
       effStack,
       betSizes,
       iterations: riverIters,
+      thirdFoldToBet,
     });
     for (let k = 0; k < Hr.length; k++) {
       const s = res.heroStrategy[k];
@@ -453,7 +447,9 @@ export function solveTurn3way(inp: Turn3Input): RiverResult {
     for (let i = 0; i < nH; i++) acc += H[i].w * (1 - eqHT[i][m]);
     return acc / hwTotal;
   });
-  const callProb = mdfCallProbs(strengthT, T.map((c) => c.w), bets, P);
+  const thirdCont =
+    inp.thirdFoldToBet != null ? lockedContinueBySize(inp.thirdFoldToBet, bets.map((b) => b / P)) : undefined;
+  const callProb = mdfCallProbs(strengthT, T.map((c) => c.w), bets, P, thirdCont);
   const aggH = buildThirdAgg(H, T, callProb, (i, m) => eqHT[i][m], nSizes);
   const aggV = buildThirdAgg(V, T, callProb, (j, m) => eqVT[j][m], nSizes);
 
@@ -470,7 +466,7 @@ export function solveTurn3way(inp: Turn3Input): RiverResult {
     vwSum[i] = w;
     checkStatic[i] = w > 0 ? sd / w : 0;
   }
-  const nested = checkLineRiver3wayEv(H, V, T, inp.board, P, inp.effStack, inp.betSizes, inp.riverNestIterations ?? 120);
+  const nested = checkLineRiver3wayEv(H, V, T, inp.board, P, inp.effStack, inp.betSizes, inp.riverNestIterations ?? 120, inp.thirdFoldToBet);
   const checkAvg = new Array(nH);
   for (let i = 0; i < nH; i++) {
     const v = nested[i];

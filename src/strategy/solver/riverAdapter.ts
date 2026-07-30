@@ -10,9 +10,10 @@ import type { WeightedRange } from '../../engine/range';
 import { codeToCombos } from '../../engine/range';
 import type { NodeStrategy, ActionId, ActionOption } from '../types';
 import { solveRiver, solveRiverVsBet, type Combo } from './riverSolver';
-import { solveTurn } from './turnSolver';
-import { solveFlop } from './flopSolver';
+import { solveTurn, solveTurnVsBet } from './turnSolver';
+import { solveFlop, solveFlopVsBet } from './flopSolver';
 import { solveRiver3way, solveTurn3way } from './multiwaySolver';
+import type { VsBetResult } from './vsBet';
 import { requiredEquityForBet } from '../../engine/potOdds';
 
 // Live size set — chosen to map onto the existing ActionIds (no overbet id yet).
@@ -319,6 +320,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
   const heroCombos = buildCombos(p.heroRange, p.board, [], TURN_HERO_CAP, undefined, heroActual);
   if (villainCombos.length === 0 || heroCombos.length === 0) return null;
 
+  const locked = p.villainFoldToBet != null;
   const result = solveTurn({
     heroRange: heroCombos,
     villainRange: villainCombos,
@@ -335,6 +337,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     // solves are the dominant cost now, so this also claws back the time they add.
     iterations: 2000,
     riverNestIterations: 140,
+    villainLock: locked ? { foldToBet: p.villainFoldToBet as number } : undefined,
   });
 
   return heroFirstNodeStrategy(
@@ -344,8 +347,13 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     p.board,
     p.pot,
     p.bigBlind,
-    `Turn solver — range-vs-range with the river runouts enumerated for showdown ` +
-      `equity. Frequencies are the solved mix.` +
+    (locked
+      ? `Turn solver — NODE LOCKED to your read: villain folds ~${Math.round(
+          (p.villainFoldToBet as number) * 100,
+        )}% to a ¾-pot bet (scaled by pot odds across sizes), and your line — bet AND check ` +
+        `(the nested river subgames best-respond too) — is the BEST RESPONSE to that read, not an equilibrium.`
+      : `Turn solver — range-vs-range with the river runouts enumerated for showdown ` +
+        `equity. Frequencies are the solved mix.`) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -389,6 +397,10 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
 export interface Multiway3NodeParams extends RiverSolveParams {
   thirdRange: WeightedRange;
   thirdComboWeight?: (a: Card, b: Card) => number;
+  /** Read on the FIXED second opponent (0..1 fold-to-¾-pot). Re-anchors his MDF policy;
+   *  omit to keep the parameter-free default. `villainFoldToBet` (inherited) is unused on
+   *  the multiway paths — the SOLVED villain's read routes through the per-hand model. */
+  thirdFoldToBet?: number;
 }
 
 /** Solve a hero-first 3-WAY river node (hero + primary villain by CFR, the second opponent
@@ -411,8 +423,13 @@ export function solveRiver3wayNode(p: Multiway3NodeParams): NodeStrategy | null 
     effStack: p.effStack,
     betSizes: RIVER_SIZES,
     iterations: 1000,
+    thirdFoldToBet: p.thirdFoldToBet,
   });
 
+  const thirdNote =
+    p.thirdFoldToBet != null
+      ? ` The second opponent's fold read (~${Math.round(p.thirdFoldToBet * 100)}% to a ¾-pot bet) is applied to its policy.`
+      : '';
   return heroFirstNodeStrategy(
     result,
     heroCombos,
@@ -423,6 +440,7 @@ export function solveRiver3wayNode(p: Multiway3NodeParams): NodeStrategy | null 
     `3-way river solver — hero + one villain solved range-vs-range (CFR); the second ` +
       `opponent follows a fixed MDF policy (defends the top of its range, folds the rest). ` +
       `Bluffs earn less than heads-up because a bet must get through two players.` +
+      thirdNote +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -448,8 +466,13 @@ export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
     betSizes: RIVER_SIZES,
     iterations: 900,
     riverNestIterations: 110,
+    thirdFoldToBet: p.thirdFoldToBet,
   });
 
+  const thirdNote =
+    p.thirdFoldToBet != null
+      ? ` The second opponent's fold read (~${Math.round(p.thirdFoldToBet * 100)}% to a ¾-pot bet) is applied to its policy.`
+      : '';
   return heroFirstNodeStrategy(
     result,
     heroCombos,
@@ -460,6 +483,7 @@ export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
     `3-way turn solver — hero + one villain range-vs-range (CFR, river runouts enumerated); ` +
       `the second opponent follows a fixed MDF policy and the check line nests a 3-way river ` +
       `subgame (bucketed by texture). A disclosed multiway approximation, not full 3-way CFR.` +
+      thirdNote +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -475,6 +499,53 @@ export interface RiverVsBetNodeParams {
   villainComboWeight?: (a: Card, b: Card) => number;
   bigBlind: number;
   rangeNote?: string;
+}
+
+/** Shared mapping: a facing-a-bet solver result (river/turn/flop) → NodeStrategy for hero's
+ *  specific hand (fold / call / raise). Identical across streets — only the equity source
+ *  behind `res` and the `note` differ. */
+function vsBetNodeStrategy(
+  res: VsBetResult,
+  heroCombos: Combo[],
+  heroActual: [Card, Card],
+  bet: number,
+  raiseTo: number,
+  potBeforeBet: number,
+  bigBlind: number,
+  note: string,
+): NodeStrategy | null {
+  const idx = heroCombos.findIndex(
+    (c) => sameCard(c.cards[0], heroActual[0]) && sameCard(c.cards[1], heroActual[1]),
+  );
+  if (idx < 0) return null;
+  const s = res.heroStrategy[idx];
+  const ev = res.heroEv[idx];
+  const potNow = potBeforeBet + bet;
+
+  const options: ActionOption[] = [
+    { id: 'fold', label: 'Fold', freq: s.fold, ev: 0, kind: 'fold' },
+    { id: 'call', label: `Call ${bet}`, freq: s.call, ev: round2(ev.call / bigBlind), kind: 'call' },
+    {
+      id: 'betpot',
+      label: `Raise to ${raiseTo}`,
+      freq: s.raise,
+      ev: round2(ev.raise / bigBlind),
+      amount: raiseTo,
+      sizePct: Math.round((100 * raiseTo) / potNow),
+      kind: 'aggressive',
+    },
+  ];
+
+  let best = options[0];
+  for (const o of options) if (o.ev > best.ev || (o.ev === best.ev && o.freq > best.freq)) best = o;
+
+  return {
+    options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),
+    bestEv: round2(best.ev),
+    bestId: best.id,
+    source: 'postflop-model',
+    note,
+  };
 }
 
 /** Solve a hero-facing-a-bet heads-up river node (fold / call / raise) range-vs-range
@@ -496,38 +567,82 @@ export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | nul
     iterations: 900,
   });
 
-  const idx = heroCombos.findIndex(
-    (c) => sameCard(c.cards[0], heroActual[0]) && sameCard(c.cards[1], heroActual[1]),
-  );
-  if (idx < 0) return null;
-  const s = res.heroStrategy[idx];
-  const ev = res.heroEv[idx];
-  const potNow = p.potBeforeBet + p.bet;
-
-  const options: ActionOption[] = [
-    { id: 'fold', label: 'Fold', freq: s.fold, ev: 0, kind: 'fold' },
-    { id: 'call', label: `Call ${p.bet}`, freq: s.call, ev: round2(ev.call / p.bigBlind), kind: 'call' },
-    {
-      id: 'betpot',
-      label: `Raise to ${p.raiseTo}`,
-      freq: s.raise,
-      ev: round2(ev.raise / p.bigBlind),
-      amount: p.raiseTo,
-      sizePct: Math.round((100 * p.raiseTo) / potNow),
-      kind: 'aggressive',
-    },
-  ];
-
-  let best = options[0];
-  for (const o of options) if (o.ev > best.ev || (o.ev === best.ev && o.freq > best.freq)) best = o;
-
-  return {
-    options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),
-    bestEv: round2(best.ev),
-    bestId: best.id,
-    source: 'postflop-model',
-    note:
-      `River solver — range-vs-range (facing a bet: fold / call / raise, CFR over ` +
+  return vsBetNodeStrategy(
+    res,
+    heroCombos,
+    heroActual,
+    p.bet,
+    p.raiseTo,
+    p.potBeforeBet,
+    p.bigBlind,
+    `River solver — range-vs-range (facing a bet: fold / call / raise, CFR over ` +
       `both ranges).` + (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
-  };
+  );
+}
+
+/** Solve a hero-facing-a-bet heads-up TURN node (fold / call / raise) range-vs-range, the
+ *  call/raise terminals scored on hero's equity over every river runout. */
+export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null {
+  if (p.board.length !== 4 || p.heroCards.length !== 2 || p.raiseTo <= p.bet) return null;
+  const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, TURN_VILLAIN_CAP, p.villainComboWeight);
+  const heroCombos = buildCombos(p.heroRange, p.board, [], TURN_HERO_CAP, undefined, heroActual);
+  if (villainCombos.length === 0 || heroCombos.length === 0) return null;
+
+  const res = solveTurnVsBet({
+    heroRange: heroCombos,
+    villainRange: villainCombos,
+    board: p.board,
+    potBeforeBet: p.potBeforeBet,
+    bet: p.bet,
+    raiseTo: p.raiseTo,
+    iterations: 900,
+  });
+
+  return vsBetNodeStrategy(
+    res,
+    heroCombos,
+    heroActual,
+    p.bet,
+    p.raiseTo,
+    p.potBeforeBet,
+    p.bigBlind,
+    `Turn solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
+      `lines are scored on hero's equity over every river runout.` +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+  );
+}
+
+/** Solve a hero-facing-a-bet heads-up FLOP node (fold / call / raise) range-vs-range, the
+ *  call/raise terminals scored on hero's equity over every turn+river runout. */
+export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null {
+  if (p.board.length !== 3 || p.heroCards.length !== 2 || p.raiseTo <= p.bet) return null;
+  const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, FLOP_VILLAIN_CAP, p.villainComboWeight);
+  const heroCombos = buildCombos(p.heroRange, p.board, [], FLOP_HERO_CAP, undefined, heroActual);
+  if (villainCombos.length === 0 || heroCombos.length === 0) return null;
+
+  const res = solveFlopVsBet({
+    heroRange: heroCombos,
+    villainRange: villainCombos,
+    board: p.board,
+    potBeforeBet: p.potBeforeBet,
+    bet: p.bet,
+    raiseTo: p.raiseTo,
+    iterations: 900,
+  });
+
+  return vsBetNodeStrategy(
+    res,
+    heroCombos,
+    heroActual,
+    p.bet,
+    p.raiseTo,
+    p.potBeforeBet,
+    p.bigBlind,
+    `Flop solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
+      `lines are scored on hero's equity over every turn+river runout (a static two-street ` +
+      `showdown, no future betting on the call line).` +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+  );
 }
