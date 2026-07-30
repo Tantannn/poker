@@ -9,6 +9,7 @@ import type { Card } from '../engine/cards';
 import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
 import { boardWetScore } from '../engine/board';
 import { buildVillainRange } from '../strategy';
+import { depthValueMult } from '../strategy/depth';
 import { potOdds } from '../engine/potOdds';
 import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE, BLUFF_THREEBET_RANGE } from './preflop';
 import { getProfile } from './profiles';
@@ -143,7 +144,10 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // =================== PREFLOP ===================
   if (state.street === 'preflop') {
     const code = handCode(p.holeCards);
-    const strength = preflopStrength(code);
+    // Shaded for the stack actually behind — the SAME multiplier the trainer applies to the
+    // charts (strategy/depth.ts), so a bot at 25bb and the graded answer at 25bb still agree.
+    // No-ops at the ~100bb the charts are authored at and at push/fold depth.
+    const strength = preflopStrength(code) * depthValueMult(code, effStackBB);
     const facingRaise = state.currentBet > state.bigBlind;
 
     // ---- easy = raw beginner preflop ----

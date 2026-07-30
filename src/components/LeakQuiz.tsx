@@ -50,7 +50,7 @@ const LEAK_TO_TAB: Record<string, { tab: string; label: string }> = {
 const KIND_COLOR: Record<string, string> = { value: '#2ec27e', bluff: '#e0843a', passive: '#3aa0e0', fold: '#2a3a31', aggressive: '#2ec27e' };
 
 // fixed action order so the "best" line isn't always the first button (giveaway)
-const ACTION_ORDER: ActionId[] = ['fold', 'check', 'call', 'bet33', 'bet50', 'bet75', 'betpot', 'allin', 'raise', 'open'];
+const ACTION_ORDER: ActionId[] = ['fold', 'check', 'call', 'bet33', 'bet50', 'bet75', 'betpot', 'bet150', 'allin', 'raise', 'raisebig', 'open'];
 const orderRank = (id: ActionId) => { const i = ACTION_ORDER.indexOf(id); return i < 0 ? 99 : i; };
 
 interface Spot {

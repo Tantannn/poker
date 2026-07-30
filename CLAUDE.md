@@ -58,13 +58,48 @@ There are **two** postflop engines behind that seam:
    Turn/river gated by `RIVER_SOLVER_ENABLED`, flop by `FLOP_SOLVER_ENABLED`, 3-way by
    `MULTIWAY_SOLVER_ENABLED` (separate flags — flop + multiway carry abstractions), all in
    `index.ts`; flip to `false` to A/B against the per-hand model. Applies to hero-first
-   flop/turn/river HU nodes, hero-facing-a-bet on **all three** streets (fold/call/raise —
-   `vsBet.ts` is the shared equity-driven CFR core, fed a per-street equity matrix: exact
-   showdown on the river, equity over the remaining runouts on turn/flop), and hero-first
+   flop/turn/river HU nodes, hero-facing-a-bet on **all three** streets (fold / call / two
+   raise sizes / jam, and villain may **re-raise** any non-jam raise — `vsBet.ts` is the
+   shared equity-driven CFR core, fed a per-street equity matrix: exact showdown on the
+   river, equity over the remaining runouts on turn/flop — and node-locked
+   on villain's response to hero's raise, see below), and hero-first
    3-way (exactly two live opponents) turn/river; 4+-way and villain-first multiway fall
    back to (1).
    `docs/range-vs-range-ev-design.md` is the staged plan (flop = Stage 3, multiway = Stage 4,
    both built).
+
+### Size grids — `src/strategy/solver/betSizeGrid.ts`
+Every CFR node is solved over a grid built **per node**, because the sizes on
+offer depend on the stack. Two invariants the adapter's `bet:${s}` → `ActionId` mapping
+depends on: sizes are distinct positive chip amounts (two that round equal would split one
+decision across identical actions and halve its frequency), and nothing exceeds the
+effective stack — every size at or past it collapses into **one** `allin` slot rather than
+being labelled "pot" at stack size.
+
+`bet150` (1½× pot) is the polar overbet slot, offered on the hero-first **turn and river
+only**. It exists because an overbet can't be reached by scaling a normal bet: it profits
+only for a *polar* range (nuts + bluffs), which a range-vs-range solve discovers and the
+per-hand model cannot — `postflopModel.ts:653` documents why it deliberately has no
+interior overbet. The band matches `DifficultyParams.overbet` (1.3–1.75×) so hero trains
+at the size the bots actually use. Flop and 3-way keep the 4-size grid: each nests another
+chance layer, so a 5th size costs more there than it teaches. The turn's nested river
+subgames on the check line also keep the base grid (`checkLineBetSizes`) — after checking,
+hero's range is capped, the one range an overbet can't represent.
+
+`raiseSizeGrid(Q, b, minRaiseTo, maxRaiseTo)` is the facing-a-bet twin: hero's raise-TO
+totals at ½ and 1× the pot he'd play after calling (`Q + 2b`), plus the jam — ids `raise`,
+`raisebig`, `allin`. The fractions deliberately match the ½-pot / pot / all-in buttons
+`Controls.tsx` already renders facing a bet (same `bet + f × (pot + callAmount)` arithmetic),
+so a recommended raise is one tap instead of a slider hunt. It also returns `threeBetTo` per
+size — villain's re-raise total, `2.2×` the raise capped at hero's own all-in, since a
+re-raise past what hero can call is not a distinct branch. The jam's `threeBetTo` equals the
+raise itself, which is how the solvers read "no re-raise here".
+
+Why the re-raise branch matters: without it hero's raise could only be folded to or called,
+so every bluff-raise was priced as risk-free and the raise line was systematically
+over-valued — the more so since the facing-a-bet node lock made raising more attractive.
+`raiseTree.test.ts` pins the direction (a bluff-raise is worth strictly less once villain
+can play back).
 
 Preflop never uses either: `preflopChart.ts` holds mixed-frequency charts per
 scenario id, and `pushFold.ts` takes over at ≤15bb effective (mirroring the bot's
@@ -130,8 +165,32 @@ into `solveTurn`, which pins villain to a threshold continue policy (ordered by 
 equity-vs-hero-range, since a turn draw is a real continue) and rides the lock down into
 the nested river subgames on the check line, so both the bet line and the check line
 best-respond to the *same* read. A second unlocked solve gives the delta
-(`exploitAnnotated` in `index.ts` is shared by the river and turn gates). **Flop and
-turn/flop-facing-a-bet still carry no delta** — those gates have no lock yet.
+(`exploitAnnotated` in `index.ts` is shared by every locked gate).
+
+**Facing a bet** — all three streets — node-locks too, and the thing being pinned is
+different: villain has already bet, so his one remaining decision is fold-or-call vs hero's
+**raise**, and that is what `lockedContinueVsRaise` pins (`lockedThresholdPolicy` over his
+betting range, ordered by showdown strength on the river and by equity-vs-hero-range on
+turn/flop, where a draw is a real continue). Two channels carry the read at these nodes and
+they price different actions: his betting-range *composition* (`comboWeight`/`bluffMult` —
+how much is air) prices hero's **call**, the lock prices hero's **raise**. Without the lock
+CFR solves his response and the node is unexploitable, so "he gives up when raised" would
+change nothing and a bluff-raise could never appear.
+
+The raise is re-priced, not read off the ¾-pot number directly: villain adds `r − b` to win
+`Q + b + r`, so his pot-odds size is `(r − b)/(Q + b + r)` — a better price than the ¾-pot
+reference, which correctly folds him *less* here than his raw fold-to-bet figure. One
+observed read therefore drives every node without a second calibration.
+
+A locked villain still **re-raises**: `locked3BetPolicy` gives the strongest
+`LOCKED_THREEBET_SHARE` (0.3) of his continuing range the re-raise, the rest call. That share
+is a **disclosed abstraction, not a measured statistic** — a fold read says nothing about his
+3-bet frequency, but pinning it to zero would hand hero a raise branch that can never be
+punished and turn every bluff-raise into free money. Both slices are threshold policies over
+the same ordering, so the 3-betting hands are a subset of the continuing hands by construction.
+
+The only gate left with **no lock** is the hero-first **flop**, which keeps the
+`primaryHasRead` fall-through to the per-hand model instead.
 
 **Multiway reads.** The 3-way solver's fixed third player is read-aware: when the
 non-primary live seat carries an observed/locked, off-balanced fold-to-bet read, index.ts

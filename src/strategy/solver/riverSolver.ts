@@ -68,26 +68,65 @@ export function lockedContinueBySize(foldToBet: number, betFracs: number[]): num
  * continue rate hits the target exactly rather than landing on a combo boundary.
  */
 export function lockedVillainStrategy(V: Combo[], villScore: number[], contBySize: number[]): number[][][] {
-  const order = V.map((_, j) => j).sort((a, b) => villScore[b] - villScore[a]); // strongest first
+  const weights = V.map((v) => v.w);
+  return contBySize.map((cont) => lockedThresholdPolicy(weights, villScore, cont));
+}
+
+/** The threshold policy itself, over bare weights — so the facing-a-bet solvers (which hold
+ *  weight arrays, not Combos) pin villain with the same rule the hero-first solvers use. */
+export function lockedThresholdPolicy(weights: number[], strength: number[], cont: number): number[][] {
+  const order = weights.map((_, j) => j).sort((a, b) => strength[b] - strength[a]); // strongest first
   let totalW = 0;
-  for (const v of V) totalW += v.w;
-  return contBySize.map((cont) => {
-    const target = cont * totalW;
-    const out: number[][] = Array.from({ length: V.length }, () => [1, 0]); // default fold
-    let acc = 0;
-    for (const j of order) {
-      const w = V[j].w;
-      if (w <= 0) continue;
-      if (acc + w <= target) {
-        out[j] = [0, 1]; // fully continues
-        acc += w;
-      } else {
-        const part = Math.max(0, Math.min(1, (target - acc) / w));
-        out[j] = [1 - part, part];
-        break;
-      }
+  for (const w of weights) totalW += w;
+  const target = cont * totalW;
+  const out: number[][] = weights.map(() => [1, 0]); // default fold
+  let acc = 0;
+  for (const j of order) {
+    const w = weights[j];
+    if (w <= 0) continue;
+    if (acc + w <= target) {
+      out[j] = [0, 1]; // fully continues
+      acc += w;
+    } else {
+      const part = Math.max(0, Math.min(1, (target - acc) / w));
+      out[j] = [1 - part, part];
+      break;
     }
-    return out;
+  }
+  return out;
+}
+
+/** Locked villain's continue rate when he faces a RAISE to `r` after betting `b` into dead
+ *  pot `Q`: he adds r − b to win Q + b + r, so his pot-odds size is (r − b)/(Q + b + r).
+ *  Quoted through the same ¾-pot-referenced curve as the bet locks, so ONE observed read
+ *  drives every node — and because a raise gives him a better price relative to the enlarged
+ *  pot than the reference bet does, the curve correctly folds him LESS here than a bare
+ *  fold-to-bet number would suggest. */
+export function lockedContinueVsRaise(foldToBet: number, Q: number, b: number, r: number): number {
+  return lockedContinueBySize(foldToBet, [(r - b) / Math.max(1e-9, Q + b + r)])[0];
+}
+
+/** Share of a locked villain's CONTINUING range that re-raises rather than calls. A fold
+ *  read says nothing about his 3-bet frequency, but pinning it to zero would hand hero a
+ *  raise branch that can never be punished and turn every bluff-raise into free money — so
+ *  his strongest continues 3-bet. A disclosed abstraction, not a measured statistic. */
+export const LOCKED_THREEBET_SHARE = 0.3;
+
+/** Locked villain facing a raise: [fold, call, 3bet] per combo. Both slices are threshold
+ *  policies over the SAME strength ordering, so the 3-betting hands are a subset of the
+ *  continuing hands by construction — his best hands raise, the next best call, the rest fold. */
+export function locked3BetPolicy(
+  weights: number[],
+  strength: number[],
+  cont: number,
+  threeBetShare = LOCKED_THREEBET_SHARE,
+): number[][] {
+  const continues = lockedThresholdPolicy(weights, strength, cont);
+  const threeBets = lockedThresholdPolicy(weights, strength, cont * threeBetShare);
+  return weights.map((_, j) => {
+    const c = continues[j][1];
+    const t = Math.min(threeBets[j][1], c);
+    return [1 - c, c - t, t];
   });
 }
 
@@ -350,17 +389,31 @@ export interface RiverVsBetInput {
   board: Card[];
   potBeforeBet: number; // Q — dead money before villain's bet
   bet: number; // b — villain's bet
-  raiseTo: number; // r — total hero commits if raising (chips)
+  /** hero's raise-TO totals in chips, one per offered size */
+  raiseSizes: number[];
+  /** villain's re-raise total per raise size; ≤ the raise disables that branch */
+  threeBetTo?: number[];
   iterations?: number;
+  /** NODE LOCK. Villain has already bet, so his one remaining decision is fold-or-call vs
+   *  hero's raise — pinning it to the read is what makes a bluff-raise price out an
+   *  over-folder. Without it CFR solves his response too and the node is unexploitable, so
+   *  "he gives up when raised" would change nothing. */
+  villainLock?: VillainNodeLock;
 }
 
 export interface RiverVsBetResult {
-  /** hero strategy per combo: {fold, call, raise} frequencies (parallel to heroRange). */
-  heroStrategy: { fold: number; call: number; raise: number }[];
-  /** per-combo EV (chips) of fold / call / raise vs the solved villain response. */
-  heroEv: { fold: number; call: number; raise: number }[];
-  /** villain's call-the-raise frequency, range-averaged (diagnostic). */
-  villainCallRaiseFreq: number;
+  /** hero strategy per combo (parallel to heroRange). `raises` is per raise size; `raise`
+   *  is their sum, the frequency of raising AT ALL. */
+  heroStrategy: { fold: number; call: number; raise: number; raises: number[] }[];
+  /** per-combo EV (chips) vs the solved villain response. `raises` is per size; `raise` is
+   *  the best of them — the value of the raise LINE, which is what a scalar summary wants. */
+  heroEv: { fold: number; call: number; raise: number; raises: number[] }[];
+  /** villain's call-the-raise frequency per raise size, range-averaged (diagnostic). */
+  villainCallRaiseFreq: number[];
+  /** villain's re-raise frequency per raise size, range-averaged (diagnostic). */
+  villain3BetFreq: number[];
+  /** hero's fold-to-the-re-raise frequency per raise size, range-averaged (diagnostic). */
+  heroFoldTo3BetFreq: number[];
 }
 
 export function solveRiverVsBet(inp: RiverVsBetInput): RiverVsBetResult {
@@ -368,7 +421,10 @@ export function solveRiverVsBet(inp: RiverVsBetInput): RiverVsBetResult {
   const V = inp.villainRange;
   const Q = inp.potBeforeBet;
   const b = inp.bet;
-  const r = Math.max(inp.raiseTo, b + 1);
+  const R = inp.raiseSizes.map((x) => Math.max(x, b + 1));
+  const nR = R.length;
+  const X = R.map((rk, k) => Math.max(rk, inp.threeBetTo?.[k] ?? rk)); // villain's re-raise total
+  const has3Bet = R.map((rk, k) => X[k] > rk);
   const iters = inp.iterations ?? 1200;
   const nH = H.length;
   const nV = V.length;
@@ -388,94 +444,210 @@ export function solveRiverVsBet(inp: RiverVsBetInput): RiverVsBetResult {
     cmp.push(cr);
   }
 
-  // hero payoffs (net chips), dead pot Q, sign +1 = hero wins.
-  const heroCall = (s: number) => (s > 0 ? Q + b : s < 0 ? -b : Q / 2);
-  const heroRaiseCalled = (s: number) => (s > 0 ? Q + r : s < 0 ? -r : Q / 2);
+  // Payoff tables indexed by showdown sign + 1 (0 = villain wins, 1 = tie, 2 = hero wins),
+  // so the inner loops index instead of branching. Hero net chips, dead pot Q.
+  const heroAt = (x: number) => [-x, Q / 2, Q + x];
+  const villAt = (x: number) => [Q + x, Q / 2, -x];
+  const heroCallPay = heroAt(b);
+  const heroRaisePay = R.map(heroAt);
+  const hero3BetCallPay = X.map(heroAt);
+  const villCallPay = R.map(villAt);
+  const vill3BetCallPay = X.map(villAt);
   const HERO_RAISE_FOLD = Q + b; // villain folds to the raise
-  // villain payoffs when facing the raise (villain wins when hero sign < 0).
   const villFold = -b; // forfeits the bet
-  const villCall = (s: number) => (s < 0 ? Q + r : s > 0 ? -r : Q / 2);
 
-  // hero actions: 0 fold, 1 call, 2 raise
-  const regretH = Array.from({ length: nH }, () => [0, 0, 0]);
-  const stratSumH = Array.from({ length: nH }, () => [0, 0, 0]);
-  const regretV = Array.from({ length: nV }, () => [0, 0]); // fold, call
-  const stratSumV = Array.from({ length: nV }, () => [0, 0]);
+  // hero root actions: 0 fold, 1 call, 2 + k raise at size k
+  const nHeroActions = 2 + nR;
+  const regretH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
+  const stratSumH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
+  // villain facing raise k: fold, call, 3bet
+  const regretV = Array.from({ length: nR }, () => Array.from({ length: nV }, () => [0, 0, 0]));
+  const stratSumV = Array.from({ length: nR }, () => Array.from({ length: nV }, () => [0, 0, 0]));
+  // hero facing villain's re-raise of raise k: fold, call
+  const regretH3 = Array.from({ length: nR }, () => Array.from({ length: nH }, () => [0, 0]));
+  const stratSumH3 = Array.from({ length: nR }, () => Array.from({ length: nH }, () => [0, 0]));
+
+  // NODE LOCK: villain's response to the raise is fixed up front and never updated, so
+  // hero's regrets converge to a BEST RESPONSE to the read. Ordered by showdown strength —
+  // the river is exact, so his strongest hands are exactly the ones that continue.
+  const vWeights = V.map((c) => c.w);
+  const locked = inp.villainLock
+    ? R.map((rk, k) => {
+        const cont = lockedContinueVsRaise(inp.villainLock!.foldToBet, Q, b, rk);
+        if (!has3Bet[k]) return lockedThresholdPolicy(vWeights, vScore, cont).map(([f, c]) => [f, c, 0]);
+        return locked3BetPolicy(vWeights, vScore, cont);
+      })
+    : null;
 
   for (let t = 0; t < iters; t++) {
     const hS = regretH.map(strategyFromRegret);
-    const vS = regretV.map(strategyFromRegret);
+    const hS3 = regretH3.map((rows) => rows.map(strategyFromRegret));
+    const vS = locked ?? regretV.map((rows, k) => rows.map((reg) => normaliseVillain(reg, has3Bet[k])));
 
-    // villain regret (only hero's RAISE reaches here)
-    for (let j = 0; j < nV; j++) {
-      let vF = 0;
-      let vC = 0;
-      for (let i = 0; i < nH; i++) {
-        if (!valid[i][j]) continue;
-        const reach = H[i].w * hS[i][2];
-        if (reach === 0) continue;
-        vF += reach * villFold;
-        vC += reach * villCall(cmp[i][j]);
+    for (let k = 0; k < nR; k++) {
+      const rk = R[k];
+      // hero's response to the re-raise. Only villain's 3-betting hands reach it, so this
+      // node is what stops a bluff-raise from being free: hero must fold rk or call xk.
+      if (has3Bet[k]) {
+        const callPay = hero3BetCallPay[k];
+        for (let i = 0; i < nH; i++) {
+          let aFold = 0;
+          let aCall = 0;
+          for (let j = 0; j < nV; j++) {
+            if (!valid[i][j]) continue;
+            const reach = V[j].w * vS[k][j][2];
+            if (reach === 0) continue;
+            aFold += reach * -rk;
+            aCall += reach * callPay[cmp[i][j] + 1];
+          }
+          const st = hS3[k][i];
+          const node = st[0] * aFold + st[1] * aCall;
+          const cf = H[i].w;
+          regretH3[k][i][0] += cf * (aFold - node);
+          regretH3[k][i][1] += cf * (aCall - node);
+          stratSumH3[k][i][0] += cf * st[0];
+          stratSumH3[k][i][1] += cf * st[1];
+        }
       }
-      const st = vS[j];
-      const node = st[0] * vF + st[1] * vC;
-      const cf = V[j].w;
-      regretV[j][0] += cf * (vF - node);
-      regretV[j][1] += cf * (vC - node);
-      stratSumV[j][0] += cf * st[0];
-      stratSumV[j][1] += cf * st[1];
+
+      // villain regret vs raise k (only hero's raise reaches here) — skipped when locked.
+      if (!locked) {
+        const vCall = villCallPay[k];
+        const v3Call = vill3BetCallPay[k];
+        const VILL_3BET_FOLD = Q + rk; // hero folds to the re-raise → villain takes pot + raise
+        for (let j = 0; j < nV; j++) {
+          let vF = 0;
+          let vC = 0;
+          let v3 = 0;
+          for (let i = 0; i < nH; i++) {
+            if (!valid[i][j]) continue;
+            const reach = H[i].w * hS[i][2 + k];
+            if (reach === 0) continue;
+            const sgn = cmp[i][j] + 1;
+            vF += reach * villFold;
+            vC += reach * vCall[sgn];
+            if (has3Bet[k]) v3 += reach * (hS3[k][i][0] * VILL_3BET_FOLD + hS3[k][i][1] * v3Call[sgn]);
+          }
+          const st = vS[k][j];
+          const node = st[0] * vF + st[1] * vC + st[2] * v3;
+          const cf = V[j].w;
+          regretV[k][j][0] += cf * (vF - node);
+          regretV[k][j][1] += cf * (vC - node);
+          if (has3Bet[k]) regretV[k][j][2] += cf * (v3 - node);
+          stratSumV[k][j][0] += cf * st[0];
+          stratSumV[k][j][1] += cf * st[1];
+          stratSumV[k][j][2] += cf * st[2];
+        }
+      }
     }
 
-    // hero regret
+    // hero root regret
     for (let i = 0; i < nH; i++) {
-      const aFold = 0;
-      let aCall = 0;
-      let aRaise = 0;
+      const av = new Array(nHeroActions).fill(0);
       for (let j = 0; j < nV; j++) {
         if (!valid[i][j]) continue;
         const w = V[j].w;
-        aCall += w * heroCall(cmp[i][j]);
-        aRaise += w * (vS[j][0] * HERO_RAISE_FOLD + vS[j][1] * heroRaiseCalled(cmp[i][j]));
+        const sgn = cmp[i][j] + 1;
+        av[1] += w * heroCallPay[sgn];
+        for (let k = 0; k < nR; k++) {
+          const vs = vS[k][j];
+          const afterRaise = vs[0] * HERO_RAISE_FOLD + vs[1] * heroRaisePay[k][sgn];
+          const after3Bet = has3Bet[k]
+            ? vs[2] * (hS3[k][i][0] * -R[k] + hS3[k][i][1] * hero3BetCallPay[k][sgn])
+            : 0;
+          av[2 + k] += w * (afterRaise + after3Bet);
+        }
       }
-      // aFold stays 0
       const st = hS[i];
-      const node = st[0] * aFold + st[1] * aCall + st[2] * aRaise;
+      let node = 0;
+      for (let a = 0; a < nHeroActions; a++) node += st[a] * av[a];
       const cf = H[i].w;
-      regretH[i][0] += cf * (aFold - node);
-      regretH[i][1] += cf * (aCall - node);
-      regretH[i][2] += cf * (aRaise - node);
-      stratSumH[i][0] += cf * st[0];
-      stratSumH[i][1] += cf * st[1];
-      stratSumH[i][2] += cf * st[2];
+      for (let a = 0; a < nHeroActions; a++) {
+        regretH[i][a] += cf * (av[a] - node);
+        stratSumH[i][a] += cf * st[a];
+      }
     }
   }
 
   const heroStrategy = stratSumH.map((row) => {
-    const s = row[0] + row[1] + row[2] || 1;
-    return { fold: row[0] / s, call: row[1] / s, raise: row[2] / s };
+    const s = row.reduce((a, v) => a + v, 0) || 1;
+    const raises = row.slice(2).map((v) => v / s);
+    return { fold: row[0] / s, call: row[1] / s, raise: raises.reduce((a, v) => a + v, 0), raises };
   });
-  const vFinal = stratSumV.map((row) => {
-    const s = row[0] + row[1] || 1;
-    return [row[0] / s, row[1] / s];
-  });
+  // When locked, stratSumV was never accumulated — read the pinned policy, or hero would be
+  // scored against an all-zero sum (a coin-flip villain that is neither the equilibrium nor
+  // the read). Mirrors solveRiver.
+  const vFinal =
+    locked ??
+    stratSumV.map((rows, k) => rows.map((row) => normaliseVillain(row, has3Bet[k], true)));
+  const hFinal3 = stratSumH3.map((rows) =>
+    rows.map((row) => {
+      const s = row[0] + row[1];
+      return s > 0 ? [row[0] / s, row[1] / s] : [0.5, 0.5];
+    }),
+  );
+
   const heroEv = H.map((_, i) => {
     let vw = 0;
     let call = 0;
-    let raise = 0;
+    const raises = new Array(nR).fill(0);
     for (let j = 0; j < nV; j++) {
       if (!valid[i][j]) continue;
-      vw += V[j].w;
-      call += V[j].w * heroCall(cmp[i][j]);
-      raise += V[j].w * (vFinal[j][0] * HERO_RAISE_FOLD + vFinal[j][1] * heroRaiseCalled(cmp[i][j]));
+      const w = V[j].w;
+      const sgn = cmp[i][j] + 1;
+      vw += w;
+      call += w * heroCallPay[sgn];
+      for (let k = 0; k < nR; k++) {
+        const vs = vFinal[k][j];
+        const after3Bet = has3Bet[k]
+          ? vs[2] * (hFinal3[k][i][0] * -R[k] + hFinal3[k][i][1] * hero3BetCallPay[k][sgn])
+          : 0;
+        raises[k] += w * (vs[0] * HERO_RAISE_FOLD + vs[1] * heroRaisePay[k][sgn] + after3Bet);
+      }
     }
     const inv = vw > 0 ? 1 / vw : 0;
-    return { fold: 0, call: call * inv, raise: raise * inv };
+    const scaled = raises.map((x) => x * inv);
+    return { fold: 0, call: call * inv, raise: Math.max(...scaled), raises: scaled };
   });
-  let cwSum = 0;
-  let ccSum = 0;
-  for (let j = 0; j < nV; j++) {
-    cwSum += V[j].w;
-    ccSum += vFinal[j][1] * V[j].w;
-  }
-  return { heroStrategy, heroEv, villainCallRaiseFreq: cwSum > 0 ? ccSum / cwSum : 0 };
+
+  const avgOver = (pick: (j: number, k: number) => number) =>
+    R.map((_, k) => {
+      let w = 0;
+      let acc = 0;
+      for (let j = 0; j < nV; j++) {
+        w += V[j].w;
+        acc += pick(j, k) * V[j].w;
+      }
+      return w > 0 ? acc / w : 0;
+    });
+  const heroFoldTo3BetFreq = R.map((_, k) => {
+    let w = 0;
+    let acc = 0;
+    for (let i = 0; i < nH; i++) {
+      w += H[i].w;
+      acc += hFinal3[k][i][0] * H[i].w;
+    }
+    return w > 0 ? acc / w : 0;
+  });
+
+  return {
+    heroStrategy,
+    heroEv,
+    villainCallRaiseFreq: avgOver((j, k) => vFinal[k][j][1]),
+    villain3BetFreq: avgOver((j, k) => vFinal[k][j][2]),
+    heroFoldTo3BetFreq,
+  };
+}
+
+/** Regret-match villain's 3-action infoset, forcing the re-raise to zero where the tree has
+ *  no re-raise (hero already jammed). `fromSums` normalises accumulated strategy sums, which
+ *  can be all-zero for a size hero never raised — a uniform mix there would invent a villain. */
+function normaliseVillain(row: number[], has3Bet: boolean, fromSums = false): number[] {
+  const src = fromSums ? row : row.map((v) => (v > 0 ? v : 0));
+  const f = src[0];
+  const c = src[1];
+  const t = has3Bet ? src[2] : 0;
+  const s = f + c + t;
+  if (s > 0) return [f / s, c / s, t / s];
+  return has3Bet ? [1 / 3, 1 / 3, 1 / 3] : [0.5, 0.5, 0];
 }

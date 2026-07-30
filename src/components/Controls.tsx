@@ -67,6 +67,7 @@ export function Controls({ legal, pot, currentBet, heroCommitted, bigBlind, onAc
             <button onClick={() => setRaiseTo(sizeToFrac(0.5))}>50%</button>
             <button onClick={() => setRaiseTo(sizeToFrac(0.75))}>75%</button>
             <button onClick={() => setRaiseTo(sizeToFrac(1))}>Pot</button>
+            <button onClick={() => setRaiseTo(sizeToFrac(1.5))}>150%</button>
             <button onClick={() => setRaiseTo(legal.maxRaiseTo)}>All-in</button>
           </div>
           <input

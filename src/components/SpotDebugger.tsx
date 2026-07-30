@@ -42,7 +42,7 @@ const POT_PRESETS: { id: string; label: string; pot: number; behind: number }[] 
   { id: '4bet', label: '4-bet pot', pot: 90, behind: 110 },
 ];
 
-const ACTION_ORDER: ActionId[] = ['fold', 'check', 'call', 'bet33', 'bet50', 'bet75', 'betpot', 'allin', 'raise', 'open'];
+const ACTION_ORDER: ActionId[] = ['fold', 'check', 'call', 'bet33', 'bet50', 'bet75', 'betpot', 'bet150', 'allin', 'raise', 'raisebig', 'open'];
 const orderRank = (id: ActionId) => {
   const i = ACTION_ORDER.indexOf(id);
   return i < 0 ? 99 : i;

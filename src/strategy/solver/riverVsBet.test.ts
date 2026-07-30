@@ -16,7 +16,7 @@ describe('river solver — facing a bet (fold / call / raise)', () => {
     { cards: C('5c 6c'), w: 1 }, // air — bluff
   ];
   const solve = (hero: Combo[]) =>
-    solveRiverVsBet({ heroRange: hero, villainRange: villain, board: b, potBeforeBet: 30, bet: 20, raiseTo: 70, iterations: 3000 });
+    solveRiverVsBet({ heroRange: hero, villainRange: villain, board: b, potBeforeBet: 30, bet: 20, raiseSizes: [70], iterations: 3000 });
 
   it('the nuts never fold and take a raising line for value', () => {
     const r = solve([{ cards: C('As Ac'), w: 1 }]).heroStrategy[0];

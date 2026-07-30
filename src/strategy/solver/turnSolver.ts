@@ -18,6 +18,11 @@ export interface TurnInput {
   pot: number;
   effStack: number;
   betSizes: number[]; // fractions of pot
+  /** Sizes for the nested river subgames on the check line; defaults to `betSizes`. Kept
+   *  separate so the turn root can offer a polar overbet while the check line — where
+   *  hero's range is capped, the one range an overbet can't represent — does not pay for
+   *  a 5th size in the solve's dominant cost. */
+  checkLineBetSizes?: number[];
   iterations?: number;
   /** Nest a real river subgame on the CHECK line instead of scoring a check as an
    *  instant turn showdown. Default true. When false, check = static showdown (the
@@ -217,7 +222,16 @@ export function solveTurn(inp: TurnInput): TurnResult {
   const checkAvg = new Array(nH);
   const nested =
     inp.nestRiverForCheck !== false
-      ? checkLineRiverEv(H, V, inp.board, P, inp.effStack, inp.betSizes, inp.riverNestIterations ?? 200, inp.villainLock)
+      ? checkLineRiverEv(
+          H,
+          V,
+          inp.board,
+          P,
+          inp.effStack,
+          inp.checkLineBetSizes ?? inp.betSizes,
+          inp.riverNestIterations ?? 200,
+          inp.villainLock,
+        )
       : null;
   for (let i = 0; i < nH; i++) {
     const v = nested ? nested[i] : NaN;
@@ -348,8 +362,12 @@ export interface TurnVsBetInput {
   board: Card[]; // exactly 4 (turn)
   potBeforeBet: number; // Q
   bet: number; // b
-  raiseTo: number; // r (total chips)
+  raiseSizes: number[]; // hero's raise-TO totals in chips
+  threeBetTo?: number[]; // villain's re-raise total per raise size
   iterations?: number;
+  /** NODE LOCK: villain's ¾-pot-referenced fold-to-bet read pins his response to hero's
+   *  raise (see vsBet.ts). Omit for the equilibrium baseline. */
+  villainFoldToBet?: number;
 }
 
 export function solveTurnVsBet(inp: TurnVsBetInput): VsBetResult {
@@ -380,7 +398,9 @@ export function solveTurnVsBet(inp: TurnVsBetInput): VsBetResult {
     villW: V.map((c) => c.w),
     potBeforeBet: inp.potBeforeBet,
     bet: inp.bet,
-    raiseTo: inp.raiseTo,
+    raiseSizes: inp.raiseSizes,
+    threeBetTo: inp.threeBetTo,
     iterations: inp.iterations,
+    villainFoldToBet: inp.villainFoldToBet,
   });
 }

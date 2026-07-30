@@ -18,7 +18,9 @@ import { BALANCED, balancedModel, foldToBetFromCallStation, isExploitable } from
 import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
+import { depthValueMult, depthNote, shadeForDepth } from './depth';
 import { solveRiverNode, solveRiverVsBetNode, solveTurnVsBetNode, solveFlopVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode } from './solver/riverAdapter';
+import type { RiverVsBetNodeParams } from './solver/riverAdapter';
 
 // Tier-2 (Stage 0): route hero-first heads-up RIVER nodes through the range-vs-range
 // CFR solver instead of the per-hand EV model. Flip to false to A/B against the old
@@ -29,11 +31,15 @@ export const RIVER_SOLVER_ENABLED = true;
 // from the river/turn flag because the flop carries a disclosed texture abstraction and
 // is the heaviest solve — flip to false to A/B the whole street against the per-hand model.
 export const FLOP_SOLVER_ENABLED = true;
-// Tier-2 Stage 4: route hero-first 3-WAY (exactly two live opponents) turn/river nodes
-// through the multiway solver — hero + one villain solved by CFR, the third player on a
-// fixed MDF policy. Full multiway CFR is out of scope; 4+-way and villain-first multiway
-// stay on the per-hand model. Flip to false to A/B the whole street against it.
+// Tier-2 Stage 4: route hero-first MULTIWAY turn/river nodes through the multiway solver —
+// hero + one villain solved by CFR, the rest of the field on a fixed MDF policy. Full
+// multiway CFR is out of scope; villain-first multiway stays on the per-hand model. Flip to
+// false to A/B the whole street against it.
 export const MULTIWAY_SOLVER_ENABLED = true;
+// Live opponents the multiway solver will take (2 = 3-way … 4 = 5-way). Past this the field
+// precompute and the 2^field caller-set enumeration cost more than the accuracy is worth, so
+// 6-way+ (a limped family pot) stays on the per-hand model.
+export const MAX_MULTIWAY_OPPONENTS = 4;
 import { solvePostflop } from './postflopModel';
 
 export type { NodeStrategy } from './types';
@@ -275,7 +281,12 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     (p) => !p.folded && p.id !== heroIdx && (p.committed >= state.currentBet || p.stack === 0),
   ).length;
   const multiway = level >= 1 && liveOpps >= 2;
-  const charted = multiway ? squashBluffsMultiway(cellStrategy(sc, code)) : cellStrategy(sc, code);
+  const base = multiway ? squashBluffsMultiway(cellStrategy(sc, code)) : cellStrategy(sc, code);
+  // The charts are authored at ~100bb; shade them for the stack actually behind (depth.ts).
+  // `ai/decide.ts` shades its own preflop strength with the SAME multiplier, so the graded
+  // answer keeps matching how the table plays.
+  const depthMult = depthValueMult(code, effStackBB);
+  const charted = shadeForDepth(base, depthMult);
   const la = legalActions(state);
   const bb = state.bigBlind;
 
@@ -339,7 +350,7 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     bestEv: best.ev,
     bestId: best.id,
     source: 'preflop-chart',
-    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
+    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''}${depthNote(code, effStackBB) ? ` ${depthNote(code, effStackBB)}` : ''} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
     rangeNote: `${seatLabel}${multiway ? ' · multiway' : ''}`,
     heroCode: code,
     scenarioId: sc.id,
@@ -669,21 +680,18 @@ function postflopStrategy(
     (primaryModel.source === 'observed' || primaryModel.source === 'locked') &&
     isExploitable(primaryModel);
 
-  // The FIXED second opponent in a 3-way pot (the live, non-hero, non-primary seat). A
-  // read on THIS seat re-anchors its MDF policy inside the multiway solver — the solved
-  // primary's read still routes through the per-hand fallback (primaryHasRead). Only an
-  // observed/locked, off-balanced read applies; a bare profile prior stays parameter-free
-  // MDF, mirroring how the HU river/turn lock ignores a prior.
-  const thirdVIdx = state.players.findIndex(
-    (p, i) => i !== heroIdx && i !== primaryVIdx && !p.folded && !p.isHero,
-  );
-  const thirdModel = modelFor(state, thirdVIdx, models);
-  const thirdFoldToBet =
-    thirdVIdx >= 0 &&
-    (thirdModel.source === 'observed' || thirdModel.source === 'locked') &&
-    isExploitable(thirdModel)
-      ? thirdModel.foldToBet
-      : undefined;
+  // The FIXED opponents in a multiway pot: every live, non-hero seat except the solved
+  // primary. A read on one of THESE re-anchors that player's MDF policy inside the multiway
+  // solver — the solved primary's read still routes through the per-hand fallback
+  // (primaryHasRead). Only an observed/locked, off-balanced read applies; a bare profile
+  // prior stays parameter-free MDF, mirroring how the HU river/turn lock ignores a prior.
+  const fieldIdx = state.players
+    .map((_, i) => i)
+    .filter((i) => i !== heroIdx && i !== primaryVIdx && !state.players[i].folded && !state.players[i].isHero);
+  const fieldFoldToBet = fieldIdx.map((i) => {
+    const m = modelFor(state, i, models);
+    return (m.source === 'observed' || m.source === 'locked') && isExploitable(m) ? m.foldToBet : undefined;
+  });
 
   // Tier-2 Stage 0: a hero-FIRST heads-up river node (hero can check or bet, not
   // facing a bet) goes through the range-vs-range CFR solver. Everything else —
@@ -728,9 +736,11 @@ function postflopStrategy(
     }
   }
 
-  // Tier-2 Stage 4: a hero-FIRST 3-WAY river node → hero + primary villain solved by CFR,
-  // the second opponent on a fixed MDF policy. Both opponents draw from the same population
-  // range (as the per-hand model's multiway does). No read → CFR; a read falls to per-hand.
+  // Tier-2 Stage 4: a hero-FIRST MULTIWAY river node → hero + primary villain solved by CFR,
+  // the rest of the field on a fixed MDF policy. Every opponent draws from the same
+  // population range (as the per-hand model's multiway does). No read → CFR; a read on the
+  // SOLVED villain falls to per-hand. 3-way through 5-way; beyond that the field precompute
+  // and the caller-set enumeration stop paying for themselves.
   if (
     MULTIWAY_SOLVER_ENABLED &&
     !primaryHasRead &&
@@ -738,7 +748,8 @@ function postflopStrategy(
     la.callAmount === 0 &&
     la.canCheck &&
     la.canRaise &&
-    liveOpps === 2
+    liveOpps >= 2 &&
+    liveOpps <= MAX_MULTIWAY_OPPONENTS
   ) {
     const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
     const solved = solveRiver3wayNode({
@@ -748,11 +759,11 @@ function postflopStrategy(
       effStack,
       heroRange,
       villainRange: range,
-      thirdRange: range,
+      fieldRanges: fieldIdx.map(() => range),
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
       rangeNote: note,
-      thirdFoldToBet,
+      fieldFoldToBet,
     });
     if (solved) return solved;
   }
@@ -802,7 +813,8 @@ function postflopStrategy(
     la.callAmount === 0 &&
     la.canCheck &&
     la.canRaise &&
-    liveOpps === 2
+    liveOpps >= 2 &&
+    liveOpps <= MAX_MULTIWAY_OPPONENTS
   ) {
     const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
     const solved = solveTurn3wayNode({
@@ -812,11 +824,11 @@ function postflopStrategy(
       effStack,
       heroRange,
       villainRange: range,
-      thirdRange: range,
+      fieldRanges: fieldIdx.map(() => range),
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
       rangeNote: note,
-      thirdFoldToBet,
+      fieldFoldToBet,
     });
     if (solved) return solved;
   }
@@ -850,11 +862,21 @@ function postflopStrategy(
     if (solved) return solved;
   }
 
-  // Tier-2: a hero-FACING-A-BET heads-up river node (villain led, hero's first
-  // decision this street) → fold / call / raise range-vs-range solve.
+  // Tier-2: hero-FACING-A-BET heads-up river / turn / flop nodes (villain led, hero's first
+  // decision this street) → fold / call / raise range-vs-range solve, the call/raise
+  // terminals scored on an exact showdown (river) or hero's equity over the remaining
+  // runouts (turn/flop).
+  //
+  // NODE LOCK. Villain has already bet, so the only decision he has left is fold-or-call
+  // vs hero's RAISE — and that is exactly what a fold read governs. Two separate channels
+  // carry the read here and they price different actions: his BETTING range composition
+  // (`comboWeight`/bluffMult, how much of it is air) prices hero's CALL, and the lock
+  // prices hero's RAISE. Without the lock, CFR solves his response and the node is
+  // unexploitable by construction, so "he gives up when raised" would change nothing —
+  // the same reason the hero-first river/turn gates pin him.
   if (
     RIVER_SOLVER_ENABLED &&
-    state.street === 'river' &&
+    (state.street === 'river' || state.street === 'turn' || state.street === 'flop') &&
     la.callAmount > 0 &&
     la.canRaise &&
     liveOpps === 1 &&
@@ -862,55 +884,31 @@ function postflopStrategy(
   ) {
     const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
     const b = la.callAmount;
-    const raiseTo = Math.min(la.maxRaiseTo, Math.round(pot + b)); // ~pot-sized raise
-    if (raiseTo > b) {
-      const solved = solveRiverVsBetNode({
+    if (la.maxRaiseTo > b) {
+      const args: RiverVsBetNodeParams = {
         heroCards: hero.holeCards,
         board: state.board,
         potBeforeBet: pot - b,
         bet: b,
-        raiseTo,
-        heroRange,
-        villainRange: range,
-        villainComboWeight: comboWeight,
-        bigBlind: state.bigBlind,
-        rangeNote: note,
-      });
-      if (solved) return solved;
-    }
-  }
-
-  // Tier-2: hero-FACING-A-BET heads-up TURN / FLOP nodes → fold / call / raise
-  // range-vs-range solve, the call/raise terminals scored on hero's equity over the
-  // remaining runouts. Same gate shape as the river vs-bet node, one/two streets earlier;
-  // this is the coverage that used to fall to the per-hand model. No lock/delta yet (facing
-  // a bet, a villain fold-read is not the governing question — hero's fold/call/raise is).
-  if (
-    RIVER_SOLVER_ENABLED &&
-    (state.street === 'turn' || state.street === 'flop') &&
-    la.callAmount > 0 &&
-    la.canRaise &&
-    liveOpps === 1 &&
-    hero.committed === 0
-  ) {
-    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
-    const b = la.callAmount;
-    const raiseTo = Math.min(la.maxRaiseTo, Math.round(pot + b)); // ~pot-sized raise
-    if (raiseTo > b) {
-      const args = {
-        heroCards: hero.holeCards,
-        board: state.board,
-        potBeforeBet: pot - b,
-        bet: b,
-        raiseTo,
+        minRaiseTo: la.minRaiseTo,
+        maxRaiseTo: la.maxRaiseTo,
         heroRange,
         villainRange: range,
         villainComboWeight: comboWeight,
         bigBlind: state.bigBlind,
         rangeNote: note,
       };
-      const solved = state.street === 'turn' ? solveTurnVsBetNode(args) : solveFlopVsBetNode(args);
-      if (solved) return solved;
+      const solveVsBet = (a: RiverVsBetNodeParams) =>
+        state.street === 'river' ? solveRiverVsBetNode(a) : state.street === 'turn' ? solveTurnVsBetNode(a) : solveFlopVsBetNode(a);
+      const solved = solveVsBet(
+        primaryHasRead ? { ...args, villainFoldToBet: primaryModel.foldToBet } : args,
+      );
+      if (solved) {
+        if (!primaryHasRead) return solved;
+        // Both solves share the node, the ranges and seedless-CFR determinism, so the only
+        // difference is whether villain's response to the raise is solved or pinned.
+        return exploitAnnotated(solved, solveVsBet(args), primaryModel);
+      }
     }
   }
 

@@ -26,7 +26,7 @@ describe('3-way river solver — hero + villain CFR, third player on a fixed MDF
     w1('Ac Qh'), w1('Jc Tc'), w1('7s 7h'), w1('Kd Qd'), w1('5s 4s'),
   ];
   const args = { board: b, pot: 30, effStack: 300, betSizes: [0.5, 0.75, 1.0], iterations: 1500 };
-  const r = solveRiver3way({ heroRange: hero, villainRange: villain, thirdRange: third, ...args });
+  const r = solveRiver3way({ heroRange: hero, villainRange: villain, fieldRanges: [third], ...args });
 
   it('produces a valid probability mix and finite EVs for every hero combo', () => {
     for (let i = 0; i < hero.length; i++) {
@@ -77,7 +77,7 @@ describe('3-way turn solver — river runouts enumerated, third player on a fixe
   const villain: Combo[] = [w1('Ad Ac'), w1('Kd Qd'), w1('9h 9s'), w1('Jc Th'), w1('Ac 4c')];
   const third: Combo[] = [w1('As Qs'), w1('Td 9d'), w1('7s 7d'), w1('Ks Js'), w1('5h 4h')];
   const r = solveTurn3way({
-    heroRange: hero, villainRange: villain, thirdRange: third, board: b,
+    heroRange: hero, villainRange: villain, fieldRanges: [third], board: b,
     pot: 40, effStack: 300, betSizes: [0.5, 0.75, 1.0], iterations: 700, riverNestIterations: 100,
   });
   const betFreq2 = (row: { action: string; freq: number }[]) =>
@@ -112,7 +112,7 @@ describe('3-way solvers — a read re-anchors the fixed third player', () => {
   const bluffIdx = 1;
 
   const withRead = (thirdFoldToBet?: number) =>
-    solveRiver3way({ heroRange: hero, villainRange: villain, thirdRange: third, ...args, thirdFoldToBet });
+    solveRiver3way({ heroRange: hero, villainRange: villain, fieldRanges: [third], ...args, fieldFoldToBet: [thirdFoldToBet] });
 
   it('hero bluffs more when the fixed field over-folds than when it is sticky', () => {
     // The bluff must get through BOTH opponents; an over-folding third clears the field
@@ -129,7 +129,7 @@ describe('3-way solvers — a read re-anchors the fixed third player', () => {
   });
 
   it('no read reproduces the parameter-free MDF default exactly', () => {
-    const a = solveRiver3way({ heroRange: hero, villainRange: villain, thirdRange: third, ...args });
+    const a = solveRiver3way({ heroRange: hero, villainRange: villain, fieldRanges: [third], ...args });
     const b2 = withRead(undefined);
     expect(a.heroStrategy[bluffIdx]).toEqual(b2.heroStrategy[bluffIdx]);
   });

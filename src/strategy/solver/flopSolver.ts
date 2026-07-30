@@ -317,8 +317,12 @@ export interface FlopVsBetInput {
   board: Card[]; // exactly 3 (flop)
   potBeforeBet: number; // Q
   bet: number; // b
-  raiseTo: number; // r (total chips)
+  raiseSizes: number[]; // hero's raise-TO totals in chips
+  threeBetTo?: number[]; // villain's re-raise total per raise size
   iterations?: number;
+  /** NODE LOCK: villain's ¾-pot-referenced fold-to-bet read pins his response to hero's
+   *  raise (see vsBet.ts). Omit for the equilibrium baseline. */
+  villainFoldToBet?: number;
 }
 
 export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
@@ -349,7 +353,9 @@ export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
     villW: V.map((c) => c.w),
     potBeforeBet: inp.potBeforeBet,
     bet: inp.bet,
-    raiseTo: inp.raiseTo,
+    raiseSizes: inp.raiseSizes,
+    threeBetTo: inp.threeBetTo,
     iterations: inp.iterations,
+    villainFoldToBet: inp.villainFoldToBet,
   });
 }

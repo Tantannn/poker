@@ -17,7 +17,7 @@ const VILLAIN: Combo[] = [w1('Ac Ad'), w1('Kd Qs'), w1('Jc Td')];
 describe('turn solver — facing a bet (fold / call / raise), equity over river runouts', () => {
   const b = board('Kh 8d 3c 2s');
   const solve = (hero: Combo[]) =>
-    solveTurnVsBet({ heroRange: hero, villainRange: VILLAIN, board: b, potBeforeBet: 30, bet: 20, raiseTo: 70, iterations: 2500 });
+    solveTurnVsBet({ heroRange: hero, villainRange: VILLAIN, board: b, potBeforeBet: 30, bet: 20, raiseSizes: [70], iterations: 2500 });
 
   it('a set never folds and takes a value-raising line', () => {
     const r = solve([w1('8c 8h')]).heroStrategy[0]; // trip eights
@@ -50,7 +50,7 @@ describe('turn solver — facing a bet (fold / call / raise), equity over river 
 describe('flop solver — facing a bet (fold / call / raise), equity over turn+river runouts', () => {
   const b = board('Kh 8d 3c');
   const solve = (hero: Combo[]) =>
-    solveFlopVsBet({ heroRange: hero, villainRange: VILLAIN, board: b, potBeforeBet: 30, bet: 20, raiseTo: 70, iterations: 2500 });
+    solveFlopVsBet({ heroRange: hero, villainRange: VILLAIN, board: b, potBeforeBet: 30, bet: 20, raiseSizes: [70], iterations: 2500 });
 
   it('a set never folds and raises for value + protection', () => {
     const r = solve([w1('8c 8h')]).heroStrategy[0];

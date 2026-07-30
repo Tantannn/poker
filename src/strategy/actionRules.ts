@@ -41,6 +41,8 @@ export function actionRule(id: ActionId, board: Card[]): string {
         : 'Dry board, but a strong hand — bet big for value and build the pot. Size follows your HAND here, not the texture. 💡 Strong hand → big for value.';
     case 'betpot':
       return 'You hold the nut edge / a polar range — bet pot for max value and max fold equity. 💡 Nut edge → pot.';
+    case 'bet150':
+      return 'Overbet: your range is POLAR — nuts plus bluffs, nothing between — so villain cannot call wide and a size past pot prints. Needs ~37% bluffs to stay balanced. 💡 Polar range → overbet.';
     case 'check':
       return 'No value bet and no fold-equity case — check, control the pot, take a free card and realize equity. 💡 No edge → check.';
     case 'fold':
@@ -50,7 +52,9 @@ export function actionRule(id: ActionId, board: Card[]): string {
     case 'allin':
       return 'Low SPR or a clear nut edge — just get it in. 💡 Low SPR → commit.';
     case 'raise':
-      return "Strong enough to raise villain's bet for value/protection. 💡 Ahead of their bet → raise.";
+      return "Strong enough to raise villain's bet for value/protection — the smaller size keeps his weak continues in and risks less when he plays back. 💡 Ahead of their bet → raise.";
+    case 'raisebig':
+      return 'The big raise: charge his draws and his marginal calls, and set up a stack-off. Costs more when he re-raises, so it wants a hand that welcomes the war. 💡 Strong + wet → raise big.';
     default:
       return '';
   }

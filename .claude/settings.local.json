@@ -224,7 +224,9 @@
       "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 10; Write-Output \"---TSC---\"; npx eslint src/strategy/postflopExploit.audit.test.ts 2>&1 | Select-Object -Last 10; Write-Output \"---LINT---\"; npx vitest run 2>&1 | Select-Object -Last 8)",
       "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 8; Write-Output \"---TSC---\"; npx vitest run 2>&1 | Select-Object -Last 8)",
       "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts src/strategy/solver/multiwaySolver.test.ts src/strategy/solver/flopWiring.test.ts src/strategy/solver/multiwayWiring.test.ts 2>&1 | Select-Object -Last 40)",
-      "PowerShell(npx vitest run src/strategy/solver src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 20)"
+      "PowerShell(npx vitest run src/strategy/solver src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 20)",
+      "Bash(perl -pi -e 's/'\\\\''bet75'\\\\'', '\\\\''betpot'\\\\'', '\\\\''allin'\\\\''/'\\\\''bet75'\\\\'', '\\\\''betpot'\\\\'', '\\\\''bet150'\\\\'', '\\\\''allin'\\\\''/' '$f')",
+      "Bash(python -)"
     ]
   }
 }

@@ -10,8 +10,10 @@ export type ActionId =
   | 'bet50'
   | 'bet75'
   | 'betpot'
+  | 'bet150'      // polar overbet (1½× pot) — only a range-vs-range solve prices it
   | 'allin'
   | 'raise'        // generic raise (preflop 3-bet/4-bet or postflop raise)
+  | 'raisebig'     // the larger of two postflop raise sizes facing a bet
   | 'open';        // preflop RFI open
 
 export interface ActionOption {

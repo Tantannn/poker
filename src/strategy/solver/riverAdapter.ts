@@ -8,18 +8,19 @@ import type { Card } from '../../engine/cards';
 import { sameCard, SUIT_SYMBOLS } from '../../engine/cards';
 import type { WeightedRange } from '../../engine/range';
 import { codeToCombos } from '../../engine/range';
-import type { NodeStrategy, ActionId, ActionOption } from '../types';
+import type { NodeStrategy, ActionOption } from '../types';
 import { solveRiver, solveRiverVsBet, type Combo } from './riverSolver';
 import { solveTurn, solveTurnVsBet } from './turnSolver';
 import { solveFlop, solveFlopVsBet } from './flopSolver';
 import { solveRiver3way, solveTurn3way } from './multiwaySolver';
 import type { VsBetResult } from './vsBet';
+import { betSizeGrid, raiseSizeGrid, type BetSizeGrid, type RaiseSizeGrid } from './betSizeGrid';
 import { requiredEquityForBet } from '../../engine/potOdds';
 
-// Live size set — chosen to map onto the existing ActionIds (no overbet id yet).
-const RIVER_SIZES = [0.33, 0.5, 0.75, 1.0];
-const SIZE_ID: ActionId[] = ['bet33', 'bet50', 'bet75', 'betpot'];
-const SIZE_LABEL = ['Bet 33%', 'Bet 50%', 'Bet 75%', 'Bet pot'];
+// Size grids are built per node (betSizeGrid) — the sizes on offer depend on the stack.
+// The polar overbet slot is offered on the hero-first TURN and RIVER only: it pays off a
+// polar range, which is a turn/river property, and the flop and 3-way solves each nest
+// another chance layer, so a 5th size costs more there than it teaches.
 const HERO_CAP = 48;
 const VILLAIN_CAP = 80;
 // Turn caps are smaller: the equity matrix costs O(hero × villain × ~44 rivers).
@@ -43,8 +44,6 @@ const MW_TURN_THIRD_CAP = 28;
 const round2 = (x: number) => Math.round(x * 100) / 100;
 const dead = (c: Card, cards: Card[]) => cards.some((x) => sameCard(x, c));
 
-const FRAC_LABEL = ['⅓ pot', '½ pot', '¾ pot', 'pot'];
-
 /** Plain-English reasons for a hero-FIRST river CFR node, built from the solved
  *  numbers (hero's showdown equity, recovered from the check EV = pot × equity; and
  *  villain's solved call frequency per size) PLUS the concrete blocker read from
@@ -56,6 +55,7 @@ const FRAC_LABEL = ['⅓ pot', '½ pot', '¾ pot', 'pot'];
  *  bet". The per-hand model (postflopModel.ts) writes its own `why`; this fills the
  *  gap for the CFR path, which otherwise returns bare bars with nothing to tap. */
 function riverReasons(
+  grid: BetSizeGrid,
   checkEvChips: number,
   villainCallFreq: number[],
   pot: number,
@@ -91,17 +91,21 @@ function riverReasons(
         : `Shows down your ~${eqPct}% — near the bottom of your range. The check just banks that small equity; the solver prefers betting only because fold equity here is high.`
       : `Realises your ~${eqPct}% at showdown for free — a bluff-catcher plays check/call, not bet (betting folds out the worse hands you beat and is called only by better).`;
 
-  RIVER_SIZES.forEach((frac, s) => {
-    const id = SIZE_ID[s];
+  grid.fracs.forEach((frac, s) => {
+    const id = grid.ids[s];
     const be = Math.round((frac / (1 + frac)) * 100); // breakeven fold% for a bluff this size
     const betBB = (frac * pot) / bb;
     const bluffFrac = requiredEquityForBet(frac);
     const ratio = (1 - bluffFrac) / Math.max(0.001, bluffFrac);
     sizeNote[id] = `⚖ ~${Math.round(bluffFrac * 100)}% bluffs · ${ratio.toFixed(1)}:1 value:bluff`;
     why[id] = value
-      ? `Value bet (${FRAC_LABEL[s]}): you're ~${eqPct}% ahead and villain still calls ~${callOf(s)}%, paying you off. A bigger size earns more from a polar range but folds out the thinnest calls — size to the worst hand that still calls.`
+      ? `Value bet (${grid.fracLabels[s]}): you're ~${eqPct}% ahead and villain still calls ~${callOf(s)}%, paying you off.${
+          frac > 1
+            ? ` An overbet only works because your range here is POLAR — the nuts plus bluffs, nothing between; villain can't call wide against it, so the size prints with your best hands.`
+            : ` A bigger size earns more from a polar range but folds out the thinnest calls — size to the worst hand that still calls.`
+        }`
       : bluff
-        ? `Bluff (${FRAC_LABEL[s]}): risk ${betBB.toFixed(1)}bb to win ${potBB.toFixed(1)}bb, so villain must fold >${be}% for it to profit; here he folds ~${foldOf(s)}%.${
+        ? `Bluff (${grid.fracLabels[s]}): risk ${betBB.toFixed(1)}bb to win ${potBB.toFixed(1)}bb, so villain must fold >${be}% for it to profit; here he folds ~${foldOf(s)}%.${
             flushSuit >= 0 && !holdsFlushCard
               ? ` But you hold no ${flushSym}, so you block none of his flushes — a weaker bluff than a hand that does.`
               : ''
@@ -114,8 +118,13 @@ function riverReasons(
     : bluff
       ? `Your ~${eqPct}% is near the bottom — a bluff-or-give-up hand. It keeps a little showdown value (beats his busted hands), so a check is a real option, not just a bet.`
       : `Your ~${eqPct}% is a bluff-catcher — beats his bluffs, loses to his value, so check and call only at the right price.`;
-  const potBluff = Math.round(requiredEquityForBet(1.0) * 100);
-  const potRatio = ((1 - requiredEquityForBet(1.0)) / Math.max(0.001, requiredEquityForBet(1.0))).toFixed(1);
+  // Balance is quoted at the BIGGEST size on offer — the one that needs the most bluffs,
+  // and the number the player has to hold to if he takes the polar line.
+  const top = Math.max(0, grid.fracs.length - 1);
+  const topFrac = grid.fracs[top] ?? 1;
+  const topBluffFrac = requiredEquityForBet(topFrac);
+  const potBluff = Math.round(topBluffFrac * 100);
+  const potRatio = ((1 - topBluffFrac) / Math.max(0.001, topBluffFrac)).toFixed(1);
 
   // Blocker teaching line — only meaningful on a flush board for a bluff-tier hand.
   const blockerNote =
@@ -131,8 +140,10 @@ function riverReasons(
     blockerNote,
     bluff && bestIsCheck
       ? `Here a check is best: a hand with some showdown value and weak blockers gives up more by bluffing than it gains — and bluffing is never forced.`
-      : `Bigger sizes fold out more: villain folds ~${foldOf(3)}% vs a pot bet vs ~${foldOf(0)}% vs ⅓. A pot bet needs him to fold >50% to profit — the solver leans on the big size because a polar range makes the nuts credible.`,
-    `Balance: at pot the mix wants ~${potBluff}% bluffs (≈ ${potRatio}:1 value:bluff) so villain can't profitably fold everything or call everything.`,
+      : `Bigger sizes fold out more: villain folds ~${foldOf(top)}% vs ${grid.fracLabels[top]} vs ~${foldOf(0)}% vs ${grid.fracLabels[0]}. ${
+          grid.fracLabels[top]
+        } needs him to fold >${Math.round((topFrac / (1 + topFrac)) * 100)}% to profit — the solver leans on the big size because a polar range makes the nuts credible.`,
+    `Balance: at ${grid.fracLabels[top]} the mix wants ~${potBluff}% bluffs (≈ ${potRatio}:1 value:bluff) so villain can't profitably fold everything or call everything.`,
   ].filter(Boolean);
   return { notes, why, sizeNote };
 }
@@ -212,19 +223,21 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
   if (villainCombos.length === 0 || heroCombos.length === 0) return null;
 
   const locked = p.villainFoldToBet != null;
+  const grid = betSizeGrid(p.pot, p.effStack, true);
   const result = solveRiver({
     heroRange: heroCombos,
     villainRange: villainCombos,
     board: p.board,
     pot: p.pot,
     effStack: p.effStack,
-    betSizes: RIVER_SIZES,
+    betSizes: grid.fracs,
     iterations: 700,
     villainLock: locked ? { foldToBet: p.villainFoldToBet as number } : undefined,
   });
 
   return heroFirstNodeStrategy(
     result,
+    grid,
     heroCombos,
     heroActual,
     p.board,
@@ -251,6 +264,7 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
  *  we'd crown a lower-EV line "best" and mis-grade the deviation. */
 function heroFirstNodeStrategy(
   res: { heroStrategy: { action: string; freq: number }[][]; heroActionEv: number[][]; villainCallFreq?: number[] },
+  grid: BetSizeGrid,
   heroCombos: Combo[],
   heroActual: [Card, Card],
   board: Card[],
@@ -270,10 +284,12 @@ function heroFirstNodeStrategy(
   const options: ActionOption[] = [
     { id: 'check', label: 'Check', freq: freqOf('check'), ev: round2(evRow[0] / bigBlind), kind: 'passive' },
   ];
-  RIVER_SIZES.forEach((f, s) => {
+  // `bet:${s}` indices are the grid's own order: betSizeGrid guarantees every size is a
+  // distinct positive amount inside the stack, so no solver filtering shifts them.
+  grid.fracs.forEach((f, s) => {
     options.push({
-      id: SIZE_ID[s],
-      label: SIZE_LABEL[s],
+      id: grid.ids[s],
+      label: grid.labels[s],
       freq: freqOf(`bet:${s}`),
       ev: round2(evRow[1 + s] / bigBlind),
       amount: Math.round(f * pot),
@@ -292,7 +308,7 @@ function heroFirstNodeStrategy(
   // (river=false): turn reasons would need protection/runout wording this doesn't have.
   let notes: string[] | undefined;
   if (river && res.villainCallFreq) {
-    const r = riverReasons(evRow[0], res.villainCallFreq, pot, bigBlind, heroActual, board, best.id === 'check');
+    const r = riverReasons(grid, evRow[0], res.villainCallFreq, pot, bigBlind, heroActual, board, best.id === 'check');
     for (const o of options) {
       if (r.why[o.id]) o.why = r.why[o.id];
       if (r.sizeNote[o.id]) o.sizeNote = r.sizeNote[o.id];
@@ -321,13 +337,18 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
   if (villainCombos.length === 0 || heroCombos.length === 0) return null;
 
   const locked = p.villainFoldToBet != null;
+  const grid = betSizeGrid(p.pot, p.effStack, true);
   const result = solveTurn({
     heroRange: heroCombos,
     villainRange: villainCombos,
     board: p.board,
     pot: p.pot,
     effStack: p.effStack,
-    betSizes: RIVER_SIZES,
+    betSizes: grid.fracs,
+    // The nested river subgames on the check line keep the base grid: after checking the
+    // turn hero's range is capped, which is the one range an overbet cannot represent —
+    // and the nest is the turn solve's dominant cost.
+    checkLineBetSizes: betSizeGrid(p.pot, p.effStack).fracs,
     // 2000: the old 4000 was compensating for the CHECK being scored as an instant
     // turn showdown — at low iters the bet EVs were overstated vs that too-low check,
     // so a legitimate give-up looked like a ~1.5bb blunder and needed many iters to
@@ -342,6 +363,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
 
   return heroFirstNodeStrategy(
     result,
+    grid,
     heroCombos,
     heroActual,
     p.board,
@@ -369,19 +391,21 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
   const heroCombos = buildCombos(p.heroRange, p.board, [], FLOP_HERO_CAP, undefined, heroActual);
   if (villainCombos.length === 0 || heroCombos.length === 0) return null;
 
+  const grid = betSizeGrid(p.pot, p.effStack);
   const result = solveFlop({
     heroRange: heroCombos,
     villainRange: villainCombos,
     board: p.board,
     pot: p.pot,
     effStack: p.effStack,
-    betSizes: RIVER_SIZES,
+    betSizes: grid.fracs,
     iterations: 700,
     turnNestIterations: 220,
   });
 
   return heroFirstNodeStrategy(
     result,
+    grid,
     heroCombos,
     heroActual,
     p.board,
@@ -395,95 +419,115 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
 }
 
 export interface Multiway3NodeParams extends RiverSolveParams {
-  thirdRange: WeightedRange;
-  thirdComboWeight?: (a: Card, b: Card) => number;
-  /** Read on the FIXED second opponent (0..1 fold-to-¾-pot). Re-anchors his MDF policy;
-   *  omit to keep the parameter-free default. `villainFoldToBet` (inherited) is unused on
-   *  the multiway paths — the SOLVED villain's read routes through the per-hand model. */
-  thirdFoldToBet?: number;
+  /** the FIXED-policy opponents: 1 = 3-way, 2 = 4-way, 3 = 5-way */
+  fieldRanges: WeightedRange[];
+  fieldComboWeight?: (a: Card, b: Card) => number;
+  /** Reads on the FIXED opponents (0..1 fold-to-¾-pot), parallel to `fieldRanges`. Each
+   *  re-anchors that player's MDF policy; omit for the parameter-free default.
+   *  `villainFoldToBet` (inherited) is unused on the multiway paths — the SOLVED villain's
+   *  read routes through the per-hand model. */
+  fieldFoldToBet?: (number | undefined)[];
 }
+
+/** Combo caps shrink as the field grows: each extra fixed player adds an O(range × field)
+ *  precompute and doubles the caller sets the inner loop walks. */
+const fieldCapScale = (nField: number) => (nField <= 1 ? 1 : nField === 2 ? 0.75 : 0.6);
+const scaleCap = (cap: number, nField: number) => Math.max(12, Math.round(cap * fieldCapScale(nField)));
 
 /** Solve a hero-first 3-WAY river node (hero + primary villain by CFR, the second opponent
  *  on a fixed MDF policy) and adapt to NodeStrategy. HU-framed per-line reasons are skipped
  *  (river=false) — they assume one opponent; the note explains the multiway solve. */
 export function solveRiver3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
-  if (p.board.length !== 5 || p.heroCards.length !== 2) return null;
+  if (p.board.length !== 5 || p.heroCards.length !== 2 || p.fieldRanges.length === 0) return null;
+  const nF = p.fieldRanges.length;
   const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
-  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, MW_RIVER_VILLAIN_CAP, p.villainComboWeight);
-  const thirdCombos = buildCombos(p.thirdRange, p.board, p.heroCards, MW_RIVER_THIRD_CAP, p.thirdComboWeight);
-  const heroCombos = buildCombos(p.heroRange, p.board, [], MW_RIVER_HERO_CAP, undefined, heroActual);
-  if (villainCombos.length === 0 || thirdCombos.length === 0 || heroCombos.length === 0) return null;
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, scaleCap(MW_RIVER_VILLAIN_CAP, nF), p.villainComboWeight);
+  const fieldCombos = p.fieldRanges.map((r) =>
+    buildCombos(r, p.board, p.heroCards, scaleCap(MW_RIVER_THIRD_CAP, nF), p.fieldComboWeight),
+  );
+  const heroCombos = buildCombos(p.heroRange, p.board, [], scaleCap(MW_RIVER_HERO_CAP, nF), undefined, heroActual);
+  if (villainCombos.length === 0 || fieldCombos.some((c) => c.length === 0) || heroCombos.length === 0) return null;
 
+  const grid = betSizeGrid(p.pot, p.effStack);
   const result = solveRiver3way({
     heroRange: heroCombos,
     villainRange: villainCombos,
-    thirdRange: thirdCombos,
+    fieldRanges: fieldCombos,
     board: p.board,
     pot: p.pot,
     effStack: p.effStack,
-    betSizes: RIVER_SIZES,
+    betSizes: grid.fracs,
     iterations: 1000,
-    thirdFoldToBet: p.thirdFoldToBet,
+    fieldFoldToBet: p.fieldFoldToBet,
   });
 
-  const thirdNote =
-    p.thirdFoldToBet != null
-      ? ` The second opponent's fold read (~${Math.round(p.thirdFoldToBet * 100)}% to a ¾-pot bet) is applied to its policy.`
-      : '';
   return heroFirstNodeStrategy(
     result,
+    grid,
     heroCombos,
     heroActual,
     p.board,
     p.pot,
     p.bigBlind,
-    `3-way river solver — hero + one villain solved range-vs-range (CFR); the second ` +
-      `opponent follows a fixed MDF policy (defends the top of its range, folds the rest). ` +
-      `Bluffs earn less than heads-up because a bet must get through two players.` +
-      thirdNote +
+    `${nF + 2}-way river solver — hero + one villain solved range-vs-range (CFR); the other ` +
+      `${nF === 1 ? 'opponent follows' : `${nF} opponents each follow`} a fixed MDF policy ` +
+      `(defends the top of its range, folds the rest). Bluffs earn less than heads-up because ` +
+      `a bet must get through ${nF + 1} players.` +
+      fieldReadNote(p.fieldFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
+}
+
+function fieldReadNote(reads: (number | undefined)[] | undefined): string {
+  const named = (reads ?? []).filter((r): r is number => r != null);
+  if (!named.length) return '';
+  const pcts = named.map((r) => `~${Math.round(r * 100)}%`).join(', ');
+  return named.length === 1
+    ? ` The fixed opponent's fold read (${pcts} to a ¾-pot bet) is applied to its policy.`
+    : ` The fixed opponents' fold reads (${pcts} to a ¾-pot bet) are applied to their policies.`;
 }
 
 /** Solve a hero-first 3-WAY turn node (hero + villain CFR with river runouts enumerated for
  *  equity; the second opponent on a fixed MDF policy; the check line nests a 3-way river
  *  subgame per river-texture bucket). Adapt to NodeStrategy. Tightest caps of all paths. */
 export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
-  if (p.board.length !== 4 || p.heroCards.length !== 2) return null;
+  if (p.board.length !== 4 || p.heroCards.length !== 2 || p.fieldRanges.length === 0) return null;
+  const nF = p.fieldRanges.length;
   const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
-  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, MW_TURN_VILLAIN_CAP, p.villainComboWeight);
-  const thirdCombos = buildCombos(p.thirdRange, p.board, p.heroCards, MW_TURN_THIRD_CAP, p.thirdComboWeight);
-  const heroCombos = buildCombos(p.heroRange, p.board, [], MW_TURN_HERO_CAP, undefined, heroActual);
-  if (villainCombos.length === 0 || thirdCombos.length === 0 || heroCombos.length === 0) return null;
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, scaleCap(MW_TURN_VILLAIN_CAP, nF), p.villainComboWeight);
+  const fieldCombos = p.fieldRanges.map((r) =>
+    buildCombos(r, p.board, p.heroCards, scaleCap(MW_TURN_THIRD_CAP, nF), p.fieldComboWeight),
+  );
+  const heroCombos = buildCombos(p.heroRange, p.board, [], scaleCap(MW_TURN_HERO_CAP, nF), undefined, heroActual);
+  if (villainCombos.length === 0 || fieldCombos.some((c) => c.length === 0) || heroCombos.length === 0) return null;
 
+  const grid = betSizeGrid(p.pot, p.effStack);
   const result = solveTurn3way({
     heroRange: heroCombos,
     villainRange: villainCombos,
-    thirdRange: thirdCombos,
+    fieldRanges: fieldCombos,
     board: p.board,
     pot: p.pot,
     effStack: p.effStack,
-    betSizes: RIVER_SIZES,
+    betSizes: grid.fracs,
     iterations: 900,
     riverNestIterations: 110,
-    thirdFoldToBet: p.thirdFoldToBet,
+    fieldFoldToBet: p.fieldFoldToBet,
   });
 
-  const thirdNote =
-    p.thirdFoldToBet != null
-      ? ` The second opponent's fold read (~${Math.round(p.thirdFoldToBet * 100)}% to a ¾-pot bet) is applied to its policy.`
-      : '';
   return heroFirstNodeStrategy(
     result,
+    grid,
     heroCombos,
     heroActual,
     p.board,
     p.pot,
     p.bigBlind,
-    `3-way turn solver — hero + one villain range-vs-range (CFR, river runouts enumerated); ` +
-      `the second opponent follows a fixed MDF policy and the check line nests a 3-way river ` +
-      `subgame (bucketed by texture). A disclosed multiway approximation, not full 3-way CFR.` +
-      thirdNote +
+    `${nF + 2}-way turn solver — hero + one villain range-vs-range (CFR, river runouts ` +
+      `enumerated); the other ${nF === 1 ? 'opponent follows' : `${nF} opponents each follow`} a ` +
+      `fixed MDF policy and the check line nests a multiway river subgame (bucketed by texture). ` +
+      `A disclosed approximation, not full multiway CFR.` +
+      fieldReadNote(p.fieldFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -493,12 +537,35 @@ export interface RiverVsBetNodeParams {
   board: Card[];
   potBeforeBet: number; // Q
   bet: number; // b
-  raiseTo: number; // r (total chips), must be > bet
+  /** legal raise bounds from the engine — the offered raise sizes are built inside these */
+  minRaiseTo: number;
+  maxRaiseTo: number;
   heroRange: WeightedRange;
   villainRange: WeightedRange;
   villainComboWeight?: (a: Card, b: Card) => number;
   bigBlind: number;
   rangeNote?: string;
+  /** NODE LOCK: villain's fold-to-bet read (0..1, quoted at ¾ pot). Villain has already bet,
+   *  so this pins the one decision he has left — fold or call hero's RAISE — and hero
+   *  best-responds. His BETTING range composition already carries the read separately
+   *  (`villainComboWeight`); that prices hero's call, this prices hero's raise. */
+  villainFoldToBet?: number;
+}
+
+/** Disclosed shape of the facing-a-bet tree: hero picks a raise size and villain can
+ *  RE-RAISE it, which is what keeps a bluff-raise honestly priced. */
+const VS_BET_TREE_NOTE =
+  ` Hero chooses between two raise sizes and a jam, and villain can re-raise any of them ` +
+  `(one re-raise size, capped by your stack) — so a raise is priced against being played back at.`;
+
+/** How the note describes a locked vs an equilibrium facing-a-bet solve. */
+function vsBetLockNote(foldToBet: number | undefined): string {
+  return foldToBet == null
+    ? ` Both sides solve, so the result is an equilibrium.`
+    : ` NODE LOCKED to your read: villain continues vs your raise at the rate a ~${Math.round(
+        foldToBet * 100,
+      )}% fold-to-¾-pot player would (re-priced for the raise), and your line is the BEST RESPONSE to that — which is what makes a bluff-raise show up against a player who gives up when raised. ` +
+      `His continuing hands still re-raise the top of that range, so the read can't make raising free.`;
 }
 
 /** Shared mapping: a facing-a-bet solver result (river/turn/flop) → NodeStrategy for hero's
@@ -506,10 +573,10 @@ export interface RiverVsBetNodeParams {
  *  behind `res` and the `note` differ. */
 function vsBetNodeStrategy(
   res: VsBetResult,
+  grid: RaiseSizeGrid,
   heroCombos: Combo[],
   heroActual: [Card, Card],
   bet: number,
-  raiseTo: number,
   potBeforeBet: number,
   bigBlind: number,
   note: string,
@@ -525,16 +592,24 @@ function vsBetNodeStrategy(
   const options: ActionOption[] = [
     { id: 'fold', label: 'Fold', freq: s.fold, ev: 0, kind: 'fold' },
     { id: 'call', label: `Call ${bet}`, freq: s.call, ev: round2(ev.call / bigBlind), kind: 'call' },
-    {
-      id: 'betpot',
-      label: `Raise to ${raiseTo}`,
-      freq: s.raise,
-      ev: round2(ev.raise / bigBlind),
-      amount: raiseTo,
-      sizePct: Math.round((100 * raiseTo) / potNow),
-      kind: 'aggressive',
-    },
   ];
+  grid.raiseTo.forEach((chips, k) => {
+    options.push({
+      id: grid.ids[k],
+      label: grid.labels[k],
+      freq: s.raises[k] ?? 0,
+      ev: round2((ev.raises[k] ?? 0) / bigBlind),
+      amount: chips,
+      sizePct: Math.round((100 * chips) / potNow),
+      kind: 'aggressive',
+      sizeNote:
+        res.villain3BetFreq[k] > 0.005
+          ? `⚖ villain calls ~${Math.round(res.villainCallRaiseFreq[k] * 100)}% · re-raises ~${Math.round(
+              res.villain3BetFreq[k] * 100,
+            )}%`
+          : undefined,
+    });
+  });
 
   let best = options[0];
   for (const o of options) if (o.ev > best.ev || (o.ev === best.ev && o.freq > best.freq)) best = o;
@@ -551,7 +626,9 @@ function vsBetNodeStrategy(
 /** Solve a hero-facing-a-bet heads-up river node (fold / call / raise) range-vs-range
  *  and adapt to NodeStrategy. Returns null when it can't apply. */
 export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null {
-  if (p.board.length !== 5 || p.heroCards.length !== 2 || p.raiseTo <= p.bet) return null;
+  if (p.board.length !== 5 || p.heroCards.length !== 2) return null;
+  const grid = raiseSizeGrid(p.potBeforeBet, p.bet, p.minRaiseTo, p.maxRaiseTo);
+  if (grid.raiseTo.length === 0) return null;
   const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
   const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, VILLAIN_CAP, p.villainComboWeight);
   const heroCombos = buildCombos(p.heroRange, p.board, [], HERO_CAP, undefined, heroActual);
@@ -563,27 +640,34 @@ export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | nul
     board: p.board,
     potBeforeBet: p.potBeforeBet,
     bet: p.bet,
-    raiseTo: p.raiseTo,
+    raiseSizes: grid.raiseTo,
+    threeBetTo: grid.threeBetTo,
     iterations: 900,
+    villainLock: p.villainFoldToBet != null ? { foldToBet: p.villainFoldToBet } : undefined,
   });
 
   return vsBetNodeStrategy(
     res,
+    grid,
     heroCombos,
     heroActual,
     p.bet,
-    p.raiseTo,
     p.potBeforeBet,
     p.bigBlind,
     `River solver — range-vs-range (facing a bet: fold / call / raise, CFR over ` +
-      `both ranges).` + (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+      `both ranges).` +
+      VS_BET_TREE_NOTE +
+      vsBetLockNote(p.villainFoldToBet) +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
 
 /** Solve a hero-facing-a-bet heads-up TURN node (fold / call / raise) range-vs-range, the
  *  call/raise terminals scored on hero's equity over every river runout. */
 export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null {
-  if (p.board.length !== 4 || p.heroCards.length !== 2 || p.raiseTo <= p.bet) return null;
+  if (p.board.length !== 4 || p.heroCards.length !== 2) return null;
+  const grid = raiseSizeGrid(p.potBeforeBet, p.bet, p.minRaiseTo, p.maxRaiseTo);
+  if (grid.raiseTo.length === 0) return null;
   const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
   const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, TURN_VILLAIN_CAP, p.villainComboWeight);
   const heroCombos = buildCombos(p.heroRange, p.board, [], TURN_HERO_CAP, undefined, heroActual);
@@ -595,20 +679,24 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     board: p.board,
     potBeforeBet: p.potBeforeBet,
     bet: p.bet,
-    raiseTo: p.raiseTo,
+    raiseSizes: grid.raiseTo,
+    threeBetTo: grid.threeBetTo,
     iterations: 900,
+    villainFoldToBet: p.villainFoldToBet,
   });
 
   return vsBetNodeStrategy(
     res,
+    grid,
     heroCombos,
     heroActual,
     p.bet,
-    p.raiseTo,
     p.potBeforeBet,
     p.bigBlind,
     `Turn solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
       `lines are scored on hero's equity over every river runout.` +
+      VS_BET_TREE_NOTE +
+      vsBetLockNote(p.villainFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -616,7 +704,9 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
 /** Solve a hero-facing-a-bet heads-up FLOP node (fold / call / raise) range-vs-range, the
  *  call/raise terminals scored on hero's equity over every turn+river runout. */
 export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null {
-  if (p.board.length !== 3 || p.heroCards.length !== 2 || p.raiseTo <= p.bet) return null;
+  if (p.board.length !== 3 || p.heroCards.length !== 2) return null;
+  const grid = raiseSizeGrid(p.potBeforeBet, p.bet, p.minRaiseTo, p.maxRaiseTo);
+  if (grid.raiseTo.length === 0) return null;
   const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
   const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, FLOP_VILLAIN_CAP, p.villainComboWeight);
   const heroCombos = buildCombos(p.heroRange, p.board, [], FLOP_HERO_CAP, undefined, heroActual);
@@ -628,21 +718,25 @@ export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     board: p.board,
     potBeforeBet: p.potBeforeBet,
     bet: p.bet,
-    raiseTo: p.raiseTo,
+    raiseSizes: grid.raiseTo,
+    threeBetTo: grid.threeBetTo,
     iterations: 900,
+    villainFoldToBet: p.villainFoldToBet,
   });
 
   return vsBetNodeStrategy(
     res,
+    grid,
     heroCombos,
     heroActual,
     p.bet,
-    p.raiseTo,
     p.potBeforeBet,
     p.bigBlind,
     `Flop solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
       `lines are scored on hero's equity over every turn+river runout (a static two-street ` +
       `showdown, no future betting on the call line).` +
+      VS_BET_TREE_NOTE +
+      vsBetLockNote(p.villainFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
