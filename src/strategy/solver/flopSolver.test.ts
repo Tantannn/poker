@@ -87,9 +87,14 @@ describe('flop solver — a CHECK is valued as a turn subgame, not a static show
   const betFreq = (res: typeof flat, i: number) =>
     res.heroStrategy[i].filter((a) => a.action !== 'check').reduce((s, a) => s + a.freq, 0);
 
-  it('nesting never lowers the check EV — playing the turn beats giving up', () => {
+  it('nesting raises the check EV across the range — playing the turn beats giving up', () => {
+    // Not per-combo strict any more: the nested turn subgame also contains villain's RAISE of
+    // a hero bet, so a single combo can land a little under its static-showdown baseline. The
+    // property the nesting exists for is that the range is credited for playing on.
+    const avg = (r: typeof flat) => hero.reduce((s, _, i) => s + checkEv(r, i), 0) / hero.length;
+    expect(avg(nested)).toBeGreaterThan(avg(flat));
     for (let i = 0; i < hero.length; i++) {
-      expect(checkEv(nested, i)).toBeGreaterThanOrEqual(checkEv(flat, i) - 0.05);
+      expect(checkEv(nested, i)).toBeGreaterThan(checkEv(flat, i) - 0.5);
     }
   });
 

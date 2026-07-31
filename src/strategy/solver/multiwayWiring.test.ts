@@ -57,12 +57,36 @@ describe('live wiring: hero-first 3-way nodes route through the multiway solver'
     expect(strat.note).toMatch(/fold read/);
   });
 
-  it('a 4-way node stays on the per-hand model (multiway CFR is 3-way only)', () => {
-    const st = threeWayState('As Ac', 'Ah 7d 2c 9h Jd', 'river');
-    (st.players as unknown as unknown[]).push({
-      id: 3, name: 'V3', isHero: false, profileId: 'gto', holeCards: [], stack: 300, committed: 0, totalCommitted: 20, folded: false, allIn: false,
-    });
-    const strat = getNodeStrategy(st, 0);
-    expect(strat.note ?? '').not.toContain('3-way');
-  });
+  // The flop is the heaviest path in the app (two chance layers × a field precompute): ~1.7s
+  // for one node, so these get an explicit budget rather than the 5s default, which the
+  // full suite's parallel workers can otherwise blow through under load.
+  it('a 3-way FLOP node routes to the multiway flop solver', () => {
+    const strat = getNodeStrategy(threeWayState('9s 9c', '9h 8h 5c', 'flop'), 0);
+    expect(strat.note).toContain('3-way flop');
+    const total = strat.options.reduce((a, o) => a + o.freq, 0);
+    expect(total).toBeGreaterThan(0.95);
+    expect(total).toBeLessThan(1.05);
+    for (const o of strat.options) expect(Number.isFinite(o.ev)).toBe(true);
+  }, 60000);
+
+  it('extra live players widen the same gate — a 5-way flop still solves', () => {
+    const st = withExtraSeats(threeWayState('9s 9c', '9h 8h 5c', 'flop'), 2);
+    expect(getNodeStrategy(st, 0).note).toContain('5-way flop');
+  }, 60000);
+
+  it('past MAX_MULTIWAY_OPPONENTS the field precompute stops paying — 6-way falls back', () => {
+    const st = withExtraSeats(threeWayState('9s 9c', '9h 8h 5c', 'flop'), 3);
+    expect(getNodeStrategy(st, 0).note ?? '').not.toMatch(/-way flop solver/);
+  }, 60000);
 });
+
+/** Seat more live opponents at the same node, so one state shape covers 3- to 6-way. */
+function withExtraSeats(st: GameState, n: number): GameState {
+  for (let k = 0; k < n; k++) {
+    (st.players as unknown as unknown[]).push({
+      id: 3 + k, name: `V${3 + k}`, isHero: false, profileId: 'gto', holeCards: [],
+      stack: 300, committed: 0, totalCommitted: 20, folded: false, allIn: false,
+    });
+  }
+  return st;
+}

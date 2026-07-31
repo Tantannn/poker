@@ -12,10 +12,11 @@ import type { NodeStrategy, ActionOption } from '../types';
 import { solveRiver, solveRiverVsBet, type Combo } from './riverSolver';
 import { solveTurn, solveTurnVsBet } from './turnSolver';
 import { solveFlop, solveFlopVsBet } from './flopSolver';
-import { solveRiver3way, solveTurn3way } from './multiwaySolver';
+import { solveRiver3way, solveTurn3way, solveFlop3way } from './multiwaySolver';
 import type { VsBetResult } from './vsBet';
 import { betSizeGrid, raiseSizeGrid, type BetSizeGrid, type RaiseSizeGrid } from './betSizeGrid';
 import { requiredEquityForBet } from '../../engine/potOdds';
+import type { Rake } from '../../engine/rake';
 
 // Size grids are built per node (betSizeGrid) — the sizes on offer depend on the stack.
 // The polar overbet slot is offered on the hero-first TURN and RIVER only: it pays off a
@@ -40,6 +41,11 @@ const MW_RIVER_THIRD_CAP = 48;
 const MW_TURN_HERO_CAP = 22;
 const MW_TURN_VILLAIN_CAP = 28;
 const MW_TURN_THIRD_CAP = 28;
+// The flop 3-way pays for TWO chance layers (bucketed turn × bucketed river equity) and nests
+// a multiway turn subgame per turn bucket, so it takes tighter caps still.
+const MW_FLOP_HERO_CAP = 14;
+const MW_FLOP_VILLAIN_CAP = 18;
+const MW_FLOP_THIRD_CAP = 18;
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 const dead = (c: Card, cards: Card[]) => cards.some((x) => sameCard(x, c));
@@ -211,6 +217,8 @@ export interface RiverSolveParams {
    *  Omit for the GTO baseline — an equilibrium villain can't be exploited, so a
    *  fold-frequency read only changes the answer once his strategy stops solving. */
   villainFoldToBet?: number;
+  /** house rake in chips. Omit for rake-free (solver-style) EV. */
+  rake?: Rake;
 }
 
 /** Solve a hero-first heads-up river node range-vs-range and adapt to NodeStrategy.
@@ -233,6 +241,7 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
     betSizes: grid.fracs,
     iterations: 700,
     villainLock: locked ? { foldToBet: p.villainFoldToBet as number } : undefined,
+    rake: p.rake,
   });
 
   return heroFirstNodeStrategy(
@@ -250,6 +259,7 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
         `not an equilibrium. An equilibrium villain can't be exploited, which is why the lock has to pin him.`
       : `River solver — range-vs-range equilibrium (CFR over both ranges, not the ` +
         `per-hand estimate). Frequencies are the solved mix.`) +
+      HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
     true,
   );
@@ -262,8 +272,29 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
  *  is also the primary line; but the finite solve can leave an EV gap between mixed
  *  actions, and when it does the genuinely most-profitable line must win — otherwise
  *  we'd crown a lower-EV line "best" and mis-grade the deviation. */
+/** "He raises this ~18% — you're folding it" / "…you're calling". Reads the solved raise
+ *  frequency and THIS combo's answer; empty when villain can't or won't raise the size. */
+function raiseNote(
+  res: { villainRaiseFreq?: number[]; heroRaiseResponse?: number[][][] },
+  s: number,
+  heroIdx: number,
+): string | undefined {
+  const raise = res.villainRaiseFreq?.[s] ?? 0;
+  const resp = res.heroRaiseResponse?.[s]?.[heroIdx];
+  if (raise < 0.02 || !resp) return undefined;
+  const fold = Math.round(resp[0] * 100);
+  const plan = fold >= 65 ? 'plan to fold' : fold <= 35 ? 'plan to call' : `a fold/call mix (~${fold}% fold)`;
+  return `He raises this ~${Math.round(raise * 100)}% of the time — ${plan} with this hand if he does.`;
+}
+
 function heroFirstNodeStrategy(
-  res: { heroStrategy: { action: string; freq: number }[][]; heroActionEv: number[][]; villainCallFreq?: number[] },
+  res: {
+    heroStrategy: { action: string; freq: number }[][];
+    heroActionEv: number[][];
+    villainCallFreq?: number[];
+    villainRaiseFreq?: number[];
+    heroRaiseResponse?: number[][][];
+  },
   grid: BetSizeGrid,
   heroCombos: Combo[],
   heroActual: [Card, Card],
@@ -295,6 +326,10 @@ function heroFirstNodeStrategy(
       amount: Math.round(f * pot),
       sizePct: Math.round(f * 100),
       kind: 'aggressive',
+      // The bet-FOLD plan, per size: how often villain raises this bet and how often THIS hand
+      // has to give it up. The two-action tree could not say either, so hero was never taught
+      // what to do when the raise comes.
+      sizeNote: raiseNote(res, s, idx),
     });
   });
 
@@ -311,7 +346,8 @@ function heroFirstNodeStrategy(
     const r = riverReasons(grid, evRow[0], res.villainCallFreq, pot, bigBlind, heroActual, board, best.id === 'check');
     for (const o of options) {
       if (r.why[o.id]) o.why = r.why[o.id];
-      if (r.sizeNote[o.id]) o.sizeNote = r.sizeNote[o.id];
+      // keep the bet-fold plan already attached above — append, never overwrite
+      if (r.sizeNote[o.id]) o.sizeNote = [r.sizeNote[o.id], o.sizeNote].filter(Boolean).join(' ');
     }
     notes = [...r.notes, noteText];
   }
@@ -359,6 +395,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     iterations: 2000,
     riverNestIterations: 140,
     villainLock: locked ? { foldToBet: p.villainFoldToBet as number } : undefined,
+    rake: p.rake,
   });
 
   return heroFirstNodeStrategy(
@@ -376,6 +413,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
         `(the nested river subgames best-respond too) — is the BEST RESPONSE to that read, not an equilibrium.`
       : `Turn solver — range-vs-range with the river runouts enumerated for showdown ` +
         `equity. Frequencies are the solved mix.`) +
+      HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -401,6 +439,7 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
     betSizes: grid.fracs,
     iterations: 700,
     turnNestIterations: 220,
+    rake: p.rake,
   });
 
   return heroFirstNodeStrategy(
@@ -414,6 +453,7 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
     `Flop solver — range-vs-range with turn+river runouts enumerated for showdown equity; ` +
       `the check line nests a turn subgame. Turn cards are bucketed by texture (a disclosed ` +
       `abstraction, not a solver-exact flop solve). Frequencies are the solved mix.` +
+      HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -459,6 +499,7 @@ export function solveRiver3wayNode(p: Multiway3NodeParams): NodeStrategy | null 
     betSizes: grid.fracs,
     iterations: 1000,
     fieldFoldToBet: p.fieldFoldToBet,
+    rake: p.rake,
   });
 
   return heroFirstNodeStrategy(
@@ -513,6 +554,7 @@ export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
     iterations: 900,
     riverNestIterations: 110,
     fieldFoldToBet: p.fieldFoldToBet,
+    rake: p.rake,
   });
 
   return heroFirstNodeStrategy(
@@ -527,6 +569,55 @@ export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
       `enumerated); the other ${nF === 1 ? 'opponent follows' : `${nF} opponents each follow`} a ` +
       `fixed MDF policy and the check line nests a multiway river subgame (bucketed by texture). ` +
       `A disclosed approximation, not full multiway CFR.` +
+      fieldReadNote(p.fieldFoldToBet) +
+      (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+  );
+}
+
+/** Solve a hero-first MULTIWAY FLOP node (hero + primary villain by CFR over two-street
+ *  equity, the rest of the field on a fixed MDF policy, the check line nesting a multiway
+ *  turn subgame per turn-texture bucket). The heaviest path in the app — two chance layers
+ *  times a field precompute — hence the tightest caps and the lowest iteration counts. */
+export function solveFlop3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
+  if (p.board.length !== 3 || p.heroCards.length !== 2 || p.fieldRanges.length === 0) return null;
+  const nF = p.fieldRanges.length;
+  const heroActual: [Card, Card] = [p.heroCards[0], p.heroCards[1]];
+  const villainCombos = buildCombos(p.villainRange, p.board, p.heroCards, scaleCap(MW_FLOP_VILLAIN_CAP, nF), p.villainComboWeight);
+  const fieldCombos = p.fieldRanges.map((r) =>
+    buildCombos(r, p.board, p.heroCards, scaleCap(MW_FLOP_THIRD_CAP, nF), p.fieldComboWeight),
+  );
+  const heroCombos = buildCombos(p.heroRange, p.board, [], scaleCap(MW_FLOP_HERO_CAP, nF), undefined, heroActual);
+  if (villainCombos.length === 0 || fieldCombos.some((c) => c.length === 0) || heroCombos.length === 0) return null;
+
+  const grid = betSizeGrid(p.pot, p.effStack);
+  const result = solveFlop3way({
+    heroRange: heroCombos,
+    villainRange: villainCombos,
+    fieldRanges: fieldCombos,
+    board: p.board,
+    pot: p.pot,
+    effStack: p.effStack,
+    betSizes: grid.fracs,
+    iterations: 450,
+    turnNestIterations: 100,
+    fieldFoldToBet: p.fieldFoldToBet,
+    rake: p.rake,
+  });
+
+  return heroFirstNodeStrategy(
+    result,
+    grid,
+    heroCombos,
+    heroActual,
+    p.board,
+    p.pot,
+    p.bigBlind,
+    `${nF + 2}-way flop solver — hero + one villain range-vs-range (CFR over both remaining ` +
+      `streets); the other ${nF === 1 ? 'opponent follows' : `${nF} opponents each follow`} a fixed ` +
+      `MDF policy, and the check line nests a multiway turn subgame. A bet has to get through ` +
+      `${nF + 1} players, so bluffs earn far less than heads-up and thin value bets are worse. ` +
+      `Two disclosed abstractions: runouts are bucketed by texture on both streets, and the ` +
+      `nested turn does not nest its own river.` +
       fieldReadNote(p.fieldFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
@@ -550,10 +641,18 @@ export interface RiverVsBetNodeParams {
    *  best-responds. His BETTING range composition already carries the read separately
    *  (`villainComboWeight`); that prices hero's call, this prices hero's raise. */
   villainFoldToBet?: number;
+  /** house rake in chips. Omit for rake-free (solver-style) EV. */
+  rake?: Rake;
 }
 
 /** Disclosed shape of the facing-a-bet tree: hero picks a raise size and villain can
  *  RE-RAISE it, which is what keeps a bluff-raise honestly priced. */
+/** Disclosed shape of the hero-first tree: villain answers a bet with fold / call / RAISE, and
+ *  hero then folds or calls the raise (no re-raise — depth stops there). */
+const HERO_FIRST_TREE_NOTE =
+  ` Villain may fold, call, or RAISE your bet (one raise size), and you answer by folding or ` +
+  `calling — so a bluff is priced against being raised, not as risk-free.`;
+
 const VS_BET_TREE_NOTE =
   ` Hero chooses between two raise sizes and a jam, and villain can re-raise any of them ` +
   `(one re-raise size, capped by your stack) — so a raise is priced against being played back at.`;
@@ -644,6 +743,7 @@ export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | nul
     threeBetTo: grid.threeBetTo,
     iterations: 900,
     villainLock: p.villainFoldToBet != null ? { foldToBet: p.villainFoldToBet } : undefined,
+    rake: p.rake,
   });
 
   return vsBetNodeStrategy(
@@ -683,6 +783,7 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     threeBetTo: grid.threeBetTo,
     iterations: 900,
     villainFoldToBet: p.villainFoldToBet,
+    rake: p.rake,
   });
 
   return vsBetNodeStrategy(
@@ -722,6 +823,7 @@ export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     threeBetTo: grid.threeBetTo,
     iterations: 900,
     villainFoldToBet: p.villainFoldToBet,
+    rake: p.rake,
   });
 
   return vsBetNodeStrategy(

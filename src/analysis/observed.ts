@@ -35,6 +35,20 @@ export interface ObsCounters {
   riverBetTaken: number;
   turnBetChances: number;
   turnBetTaken: number;
+  // ---- preflop exploit reads (strategy/preflopModel.ts) ----
+  // Kept separate from the postflop block above because the preflop node is a
+  // static chart, not the EV model — these drive chart frequencies and the
+  // projected range the postflop engines inherit, not contBias/bluffMult.
+  /** unopened preflop pots this seat could have raised. Blinds excluded — they have
+   *  no unopened pot to open into, so counting their option would deflate RFI%. */
+  pfOpenChances: number;
+  pfOpenTaken: number;
+  /** preflop decisions facing EXACTLY one raise — the 3-bet spot */
+  pfThreeBetChances: number;
+  pfThreeBetTaken: number;
+  /** their own raise got re-raised and they had a decision left */
+  pfFacedThreeBet: number;
+  pfFoldedToThreeBet: number;
   /** hands where they took the FLOP lead (bet/raise with no bet ahead) */
   ledFlop: number;
   /** …of those, hands where they also led the RIVER. Counted per hand rather than
@@ -75,6 +89,17 @@ export interface ObservedStats {
   barrelThrough: number | null;
   /** flop leads behind barrelThrough. */
   ledFlopSample: number;
+  /** raises ÷ unopened pots they could have opened, blinds excluded. null = no spot yet.
+   *  How wide they steal — i.e. how weak their opening range is when you defend. */
+  openFreq: number | null;
+  openSample: number;
+  /** raises ÷ decisions facing exactly one raise. The headline preflop leak. */
+  threeBetFreq: number | null;
+  threeBetSample: number;
+  /** folds ÷ decisions where their own raise got re-raised. Drives whether a 3-bet
+   *  bluff prints against them. Accrues slowest of the three. */
+  foldToThreeBet: number | null;
+  foldToThreeBetSample: number;
 }
 
 export function emptyObs(): ObsCounters {
@@ -92,6 +117,12 @@ export function emptyObs(): ObsCounters {
     riverBetTaken: 0,
     turnBetChances: 0,
     turnBetTaken: 0,
+    pfOpenChances: 0,
+    pfOpenTaken: 0,
+    pfThreeBetChances: 0,
+    pfThreeBetTaken: 0,
+    pfFacedThreeBet: 0,
+    pfFoldedToThreeBet: 0,
     ledFlop: 0,
     ledFlopThroughRiver: 0,
   };
@@ -127,6 +158,35 @@ export function accumulateHand(
       if (l.type === 'bet' || l.type === 'raise') c.aggrActions++;
       else if (l.type === 'call') c.callActions++;
     }
+  }
+
+  // ---- preflop reads: also order-dependent, and keyed on the RAISE LEVEL a decision
+  // was made at. Unopened → an RFI chance; one raise ahead → a 3-bet chance; a raise
+  // ahead of THEIR OWN raise → they are facing a 3-bet. Level, not "is there a bet
+  // ahead", is what separates them: a blind is posted in front of everyone preflop.
+  let pfRaises = 0;
+  const raisedAtLevel = new Map<number, number>();
+  for (const l of mine) {
+    if (l.street !== 'preflop') break;
+    if (l.type === 'post') continue;
+    const c = next[l.playerId];
+    const aggressive = l.type === 'raise' || l.type === 'bet';
+    if (c) {
+      const own = raisedAtLevel.get(l.playerId);
+      if (own != null && pfRaises > own) {
+        c.pfFacedThreeBet++;
+        if (l.type === 'fold') c.pfFoldedToThreeBet++;
+      } else if (pfRaises === 0) {
+        if (l.position !== 'SB' && l.position !== 'BB') {
+          c.pfOpenChances++;
+          if (aggressive) c.pfOpenTaken++;
+        }
+      } else if (pfRaises === 1 && own == null) {
+        c.pfThreeBetChances++;
+        if (aggressive) c.pfThreeBetTaken++;
+      }
+    }
+    if (aggressive) raisedAtLevel.set(l.playerId, ++pfRaises);
   }
 
   // Exploit reads need the log in ORDER, not grouped: whether a decision was made
@@ -200,6 +260,12 @@ export function toStats(c: ObsCounters | undefined): ObservedStats {
       turnBetFreq: null,
       barrelThrough: null,
       ledFlopSample: 0,
+      openFreq: null,
+      openSample: 0,
+      threeBetFreq: null,
+      threeBetSample: 0,
+      foldToThreeBet: null,
+      foldToThreeBetSample: 0,
     };
   return {
     hands: c.hands,
@@ -215,5 +281,11 @@ export function toStats(c: ObsCounters | undefined): ObservedStats {
     turnBetFreq: c.turnBetChances > 0 ? c.turnBetTaken / c.turnBetChances : null,
     barrelThrough: c.ledFlop > 0 ? c.ledFlopThroughRiver / c.ledFlop : null,
     ledFlopSample: c.ledFlop ?? 0,
+    openFreq: c.pfOpenChances > 0 ? c.pfOpenTaken / c.pfOpenChances : null,
+    openSample: c.pfOpenChances ?? 0,
+    threeBetFreq: c.pfThreeBetChances > 0 ? c.pfThreeBetTaken / c.pfThreeBetChances : null,
+    threeBetSample: c.pfThreeBetChances ?? 0,
+    foldToThreeBet: c.pfFacedThreeBet > 0 ? c.pfFoldedToThreeBet / c.pfFacedThreeBet : null,
+    foldToThreeBetSample: c.pfFacedThreeBet ?? 0,
   };
 }

@@ -39,6 +39,67 @@ describe('observed — preflop counters', () => {
   });
 });
 
+describe('observed — preflop exploit reads', () => {
+  const at = (playerId: number, type: ActionRecord['type'], position: string) =>
+    ({ ...rec(playerId, type, 'preflop'), position }) as ActionRecord;
+
+  it('counts an unopened pot as an RFI chance, taken or declined', () => {
+    const c = accumulateHand({}, [at(1, 'raise', 'UTG'), at(2, 'fold', 'CO')], 1);
+    expect(c[1].pfOpenChances).toBe(1);
+    expect(c[1].pfOpenTaken).toBe(1);
+    // p2 acted AFTER the raise, so it was a 3-bet spot for him, not an open chance
+    expect(c[2].pfOpenChances).toBe(0);
+    expect(c[2].pfThreeBetChances).toBe(1);
+    expect(c[2].pfThreeBetTaken).toBe(0);
+  });
+
+  it('excludes the blinds from RFI chances — they have no unopened pot to open into', () => {
+    const c = accumulateHand({}, [at(1, 'post', 'SB'), at(2, 'post', 'BB'), at(1, 'fold', 'SB'), at(2, 'check', 'BB')], 1);
+    expect(c[1].pfOpenChances).toBe(0);
+    expect(c[2].pfOpenChances).toBe(0);
+  });
+
+  it('counts a re-raise over an open as a 3-bet, and the opener as facing one', () => {
+    const c = accumulateHand({}, [at(1, 'raise', 'CO'), at(2, 'raise', 'BTN'), at(1, 'fold', 'CO')], 1);
+    expect(c[2].pfThreeBetChances).toBe(1);
+    expect(c[2].pfThreeBetTaken).toBe(1);
+    expect(c[1].pfFacedThreeBet).toBe(1);
+    expect(c[1].pfFoldedToThreeBet).toBe(1);
+    expect(toStats(c[1]).foldToThreeBet).toBe(1);
+    expect(toStats(c[2]).threeBetFreq).toBe(1);
+  });
+
+  it('a 4-bet spot is neither a 3-bet chance nor a second open chance', () => {
+    // p1 opens, p2 3-bets, p1 4-bets, p2 folds → p2's fold is FACING a 4-bet, not a
+    // fresh 3-bet chance; counting it would halve his measured 3-bet frequency.
+    const c = accumulateHand({}, [at(1, 'raise', 'CO'), at(2, 'raise', 'BTN'), at(1, 'raise', 'CO'), at(2, 'fold', 'BTN')], 1);
+    expect(c[2].pfThreeBetChances).toBe(1);
+    expect(c[2].pfFacedThreeBet).toBe(1); // his 3-bet got re-raised
+    expect(c[1].pfOpenChances).toBe(1);
+    expect(c[1].pfFacedThreeBet).toBe(1); // and he chose to 4-bet rather than fold
+    expect(c[1].pfFoldedToThreeBet).toBe(0);
+  });
+
+  it('accumulates preflop rates across hands', () => {
+    let m = accumulateHand({}, [at(1, 'raise', 'CO'), at(2, 'fold', 'BTN')], 1);
+    m = accumulateHand(m, [
+      { ...at(1, 'fold', 'CO'), handNumber: 2 },
+      { ...at(2, 'raise', 'BTN'), handNumber: 2 },
+    ], 2);
+    expect(toStats(m[1]).openFreq).toBeCloseTo(0.5, 5);
+    expect(toStats(m[1]).openSample).toBe(2);
+    expect(toStats(m[2]).threeBetFreq).toBe(0); // hand 1 only; hand 2 was his own open
+    expect(toStats(m[2]).openSample).toBe(1);
+  });
+
+  it('reports null, not zero, for a read with no spots yet', () => {
+    const s = toStats(emptyObs());
+    expect(s.openFreq).toBeNull();
+    expect(s.threeBetFreq).toBeNull();
+    expect(s.foldToThreeBet).toBeNull();
+  });
+});
+
 describe('observed — fold-to-bet read', () => {
   it('counts a fold facing a bet, not a fold with no bet in front', () => {
     // p2 bets the flop, p1 folds → one faced-bet decision, one fold

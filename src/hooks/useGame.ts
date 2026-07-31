@@ -16,6 +16,8 @@ import {
   startHand,
   tablePositions,
 } from '../engine/table';
+import type { RakeProfileId } from '../engine/rake';
+import type { StraddleMode } from '../engine/table';
 import type { TableSize } from '../strategy/preflopChart';
 import { scenariosForSize } from '../strategy/preflopChart';
 import { pickBorderlineCode } from '../strategy/borderline';
@@ -160,6 +162,18 @@ export function useGame(initialProfiles: string[]) {
   const [speed, setSpeed] = useState<Speed>((SAVED?.speed as Speed) ?? '1x');
   const [stackDepth, setStackDepth] = useState<number>(SAVED?.stackDepth ?? STARTING_BB);
   const [tableSize, setTableSize] = useState<number>(SAVED?.tableSize ?? NUM_PLAYERS);
+  // House rake. Rides on the game state so the engine takes it off the pot and every
+  // strategy engine prices EV against the same number. 'none' = rake-free (solver-style).
+  const [rake, setRake] = useState<RakeProfileId>((SAVED?.rake as RakeProfileId) ?? 'none');
+  // Stamp the live state too, not just the next deal: the HUD and the strategy panel price
+  // the CURRENT node off state.rake, so a change has to land immediately to be visible.
+  const applyRake = useCallback((id: RakeProfileId) => {
+    setRake(id);
+    setGame((prev) => ({ ...prev, rake: id }));
+  }, []);
+  // Live straddle. Unlike rake it only takes effect on the NEXT deal (blinds are posted at
+  // deal time), so it is stamped in `deal` rather than onto the hand in progress.
+  const [straddle, setStraddle] = useState<StraddleMode>((SAVED?.straddle as StraddleMode) ?? 'off');
   const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
   const [tiltWarnings, setTiltWarnings] = useState<boolean>(SAVED?.tiltWarnings ?? true);
   // when the graded answer surfaces — 'immediate' (drill) or 'deferred' (exam).
@@ -381,6 +395,8 @@ export function useGame(initialProfiles: string[]) {
         ? createGame(tableSize, stackDepth, BIG_BLIND, profiles, mode === 'tourney')
         : prev;
       const next = structuredClone(base);
+      next.rake = rake; // stamp every hand: a table rebuilt by createGame carries none
+      next.straddle = straddle; // read by startHand when it posts the blinds
       if (scenario !== 'random') {
         // place the button so the hero (seat 0) lands on the requested seat — only
         // if that position exists at this table size, else just deal random.
@@ -426,7 +442,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     decisionsRef.current = [];
     playDeal();
-  }, [scenario, game, mode, edgeFocus, drillClass, autoResetOnBust, tableSize, stackDepth, profiles]);
+  }, [scenario, game, mode, edgeFocus, drillClass, autoResetOnBust, tableSize, stackDepth, profiles, rake, straddle]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
@@ -640,12 +656,13 @@ export function useGame(initialProfiles: string[]) {
     saveSettings({
       profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
       anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode,
-      villainLocks, readDrivenModel,
+      villainLocks, readDrivenModel, rake, straddle,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, villainLocks, readDrivenModel, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, villainLocks, readDrivenModel, rake, straddle, tournament, mode, sessionId]);
+
 
   // ---- HUD + strategy compute on hero's turn ----
   // The heavy work (2×1400-trial Monte-Carlo + range summary + solver) runs in a
@@ -933,6 +950,10 @@ export function useGame(initialProfiles: string[]) {
     applyStackDepth,
     tableSize,
     applyTableSize,
+    rake,
+    setRake: applyRake,
+    straddle,
+    setStraddle,
     watchAfterFold,
     setWatchAfterFold,
     tiltWarnings,

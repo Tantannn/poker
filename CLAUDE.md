@@ -35,6 +35,53 @@ Strict one-way dependency flow. Keep it: `engine → ai / strategy → analysis 
 `range.ts` is the `WeightedRange = Map<169code, weight>` type plus combo sampling.
 Everything here is deterministic given a seeded RNG (`cards.ts: makeRng`).
 
+### Rake — `src/engine/rake.ts`
+`RAKE_PROFILES` (none / online / live 1-2 / 2-5 / 5-10) → `rakeInChips(id, bb)` →
+a chip-denominated `Rake { pct, cap, drop }`, consumed by **both** `rakeOn`/`netPot`
+(pot collected) and `rakeMarginal` (the tax on the *next* chip won — zero past the cap).
+`GameState.rake` holds the profile id; `table.ts: takeRake` takes it off the **main
+pot** at award time and only when a flop was dealt (**no flop, no drop**), recording
+`state.rakePaid`. `strategy/index.ts` resolves the same id once per node and passes the
+`Rake` into every engine, so a recommendation can't be rake-free while the table charges.
+
+Two things make rake worth modelling rather than approximating: the **cap makes it
+regressive** (a flat fee on a limped pot, ~1% of a stacks-in pot), and it raises the
+**break-even equity of a call** to `call ÷ (pot after rake)`. That is why it kills exactly
+the marginal spots the trainer teaches — thin river value, small-blind flats, cheap steals —
+and leaves coolers alone.
+
+Where it lands in the math: pots hero *collects* are netted (`netPot`), chips hero
+*invests* are never reduced (a loser pays no rake), and incremental winnings — a thin bet's
+extra chips, later-street value — are shaved by `rakeMarginal`. In the CFR solvers the
+terminal pots are precomputed **per bet size outside the loops** (`netAtBet` / `foldWinBet` /
+`netPotByBets`): calling into the rake model per leaf cost seconds of wall clock and timed
+the turn solves out. Keep it that way.
+
+Preflop is the disclosed gap: the charts are static ~100bb tables, so they don't move with
+this setting.
+
+### Straddle — `table.ts: straddleSeats` / `effectiveBigBlind`
+`GameState.straddle` is `off | utg | double | button` (Mississippi); `startHand` posts it
+right after the blinds and records the live bet in `state.straddleTo`. Cash only, and never
+with fewer than 3 live seats — the straddler has to have a seat that still acts last.
+
+Two mechanics carry it. **Order**: the last blind posted is the last to act preflop, so
+`toAct` starts left of the straddler (UTG+1 behind a UTG straddle, the SB behind a
+Mississippi) and the straddler keeps the option — his `hasActed` is reset exactly like the
+blinds'. **Depth**: `effectiveBigBlind(state)` returns the straddle when one is live, and
+every depth-sensitive consumer reads it instead of `bigBlind` — `effectiveStackBB` (so a
+100bb table is 50 bets deep, which is what shifts the chart depth notes and the ≤15bb
+push/fold gate), the bots' `effStackBB`, their open sizing (`openToBB × effectiveBigBlind` —
+size off the blind instead and every open is a min-raise), their 3-bet/4-bet multiples, and
+the `facingRaise` test in both `index.ts` and `ai/decide.ts`.
+
+That last one is the subtle invariant: **a straddle is a blind, not a raise.** Compare
+`currentBet` to `bigBlind` anywhere and an unopened straddled pot reads as "facing a raise",
+which sends hero and every bot into 3-bet ranges in a limped pot.
+
+EVs stay quoted in real big blinds; only depth is counted in straddles. The charts remain a
+~100bb no-straddle baseline, and `straddleNote` says so on every straddled hand.
+
 ### `src/strategy/` — the recommendation engine, and the one seam that matters
 **`getNodeStrategy(state, heroIdx, iterations?, equityOverride?)` in `index.ts` is
 THE dispatch point.** Every consumer — HUD, strategy panel, grader, Postflop Lab,
@@ -52,21 +99,89 @@ There are **two** postflop engines behind that seam:
    showdown), `turnSolver.ts` (nests the river solver as leaf evaluator),
    `flopSolver.ts` (nests the turn solver, bucketing turn cards by texture — the two
    chance layers make the flop the heaviest solve, so the bucketing is a disclosed
-   abstraction, not solver-exact), `multiwaySolver.ts` (3-way turn/river: hero + one
-   villain solved by CFR, the third player on a fixed MDF policy — see Node lock below),
-   `riverAdapter.ts` (expands ranges → combos, maps the solve onto `NodeStrategy`).
+   abstraction, not solver-exact), `multiwaySolver.ts` (3- to 5-handed **flop, turn and
+   river**: hero + one villain solved by CFR, the remaining 1–3 players on a fixed MDF
+   policy — see Node lock and Multiway flop below), `riverAdapter.ts` (expands ranges →
+   combos, maps the solve onto `NodeStrategy`).
    Turn/river gated by `RIVER_SOLVER_ENABLED`, flop by `FLOP_SOLVER_ENABLED`, 3-way by
    `MULTIWAY_SOLVER_ENABLED` (separate flags — flop + multiway carry abstractions), all in
    `index.ts`; flip to `false` to A/B against the per-hand model. Applies to hero-first
-   flop/turn/river HU nodes, hero-facing-a-bet on **all three** streets (fold / call / two
+   flop/turn/river HU nodes (villain may fold / call / **raise** hero's bet, hero then folds or
+   calls — see Hero-first tree below), hero-facing-a-bet on **all three** streets (fold / call / two
    raise sizes / jam, and villain may **re-raise** any non-jam raise — `vsBet.ts` is the
    shared equity-driven CFR core, fed a per-street equity matrix: exact showdown on the
    river, equity over the remaining runouts on turn/flop — and node-locked
    on villain's response to hero's raise, see below), and hero-first
-   3-way (exactly two live opponents) turn/river; 4+-way and villain-first multiway fall
-   back to (1).
+   multiway (2–4 live opponents, i.e. 3- to 5-way) on **all three** streets, capped by
+   `MAX_MULTIWAY_OPPONENTS`. What still falls back to (1): **6-way+** (the 2^field caller-set
+   enumeration stops paying) and **villain-first multiway** (facing a bet with 2+ opponents —
+   `vsBet.ts` is heads-up only).
    `docs/range-vs-range-ev-design.md` is the staged plan (flop = Stage 3, multiway = Stage 4,
    both built).
+
+### Hero-first tree: villain may raise — `riverSolver.ts: villainRaiseSizes`
+Hero bets, villain answers **fold / call / raise**, hero then **folds or calls** the raise.
+Depth stops there (no hero re-raise), same as the facing-a-bet tree's one re-raise. All three
+heads-up streets carry it, `villainMayRaise` (default true) turns it off for an A/B, and it
+rides into the nested subgames so the check line and the bet line model the same tree. The
+raise-TO is one size — villain's call plus ¾ of the pot he'd then play — floored at a legal
+min-raise, capped at the stack, and absent when hero is already all-in. A **locked** villain
+still raises (`locked3BetPolicy`, strongest `LOCKED_THREEBET_SHARE` of what he keeps), or hero
+would get a bet that can never be punished.
+
+Why it matters: without the branch a bet could only be folded to or called, so a bluff was
+priced risk-free and the solver could not express **bet-fold** at all. `heroRaiseResponse` /
+`heroFoldToRaiseFreq` now carry that decision out to the coach ("he raises this ~18% — plan to
+fold with this hand").
+
+Three traps this created, all guarded by `betRaiseTree.test.ts`:
+
+- **`villainCallFreq` is calls only.** Continues are call + raise, so a fold read is the
+  complement of `villainContinueFreq`, not of the call frequency. Measuring folds off calls
+  counts every raise as a fold.
+- **"Adding the raise lowers a bluff's EV" is FALSE at equilibrium.** A re-solve moves
+  villain's whole strategy: the strong end of his range migrates from call to raise, so hero's
+  bluff gets folded on more often, which can outweigh the raises. The direction is only exact
+  with villain held FIXED (a node lock): air is indifferent-to-worse, a value hand strictly
+  better off, since a raise from a worse hand pays more than a call.
+- **Turn frequencies near a locked over-folder are coin flips.** Hero's alternative to
+  barrelling is to check and bluff the river, where the same locked villain folds just as
+  often — so the two lines sit within fractions of a chip and which one takes the frequency
+  flips between adjacent runouts. The stable turn claim is that betting's **EV** rises with the
+  fold read; the big `exploit` delta lives on the river, where there is no street left to delay
+  to. Don't re-add a turn frequency assertion.
+
+`exploitability.ts` re-derives this tree independently (including hero's second decision) and
+still reports < 1% of pot on a converged solve — that is the audit that the branch's payoffs
+and signs are right. The multiway solvers keep the two-action tree; villain's raise there would
+need the field's response modelled too.
+
+### Multiway flop — `multiwaySolver.ts: solveFlop3way`
+All three multiway streets share one street-agnostic CFR (`multiwayCfr`): hero picks
+check/bet-size, the solved villain answers fold/call, and the fixed field is pre-collapsed
+into `ThirdAgg` scalars. The only per-street difference is where `hvWin` comes from — an exact
+showdown on the river, equity over the remaining runouts on the turn, and on the flop equity
+over **nested texture buckets** (a turn representative × a river representative, weighted).
+
+The flop needed one thing the other streets didn't. Its check line nests a real turn subgame
+while a *called bet* is scored as a static two-street showdown (the cost bound the HU flop
+solver also takes). Heads-up, fold equity hides that gap; multiway it dominates and **widens
+with every extra player**, because the check line keeps the whole field in for its nested
+street and the bet line folds part of the field out for nothing later. Uncorrected, the solve
+checks a set on a wet 5-way flop — the worst advice this app could give a live player. So
+`calledLineFutureValue` raises the bet line to the same fidelity: it nests a turn subgame at
+the *called* pot, subtracts the static baseline at that same pot, and discounts the remainder
+by the combo's scoop share (without that discount the nested solve lends pure air the barrel
+equity of a range it isn't in, and hero starts stabbing multiway flops with king-high).
+
+Cost is the constraint — ~1.7s per node vs ~1.2s for the HU flop. Two knobs hold it there:
+`NEST_BUCKETS` (turn buckets solved per sweep) and solving the called line only at the
+smallest and largest size, **interpolating** the interior sizes by called pot. Both are
+disclosed abstractions; if a change makes the flop slow, they are the levers.
+`multiwayFlop.test.ts` pins the strategic direction (air stops bluffing, a wet-board set
+charges the field, nesting raises the check EV *and* the bet EV) plus a wall-clock budget.
+It deliberately does **not** pin "a set bets a dry multiway flop" — checking top set on
+A-7-2 rainbow three-handed is a real line and the solve reports it as near-indifferent.
 
 ### Size grids — `src/strategy/solver/betSizeGrid.ts`
 Every CFR node is solved over a grid built **per node**, because the sizes on
@@ -192,12 +307,69 @@ the same ordering, so the 3-betting hands are a subset of the continuing hands b
 The only gate left with **no lock** is the hero-first **flop**, which keeps the
 `primaryHasRead` fall-through to the per-hand model instead.
 
+The **preflop** half of the same read is a separate module with its own counters and
+its own shrinkage — see Preflop read layer below.
+
 **Multiway reads.** The 3-way solver's fixed third player is read-aware: when the
 non-primary live seat carries an observed/locked, off-balanced fold-to-bet read, index.ts
 passes it as `thirdFoldToBet` and `mdfCallProbs` re-anchors his continue share to it
 (via the same ¾-pot-referenced `lockedContinueBySize` curve the HU lock uses) instead of
 parameter-free MDF. The *solved* primary's read still routes through the per-hand fallback
 (the `primaryHasRead` carve-out); only the fixed player's read lands in the CFR.
+
+### Preflop read layer — `src/strategy/preflopModel.ts`
+The node lock's analogue for the one street it never reached. Before it, the preflop
+path was a static chart for everyone: the recommended 5-bet-bluff / flat / fold mix
+facing a maniac's 4-bet was **byte-identical** to the mix facing a nit's, and the
+villain range the postflop engines inherited was the chart's regardless of what he had
+actually been doing.
+
+Three observed rates drive it, counted in `analysis/observed.ts` alongside the postflop
+ones but keyed on **raise level**, not "is there a bet ahead" (preflop there is always a
+blind in front of everyone): `pfOpenChances/Taken` → **RFI%** (blinds excluded — they
+have no unopened pot to open into), `pfThreeBetChances/Taken` → **3-bet%**, and
+`pfFacedThreeBet/Folded` → **fold-to-3-bet%**. Each shrinks toward `PF_BALANCED` on
+**its own** decision count (`PF_HALF_WEIGHT`), because faced-3-bet spots arrive an order
+of magnitude slower than open chances and a pooled denominator would trust both equally.
+A `VillainLock` overrides outright — it extends `PreflopLock`, so one lock object
+carries both the postflop knobs and these.
+
+The read rides on `VillainModel.preflop`, deliberately **not** on `isExploitable`: that
+predicate gates the postflop CFR fall-through, and a purely preflop read must not flip
+which engine solves a flop node. There is also no archetype prior here — the bot
+profiles carry no preflop frequencies, so an un-modelled seat is balanced preflop even
+when its postflop prior is the bot's own tag.
+
+Two consumers:
+
+1. **Chart frequencies at hero's node.** `preflopAdjust(level, code, read)` →
+   per-kind multipliers, `applyPreflopRead` scales the cell with fold absorbing. Whose
+   read counts depends on the level: facing action it's the **last raiser**, unopened
+   it's the live seat **behind** with the highest 3-bet frequency (the max, not an
+   average — one 3-bettor yet to act is enough to tax a steal, and when even the widest
+   of them is a nit the same number correctly widens hero's open).
+2. **The projected range the postflop engines inherit.** `roleBaseRange` resizes by
+   `rangeMultForRole` → `resizeRangeByStrength`. A 20% 3-bettor modelled on the chart's
+   ~8% 3-bet range reads too tight and too strong on every later street, which is the
+   direction that costs hero money against him.
+
+Three things this layer does that depth shading deliberately doesn't, and why:
+
+- **Premiums are read-proof.** `marginality(code)` tapers every multiplier to zero above
+  ~0.82 strength. AA opens and 4-bets against everyone; the exploits all live on the
+  marginal tail.
+- **A cell the chart plays 100% can start folding**, and **a cell it folds 100% can start
+  raising** (`PROMOTE_FLOOR`, opt-in via `applyPreflopRead`'s `aggr` arg). Without both,
+  "fold AQo to a nit's 3-bet" and "3-bet the hands he folds to" are unreachable no matter
+  how firm the read — and those are the two most valuable preflop exploits there are.
+  Promotion invents only the **aggressive** action (fold equity is the mechanism) and is
+  withheld multiway, where `squashBluffsMultiway` just removed those bluffs for a reason.
+- **`NodeStrategy.exploit` is emitted here too**, but the charts are teaching baselines
+  whose EVs are *relative estimates*. `preflopExploit`'s `gainBb` ranks two lines in the
+  read's own frame; it is not a solved edge and the prose must never read as one.
+
+Disclosed gap: **the bots don't see any of this.** `ai/decide.ts` still plays the static
+charts, so a read is something hero exploits, not something the table adapts to.
 
 ### Preflop chart override layer
 `src/data/solverPreflop.json` overrides the built-in heuristic preflop charts — per
@@ -291,6 +463,17 @@ cases. Three unusual suites worth knowing before you "fix" them:
 
 ## Things that will bite you
 
+- **CFR test expectations are range-composition-sensitive.** A two-combo hero range makes the
+  game degenerate — villain's response to a range that is half air is nothing like his real
+  one — so a solver test that "fails" may just have an unrealistic range. Use value + draw +
+  air before concluding the solver is wrong. And the heavy solver tests (multiway flop ≈ 1.7s a
+  node) need explicit per-test timeouts: the 5s default passes solo and fails under the full
+  suite's parallel load.
+- **Rake defaults to `none`.** Every EV in the app is rake-free until the user picks a
+  profile in ⚙ Settings, so the whole test suite pins rake-free numbers and a rake bug is
+  invisible by default (`strategy/rake.test.ts` is the direction guard). `GameState.rake`
+  also has to be **stamped onto any state built by `createGame`** — `useGame` does it in
+  `deal` and in `setRake`; a new call site that skips it silently plays rake-free.
 - **PWA caching.** `vite-plugin-pwa` with `registerType: 'autoUpdate'` caches
   aggressively, so a stale page after a deploy looks like a code bug. The footer
   shows `__APP_VERSION__` / `__BUILD_SHA__` / `__BUILD_TIME__` (defined in

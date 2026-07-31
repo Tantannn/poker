@@ -16,6 +16,7 @@
 // its only import is the shared node-lock policy.
 
 import { locked3BetPolicy, lockedContinueVsRaise, lockedThresholdPolicy } from './riverSolver';
+import { netPot, rakeOn, type Rake } from '../../engine/rake';
 
 export interface VsBetEquityInput {
   eq: Float64Array[]; // [heroI][villJ] hero equity over remaining runouts, 0..1
@@ -32,6 +33,8 @@ export interface VsBetEquityInput {
   /** NODE LOCK: pin villain's fold-or-call vs hero's raise to a read (¾-pot-referenced
    *  fold-to-bet) instead of solving it, so hero best-responds. Omit for the equilibrium. */
   villainFoldToBet?: number;
+  /** house rake in chips, taken off every pot a player collects. Omit for rake-free EV. */
+  rake?: Rake;
 }
 
 export interface VsBetResult {
@@ -90,9 +93,16 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
 
   // hero net chips (dead pot Q). At an equity showdown for total invested x the final pot
   // is Q + 2x, so hero's EV = e·(Q + 2x) − x (e=1 → Q+x win, e=0 → −x, e=½ → Q/2 tie).
-  const heroSD = (e: number, x: number) => e * (Q + 2 * x) - x;
-  const villSD = (e: number, x: number) => (1 - e) * (Q + 2 * x) - x;
-  const HERO_RAISE_FOLD = Q + b; // villain folds to the raise → hero takes dead pot + bet
+  // Rake comes off the pot collected, so it scales the win side and leaves the invested
+  // chips alone. Every terminal pot is precomputed per size — the showdown lines below are
+  // the innermost of the CFR, so a per-leaf function call is worth seconds of wall clock.
+  const rake = inp.rake;
+  const netAt = (x: number) => netPot(rake, Q + 2 * x);
+  const netB = netAt(b);
+  const netR = R.map(netAt);
+  const netX = X.map(netAt);
+  // villain folds to the raise: pot is Q + b + r_k and hero's own raise comes back.
+  const heroRaiseFold = R.map((rk) => Q + b - rakeOn(rake, Q + b + rk));
   const villFold = -b; // villain forfeits his bet
 
   // hero root actions: 0 fold, 1 call, 2 + k raise at size k
@@ -135,7 +145,7 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
             const reach = villW[j] * vS[k][j][2];
             if (reach === 0) continue;
             aFold += reach * -rk;
-            aCall += reach * heroSD(eq[i][j], X[k]);
+            aCall += reach * (eq[i][j] * netX[k] - X[k]);
           }
           const st = hS3[k][i];
           const node = st[0] * aFold + st[1] * aCall;
@@ -149,7 +159,7 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
 
       // villain regret vs raise k — only hero's raise reaches it. Skipped when locked.
       if (!locked) {
-        const VILL_3BET_FOLD = Q + rk; // hero folds to the re-raise → villain takes pot + raise
+        const VILL_3BET_FOLD = Q + rk - rakeOn(rake, Q + rk + X[k]); // hero folds to the re-raise
         for (let j = 0; j < nV; j++) {
           let vF = 0;
           let vC = 0;
@@ -159,9 +169,9 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
             const reach = heroW[i] * hS[i][2 + k];
             if (reach === 0) continue;
             vF += reach * villFold;
-            vC += reach * villSD(eq[i][j], rk);
+            vC += reach * ((1 - eq[i][j]) * netR[k] - rk);
             if (has3Bet[k]) {
-              v3 += reach * (hS3[k][i][0] * VILL_3BET_FOLD + hS3[k][i][1] * villSD(eq[i][j], X[k]));
+              v3 += reach * (hS3[k][i][0] * VILL_3BET_FOLD + hS3[k][i][1] * ((1 - eq[i][j]) * netX[k] - X[k]));
             }
           }
           const st = vS[k][j];
@@ -184,12 +194,12 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
         if (!valid[i][j]) continue;
         const w = villW[j];
         const e = eq[i][j];
-        av[1] += w * heroSD(e, b);
+        av[1] += w * (e * netB - b);
         for (let k = 0; k < nR; k++) {
           const vs = vS[k][j];
-          const afterRaise = vs[0] * HERO_RAISE_FOLD + vs[1] * heroSD(e, R[k]);
+          const afterRaise = vs[0] * heroRaiseFold[k] + vs[1] * (e * netR[k] - R[k]);
           const after3Bet = has3Bet[k]
-            ? vs[2] * (hS3[k][i][0] * -R[k] + hS3[k][i][1] * heroSD(e, X[k]))
+            ? vs[2] * (hS3[k][i][0] * -R[k] + hS3[k][i][1] * (e * netX[k] - X[k]))
             : 0;
           av[2 + k] += w * (afterRaise + after3Bet);
         }
@@ -229,13 +239,13 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
       const w = villW[j];
       const e = eq[i][j];
       vw += w;
-      call += w * heroSD(e, b);
+      call += w * (e * netB - b);
       for (let k = 0; k < nR; k++) {
         const vs = vFinal[k][j];
         const after3Bet = has3Bet[k]
-          ? vs[2] * (hFinal3[k][i][0] * -R[k] + hFinal3[k][i][1] * heroSD(e, X[k]))
+          ? vs[2] * (hFinal3[k][i][0] * -R[k] + hFinal3[k][i][1] * (e * netX[k] - X[k]))
           : 0;
-        raises[k] += w * (vs[0] * HERO_RAISE_FOLD + vs[1] * heroSD(e, R[k]) + after3Bet);
+        raises[k] += w * (vs[0] * heroRaiseFold[k] + vs[1] * (e * netR[k] - R[k]) + after3Bet);
       }
     }
     const inv = vw > 0 ? 1 / vw : 0;

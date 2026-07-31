@@ -7,6 +7,7 @@
 // mode; settings (shared preferences + which mode was last active) are single.
 
 import type { GameState } from '../engine/table';
+import type { VillainLock } from '../strategy/villainModel';
 
 export type GameMode = 'cash' | 'tourney';
 
@@ -110,10 +111,12 @@ export interface PersistSettings {
   seatDiffs?: string[];
   /** hide bot archetypes — hero builds reads from observed stats and guesses. */
   anonymousVillains?: boolean;
-  /** manual node locks per seat index: assert what a villain does (fold-to-bet /
-   *  bet frequency) and the strategy engine solves against that instead of the
-   *  observed read. See strategy/villainModel.ts. */
-  villainLocks?: Record<number, { enabled: boolean; foldToBet?: number; betFreq?: number }>;
+  /** manual node locks per seat index: assert what a villain does (fold-to-bet,
+   *  bet frequency, and the preflop rates in strategy/preflopModel.ts) and the
+   *  strategy engine solves against that instead of the observed read. Typed from
+   *  `VillainLock` rather than restated — an inline shape silently DROPS any field
+   *  added to the lock, since saveSettings round-trips through this interface. */
+  villainLocks?: Record<number, VillainLock>;
   /** use observed reads (VPIP/fold-to-bet/bet-freq) as the villain model the
    *  strategy engine solves against, instead of the bot's hidden archetype.
    *  Defaults ON — an archetype the player can't see shouldn't drive the advice. */
@@ -127,6 +130,10 @@ export interface PersistSettings {
    *  stacks instead of rebuying — keeps a focused drill table even. */
   autoResetOnBust?: boolean;
   tableSize?: number;
+  /** house rake profile id (engine/rake.ts). Missing/'none' = rake-free, solver-style EV. */
+  rake?: string;
+  /** live straddle mode (engine/table.ts StraddleMode). Missing/'off' = no straddle. */
+  straddle?: string;
   /** legacy single-mode flag — kept for back-compat reads; `activeMode` supersedes it. */
   tournament?: boolean;
   /** which mode's table was last on screen, so a refresh reopens the same tab. */

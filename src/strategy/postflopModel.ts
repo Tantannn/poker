@@ -10,6 +10,7 @@ import { equityVsRange, equityVsField, countOuts, exactOutsEquity } from '../eng
 import { evaluate7 } from '../engine/evaluator';
 import { requiredEquityForBet } from '../engine/potOdds';
 import { classifyFlop, boardWetScore } from '../engine/board';
+import { netPot, rakeOn, rakeMarginal, type Rake } from '../engine/rake';
 import type { TextureInfo } from '../engine/board';
 import { canonicalOuts } from './handClass';
 import type { ActionId, ActionOption, NodeStrategy } from './types';
@@ -228,6 +229,10 @@ export interface PostflopInput {
    *  EV race and bluffs stop working); − for a nit (folds a wider slice, so fold equity
    *  rises and bluffs / bigger bets gain). 0 = balanced / unknown / hero. */
   contBias?: number;
+  /** house rake, in chips. Every pot hero COLLECTS is netted by it and the break-even
+   *  equity to call rises — the cap makes it bite hardest on the small pots, i.e. the
+   *  thin value bets and marginal calls. Omitted = rake-free (solver-style) EV. */
+  rake?: Rake;
   /** villain rarely BETS when checked to (low aggression / a passive station). When
    *  true, checking a strong made hand does NOT set a trap — he won't barrel it for
    *  you, so a check just checks the pot down and forfeits value; the coach then says
@@ -434,6 +439,11 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   const P = inp.pot;
   const C = inp.toCall;
   const bb = inp.bigBlind;
+  // Every pot hero collects is netted by the rake, so the equity a call needs rises:
+  // break-even is C / (pot after rake), not C / pot. Rake-free when unset.
+  const rake = inp.rake;
+  const net = (pot: number) => netPot(rake, pot);
+  const potStr = (pot: number) => (rake ? `${net(pot).toFixed(1)} after rake` : `${pot}`);
 
   // outs for semi-bluff vs pure-bluff labelling (meaningful flop/turn only). Use the
   // HONEST ladder (canonicalOuts), NOT raw countOuts: countOuts credits pairing your
@@ -546,20 +556,20 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     cands.push({
       id: 'check',
       label: 'Check',
-      ev: (checkEq * P) / bb,
+      ev: (checkEq * net(P)) / bb,
       kind: 'passive',
       why: checkWhy,
-      math: `EV = equity × pot${checkEq !== e ? ` × realise(${realize})` : ''} = ${pct1(checkEq)} × ${P} = ${(checkEq * P).toFixed(1)} chips ≈ ${((checkEq * P) / bb).toFixed(2)} bb`,
+      math: `EV = equity × pot${rake ? ' (after rake)' : ''}${checkEq !== e ? ` × realise(${realize})` : ''} = ${pct1(checkEq)} × ${potStr(P)} = ${(checkEq * net(P)).toFixed(1)} chips ≈ ${((checkEq * net(P)) / bb).toFixed(2)} bb`,
     });
   }
   if (C > 0) {
-    const need = C / (P + C);
+    const need = C / Math.max(1, net(P + C));
     // A river call CLOSES the action: there are no later streets to be outplayed
     // on, so the position realisation factor must NOT apply — you always get to
     // showdown for exactly your equity. (Flop/turn calls keep it: OOP you realise
     // less of the equity you're paying for.)
     const callEq = isRiver ? e : eReal;
-    const evCall = (callEq * (P + C) - C + implied) / bb;
+    const evCall = (callEq * net(P + C) - C + implied) / bb;
     cands.push({
       id: 'fold',
       label: 'Fold',
@@ -578,7 +588,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
           : e >= need
             ? `~${pct(e)} vs ${pct(need)} needed — technically enough, but the call is about break-even at best once realisation is counted, so folding gives up almost nothing.`
             : `You need ${pct(need)} equity to call but only have ~${pct(e)}. Folding forfeits the pot but loses the least.`,
-      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)}; you have ~${pct(e)}.\nEV(fold) = 0 bb (you put in nothing more).`,
+      math: `Pot odds: need = call ÷ (pot + call${rake ? ', after rake' : ''}) = ${C} ÷ ${potStr(P + C)} = ${pct(need)}; you have ~${pct(e)}.\nEV(fold) = 0 bb (you put in nothing more).`,
     });
     cands.push({
       id: 'call',
@@ -594,7 +604,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       }${
         !isRiver && oop ? ' Out of position you realise less of that equity, so call tighter.' : !isRiver && ip ? ' In position you realise it well.' : ''
       }${implied > 0 ? ` Implied odds add ~${(implied / bb).toFixed(1)}bb: ${effStack} behind (SPR ${spr.toFixed(1)}) pays you off when the draw lands — but only ~${Math.round(cleanFrac * 100)}% of your outs actually win vs his range here, so the draw is discounted (clean outs, not raw outs).` : ''}${riverCallNote(isRiver, e, need)}`,
-      math: `Pot odds: need = call ÷ (pot + call) = ${C} ÷ ${P + C} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity${callEq !== e ? ` × realise(${realize})` : ''} × (pot + call) − call${implied > 0 ? ' + implied' : ''} = ${pct1(callEq)} × ${P + C} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(callEq * (P + C) - C + implied).toFixed(1)} chips ≈ ${((callEq * (P + C) - C + implied) / bb).toFixed(2)} bb`,
+      math: `Pot odds: need = call ÷ (pot + call${rake ? ', after rake' : ''}) = ${C} ÷ ${potStr(P + C)} = ${pct(need)} (you have ~${pct(e)}).\nEV = equity${callEq !== e ? ` × realise(${realize})` : ''} × (pot + call${rake ? ' − rake' : ''}) − call${implied > 0 ? ' + implied' : ''} = ${pct1(callEq)} × ${potStr(P + C)} − ${C}${implied > 0 ? ` + ${implied.toFixed(1)} (implied odds, after a ${Math.round(cleanFrac * 100)}% clean-out discount)` : ''} = ${(callEq * net(P + C) - C + implied).toFixed(1)} chips ≈ ${((callEq * net(P + C) - C + implied) / bb).toFixed(2)} bb`,
     });
   }
 
@@ -608,7 +618,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     target = Math.max(target, inp.minRaiseTo);
     target = Math.min(target, inp.maxRaiseTo);
     if (target >= inp.maxRaiseTo) return; // becomes all-in; handled separately
-    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01, contBias);
+    const d = computeAggro(eHU, P, C, target, inp.currentBet, inp.heroCommitted, wetness, false, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01, contBias, inp.rake);
     const cls = classifyBet(eHU, e, outs, hasMade);
     const sv = d.streetValue > 0.05;
     const dv = d.denial > 0.05;
@@ -658,7 +668,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
   // range-vs-range modelling (a Tier-2 change), not more sizes here.
 
   if (inp.canRaise && inp.maxRaiseTo > inp.currentBet) {
-    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01, contBias);
+    const d = computeAggro(eHU, P, C, inp.maxRaiseTo, inp.currentBet, inp.heroCommitted, wetness, true, realize, feMult, nOpp, effStack, cardsToCome, e, flushLevel, wet01, contBias, inp.rake);
     const cls = classifyBet(eHU, e, outs, hasMade);
     const allinFrac = (inp.maxRaiseTo - inp.currentBet) / Math.max(1, potForSize);
     // shoving your whole stack is high-variance and hard to recover from IRL, so
@@ -801,6 +811,7 @@ function computeAggro(
   flushLevel = 0, // 0 = not flush-dominated; 3 = monotone/3-flush (mild); 4+ = made-flush wall
   wet01 = 0, // 0..1 draw pressure — drives the denial (charge) vs multi-street (keep-in) tradeoff
   contBias = 0, // archetype stickiness: + station continues wider (big value wins), − nit folds more (bluffs win)
+  rake?: Rake,
 ): AggroDetail {
   // Cap the bet by the EFFECTIVE stack: chips past what opponents can call come back,
   // so a jam vs a short stack is NOT a giant overbet — it's whatever fraction of the
@@ -811,6 +822,13 @@ function computeAggro(
   const R = Math.min(target - currentBet, cap); // callable pressure on top of a call
   const A = Math.min(target - heroCommitted, cap); // hero's real at-risk chips
   const s = R / Math.max(1, P + C); // effective raise size relative to the pot
+
+  // Rake hits a pot hero WINS, never a pot he loses (he pays his bet either way).
+  // `net` for pots collected outright; `rakeMarginal` for chips a bet ADDS to the pot,
+  // which is where the cap matters: extra value is taxed in a small pot and free in a
+  // capped one — the reason thin river value bets die at low stakes and not at high.
+  const net = (pot: number) => netPot(rake, pot);
+  const show = (x: number) => (rake ? x.toFixed(1) : `${x}`);
 
   // ---- RIVER: thin-value model (no more cards to come) ----
   // Minimum-defence (below) answers "does villain fold enough vs a BLUFF?" — the
@@ -845,11 +863,12 @@ function computeAggro(
     const cont = Cw + Cb;
     const e2r = cont > 0 ? Cw / cont : 0; // hero equity GIVEN called
     const fer = Math.max(0.02, 1 - cont); // share that folds (worse, didn't cry-call)
-    const evr = base * P + R * Cw - A * Cb; // showdown + thin-value increment
+    const thin = R * (1 - rakeMarginal(rake, P + A + R)); // what a called bet actually adds
+    const evr = base * net(P) + thin * Cw - A * Cb; // showdown + thin-value increment
     // river math is a thin-value increment, NOT the generic fold-equity template —
     // print the formula that was actually evaluated so the panel can't contradict it.
-    const evLabel = `showdown share × pot + bet × (worse hands that call) − you invest × (better hands that call)`;
-    const evExpr = `${pct1(base)} × ${P} + ${R} × ${pct1(Cw)} − ${A} × ${pct1(Cb)}`;
+    const evLabel = `showdown share × pot${rake ? ' after rake' : ''} + bet × (worse hands that call) − you invest × (better hands that call)`;
+    const evExpr = `${pct1(base)} × ${show(net(P))} + ${show(thin)} × ${pct1(Cw)} − ${A} × ${pct1(Cb)}`;
     return { ev: evr, fe: fer, e2: e2r, calledPot: P + A + R, A, streetValue: 0, denial: 0, committed: false, contFrac: cont, evLabel, evExpr, isThinValue: true };
   }
 
@@ -934,7 +953,8 @@ function computeAggro(
   // pot at showdown = dead pot + hero's (callable) chips + each caller's match (R, already
   // capped to the effective stack above, so this can't bank chips nobody can call).
   let calledPot = P + A + kbar * R;
-  let ev = fe * P + contFrac * (e2 * calledPot - A);
+  // fold branch: hero's own bet comes back, so he gains P minus the rake on P + A.
+  let ev = fe * (P - rakeOn(rake, P + A)) + contFrac * (e2 * net(calledPot) - A);
 
   // MULTI-STREET VALUE — favours SMALLER bets, and only on DRY boards. A non-all-in
   // value bet keeps worse hands in AND lets hero bet again later; that future value is
@@ -943,7 +963,7 @@ function computeAggro(
   let streetValue = 0;
   if (!isAllIn && cardsToCome > 0 && e > 0.55 && flushLevel < 4) {
     const behind = Math.max(0, effStack - A); // wagerable on later streets
-    const futureExtract = Math.min(behind, 0.5 * calledPot); // ~½-pot next street
+    const futureExtract = Math.min(behind, 0.5 * calledPot) * (1 - rakeMarginal(rake, calledPot)); // ~½-pot next street
     const edge = Math.max(0, Math.min(1, (e2 - 0.5) * 2)); // how far ahead of callers
     const dryness = Math.max(0, 1 - wet01); // dry boards keep worse hands around
     streetValue = contFrac * edge * futureExtract * 0.5 * dryness;
@@ -958,7 +978,7 @@ function computeAggro(
   let denial = 0;
   if (cardsToCome > 0 && eOne > 0.5) {
     const expFolders = oppCount * (1 - q); // hands bet out
-    denial = expFolders * (wet01 * 0.28) * P * 0.5;
+    denial = expFolders * (wet01 * 0.28) * net(P) * 0.5;
     ev += denial;
   }
 
@@ -992,13 +1012,13 @@ function computeAggro(
     e2 = e2A;
     calledPot = P + effStack + kbarA * effStack;
     streetValue = 0;
-    ev = fe * P + contFrac * (e2 * calledPot - effStack) + denial;
+    ev = fe * (P - rakeOn(rake, P + effStack)) + contFrac * (e2 * net(calledPot) - effStack) + denial;
   }
   const invest = committed ? effStack : A;
 
   const showDenial = denial > 0.05;
-  const evLabel = `fold% × pot + called% × (eq-when-called × final pot − you invest)${showDenial ? ' + equity denial' : ''}`;
-  const evExpr = `${pct1(fe)} × ${P} + ${pct1(contFrac)} × (${pct1(e2)} × ${Math.round(calledPot)} − ${Math.round(invest)})${showDenial ? ` + ${denial.toFixed(1)}` : ''}`;
+  const evLabel = `fold% × pot + called% × (eq-when-called × final pot${rake ? ', both after rake' : ''} − you invest)${showDenial ? ' + equity denial' : ''}`;
+  const evExpr = `${pct1(fe)} × ${show(P - rakeOn(rake, P + invest))} + ${pct1(contFrac)} × (${pct1(e2)} × ${Math.round(net(calledPot))} − ${Math.round(invest)})${showDenial ? ` + ${denial.toFixed(1)}` : ''}`;
   return { ev, fe, e2, calledPot, A, streetValue, denial, contFrac, committed, evLabel, evExpr, isThinValue: false };
 }
 

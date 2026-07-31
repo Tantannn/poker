@@ -21,8 +21,13 @@
 // barrels and see what the line becomes". That is the exploit workflow — find the
 // leak, lock it, play the counter-strategy — and it is what beats a low-stakes
 // regular, who is not balanced but is also not the archetype the bots ship with.
+//
+// The PREFLOP half of the same read lives in preflopModel.ts and is carried on
+// `VillainModel.preflop`, resolved from the same observed stats and the same lock.
 
 import type { ObservedStats } from '../analysis/observed';
+import type { PreflopLock, PreflopRead } from './preflopModel';
+import { balancedPreflopRead, resolvePreflopRead } from './preflopModel';
 
 /** Balanced-opponent baselines. These are the numbers index.ts already treated as
  *  "GTO / unknown", so a model with no read and no lock reproduces the old
@@ -47,7 +52,7 @@ const HALF_WEIGHT = { facedBet: 12, betChance: 15, riverBetChance: 10 } as const
 
 /** A user-set lock. Absent fields keep the observed/prior value, so you can lock
  *  fold-to-bet alone and leave the bluff read alone. */
-export interface VillainLock {
+export interface VillainLock extends PreflopLock {
   enabled: boolean;
   /** 0..1 — assume villain folds this often facing a bet */
   foldToBet?: number;
@@ -76,6 +81,12 @@ export interface VillainModel {
   confidence: number;
   /** one-line read for the Explain panel, or null when nothing is notable */
   label: string | null;
+  /** The PREFLOP read (3-bet%, fold-to-3-bet, RFI%), resolved from the same observed
+   *  stats and the same lock. Carried here rather than in a parallel map so it rides
+   *  the existing useGame → hudWorker → getNodeStrategy pipe with no new plumbing.
+   *  Deliberately NOT part of `isExploitable`: that gates the postflop CFR
+   *  fall-through, and a purely preflop read must not flip a flop node's engine. */
+  preflop: PreflopRead;
 }
 
 export const balancedModel = (): VillainModel => ({
@@ -86,6 +97,7 @@ export const balancedModel = (): VillainModel => ({
   archetypeVisible: false,
   confidence: 0,
   label: null,
+  preflop: balancedPreflopRead(),
 });
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -149,6 +161,9 @@ export function resolveVillainModel(
   // locks in FOLD-FREQUENCY space and derives callStation from the result, so the two
   // can never drift apart.
   const priorFold = foldToBetFromCallStation(prior.callStation);
+  // The preflop side resolves independently: it reads different counters, shrinks on
+  // different sample sizes, and a lock may set only postflop knobs or only preflop ones.
+  const preflop = resolvePreflopRead(obs, lock, !!lock?.enabled);
 
   // A lock is an assertion by the user, not an estimate — no shrinkage, full weight.
   if (lock?.enabled && (lock.foldToBet != null || lock.betFreq != null)) {
@@ -156,7 +171,7 @@ export function resolveVillainModel(
     const foldToBet = lock.foldToBet ?? priorFold;
     const callStation = lock.foldToBet != null ? callStationFromFoldToBet(lock.foldToBet) : prior.callStation;
     const m = { bluffFreq, callStation, foldToBet };
-    return { ...m, source: 'locked', archetypeVisible, confidence: 1, label: describe(m, true, 1) };
+    return { ...m, source: 'locked', archetypeVisible, confidence: 1, label: describe(m, true, 1), preflop };
   }
 
   // The bluff-catch happens on the river, so read the RIVER bet frequency when there
@@ -173,7 +188,7 @@ export function resolveVillainModel(
   const hasBet = betRate != null && betSample > 0;
   if (!obs || (!hasFold && !hasBet)) {
     const label = describe(prior, false, 0);
-    return { ...prior, foldToBet: priorFold, source: 'prior', archetypeVisible, confidence: 0, label };
+    return { ...prior, foldToBet: priorFold, source: 'prior', archetypeVisible, confidence: 0, label, preflop };
   }
 
   const fold = hasFold
@@ -197,6 +212,7 @@ export function resolveVillainModel(
     archetypeVisible,
     confidence,
     label: describe(m, false, confidence),
+    preflop,
   };
 }
 

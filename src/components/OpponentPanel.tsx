@@ -36,6 +36,9 @@ interface Props {
  *  with no read. Mirrors REF in strategy/villainModel.ts. */
 const BALANCED_REF = { foldToBet: 0.45, betFreq: 0.55 };
 
+/** Preflop equivalents — mirrors PF_BALANCED in strategy/preflopModel.ts. */
+const PF_REF = { openFreq: 0.26, threeBetFreq: 0.08, foldToThreeBet: 0.55 };
+
 const TAG_BLURB: Record<string, string> = {
   TAG: 'Tight-Aggressive',
   LAG: 'Loose-Aggressive',
@@ -205,10 +208,21 @@ function NodeLock({
   const obsBet = observed?.betFreq ?? null;
   const foldVal = lock?.foldToBet ?? obsFold ?? BALANCED_REF.foldToBet;
   const betVal = lock?.betFreq ?? obsBet ?? BALANCED_REF.betFreq;
+  const openVal = lock?.openFreq ?? observed?.openFreq ?? PF_REF.openFreq;
+  const threeBetVal = lock?.threeBetFreq ?? observed?.threeBetFreq ?? PF_REF.threeBetFreq;
+  const foldTo3Val = lock?.foldToThreeBet ?? observed?.foldToThreeBet ?? PF_REF.foldToThreeBet;
   const on = !!lock?.enabled;
 
   const set = (patch: Partial<VillainLock>) =>
-    onLock({ enabled: true, foldToBet: foldVal, betFreq: betVal, ...patch });
+    onLock({
+      enabled: true,
+      foldToBet: foldVal,
+      betFreq: betVal,
+      openFreq: openVal,
+      threeBetFreq: threeBetVal,
+      foldToThreeBet: foldTo3Val,
+      ...patch,
+    });
 
   return (
     <div className="opp-lock">
@@ -245,6 +259,20 @@ function NodeLock({
         </div>
       </div>
 
+      <div className="opp-lock-obs gp-muted">
+        Preflop — opens{' '}
+        <b>{observed?.openFreq == null ? '—' : `${Math.round(observed.openFreq * 100)}%`}</b>
+        {observed?.openSample ? ` (${observed.openSample} unopened)` : ''} · 3-bets{' '}
+        <b>{observed?.threeBetFreq == null ? '—' : `${Math.round(observed.threeBetFreq * 100)}%`}</b>
+        {observed?.threeBetSample ? ` (${observed.threeBetSample} spots)` : ''} · folds his open to a 3-bet{' '}
+        <b>{observed?.foldToThreeBet == null ? '—' : `${Math.round(observed.foldToThreeBet * 100)}%`}</b>
+        {observed?.foldToThreeBetSample ? ` (${observed.foldToThreeBetSample} spots)` : ''}
+        <div className="gp-muted">
+          These move the preflop charts and the range the postflop engine inherits for him —
+          a 20% 3-bettor is re-raising hands the chart has him folding.
+        </div>
+      </div>
+
       {on && (
         <div className="opp-lock-sliders">
           <LockSlider
@@ -259,6 +287,24 @@ function NodeLock({
             hint={`${Math.round(BALANCED_REF.betFreq * 100)}% is balanced. Higher → his bet range is air-heavy, so call down lighter.`}
             onChange={(v) => set({ betFreq: v })}
           />
+          <LockSlider
+            label="Opens (unopened pots)"
+            v={openVal}
+            hint={`${Math.round(PF_REF.openFreq * 100)}% is balanced. Higher → his opening range is weak, so defend wider against it.`}
+            onChange={(v) => set({ openFreq: v })}
+          />
+          <LockSlider
+            label="3-bets facing an open"
+            v={threeBetVal}
+            hint={`${Math.round(PF_REF.threeBetFreq * 100)}% is balanced. Higher → his 3-bet is far wider than the chart assumes: 4-bet for value and continue more.`}
+            onChange={(v) => set({ threeBetFreq: v })}
+          />
+          <LockSlider
+            label="Folds his open to a 3-bet"
+            v={foldTo3Val}
+            hint={`${Math.round(PF_REF.foldToThreeBet * 100)}% is balanced. Higher → light 3-bets print against his opens.`}
+            onChange={(v) => set({ foldToThreeBet: v })}
+          />
           <button className="toggle" onClick={() => onLock(null)}>
             Clear lock
           </button>
@@ -270,7 +316,12 @@ function NodeLock({
           <b>Engine is solving against:</b> {model.label}
         </div>
       )}
-      {!model?.label && (
+      {model?.preflop?.label && (
+        <div className="opp-lock-read">
+          <b>Preflop:</b> {model.preflop.label}
+        </div>
+      )}
+      {!model?.label && !model?.preflop?.label && (
         <div className="opp-lock-read gp-muted">
           No exploitable deviation yet — the engine is solving this node balanced.
         </div>

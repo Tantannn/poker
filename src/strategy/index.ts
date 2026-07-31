@@ -3,7 +3,8 @@
 // helpers for EV-loss scoring and RNG prescriptions.
 
 import type { Action, GameState } from '../engine/table';
-import { legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
+import { effectiveBigBlind, legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
+import { rakeInChips } from '../engine/rake';
 import type { Card } from '../engine/cards';
 import { makeRng, sameCard } from '../engine/cards';
 import { equityVsField, equityVsRange } from '../engine/equity';
@@ -15,11 +16,21 @@ import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, hand
 import { getProfile } from '../ai/profiles';
 import type { VillainModel } from './villainModel';
 import { BALANCED, balancedModel, foldToBetFromCallStation, isExploitable } from './villainModel';
+import type { PreflopLevel, PreflopRead } from './preflopModel';
+import {
+  NO_PREFLOP_ADJUST,
+  applyPreflopRead,
+  balancedPreflopRead,
+  isPreflopExploitable,
+  preflopAdjust,
+  rangeMultForRole,
+  resizeRangeByStrength,
+} from './preflopModel';
 import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
 import { depthValueMult, depthNote, shadeForDepth } from './depth';
-import { solveRiverNode, solveRiverVsBetNode, solveTurnVsBetNode, solveFlopVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode } from './solver/riverAdapter';
+import { solveRiverNode, solveRiverVsBetNode, solveTurnVsBetNode, solveFlopVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode, solveFlop3wayNode } from './solver/riverAdapter';
 import type { RiverVsBetNodeParams } from './solver/riverAdapter';
 
 // Tier-2 (Stage 0): route hero-first heads-up RIVER nodes through the range-vs-range
@@ -76,7 +87,7 @@ export function getNodeStrategy(
    *  always did. Preflop ignores this: the charts already model the population. */
   models?: VillainModels,
 ): NodeStrategy {
-  if (state.street === 'preflop') return preflopStrategy(state, heroIdx);
+  if (state.street === 'preflop') return preflopStrategy(state, heroIdx, models);
   return postflopStrategy(state, heroIdx, iterations, equityOverride, models);
 }
 
@@ -95,6 +106,9 @@ function modelFor(state: GameState, seatIdx: number, models?: VillainModels): Vi
     bluffFreq: prof.bluffFreq,
     callStation: prof.callStation,
     foldToBet: foldToBetFromCallStation(prof.callStation),
+    // No archetype carries preflop frequencies, so an un-modelled seat is balanced
+    // preflop even when its postflop prior is the bot's own tag.
+    preflop: balancedPreflopRead(),
     source: 'prior',
     archetypeVisible: true,
     confidence: 0,
@@ -107,7 +121,9 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   const n = state.players.length;
   const heroPos = positionLabel(heroIdx, state.buttonIndex, n);
   const raises = state.log.filter((l) => l.handNumber === state.handNumber && (l.type === 'raise' || l.type === 'bet')).length;
-  const facingRaise = state.currentBet > state.bigBlind;
+  // vs the EFFECTIVE blind: a straddle is a blind, not a raise, so an unopened straddled
+  // pot must still read as an RFI spot rather than sending everyone to 3-bet ranges.
+  const facingRaise = state.currentBet > effectiveBigBlind(state);
 
   if (!facingRaise) {
     // Open range is a function of SEATS BEHIND, not table size — read one 6-max
@@ -168,13 +184,33 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
 }
 
 /** Effective stack in big blinds: the shorter of the hero and the deepest live
- *  opponent. Matches the bot's measure (decide.ts) so feedback and bot play agree. */
+ *  opponent. Matches the bot's measure (decide.ts) so feedback and bot play agree.
+ *  Measured in EFFECTIVE blinds, so a straddled 100bb table correctly reads as 50 —
+ *  which is what moves the chart depth notes and the push/fold gate. */
 function effectiveStackBB(state: GameState, heroIdx: number): number {
   const me = state.players[heroIdx];
   const oppStacks = state.players
     .filter((p) => !p.folded && p.id !== heroIdx)
     .map((p) => p.stack + p.committed);
-  return Math.min(me.stack + me.committed, Math.max(0, ...(oppStacks.length ? oppStacks : [me.stack + me.committed]))) / state.bigBlind;
+  return (
+    Math.min(me.stack + me.committed, Math.max(0, ...(oppStacks.length ? oppStacks : [me.stack + me.committed]))) /
+    effectiveBigBlind(state)
+  );
+}
+
+/** What a live straddle actually changes, said out loud. Depth above is already measured in
+ *  STRADDLES (so 100bb reads as 50), but the chart itself is a ~100bb no-straddle baseline,
+ *  and the seat that posted acts last — so the ranges are an approximation here and the user
+ *  should know which way to bend them. */
+function straddleNote(state: GameState): string {
+  const str = state.straddleTo ?? 0;
+  if (str <= state.bigBlind) return '';
+  const mult = Math.round(str / state.bigBlind);
+  return (
+    ` A straddle is live (${mult}× the blind), so depth here is counted in STRADDLES — your stack is ~${mult}× shallower than the chart assumes,` +
+    ` the straddler acts last preflop like a second big blind, and every seat before him is effectively one position earlier.` +
+    ` Open bigger (multiples of the straddle, not the blind) and flat less: these charts are a ~100bb no-straddle baseline.`
+  );
 }
 
 // Short-stack push/fold (≤15bb effective). Too shallow to play postflop or realise
@@ -187,7 +223,9 @@ function pushFoldStrategy(state: GameState, heroIdx: number, effStackBB: number)
   const strength = preflopStrength(code);
   const heroPos = positionLabel(heroIdx, state.buttonIndex, state.players.length);
   const la = legalActions(state);
-  const facingRaise = state.currentBet > state.bigBlind;
+  // vs the EFFECTIVE blind: a straddle is a blind, not a raise, so an unopened straddled
+  // pot must still read as an RFI spot rather than sending everyone to 3-bet ranges.
+  const facingRaise = state.currentBet > effectiveBigBlind(state);
   const shortness = Math.max(0, Math.min(1, (15 - effStackBB) / 12));
   const pushFloor = (facingRaise ? 0.8 : 0.66) - shortness * 0.14;
   const inRange = strength >= pushFloor;
@@ -258,7 +296,29 @@ function pushFoldStrategy(state: GameState, heroIdx: number, effStackBB: number)
   };
 }
 
-function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
+/** Whose preflop read moves hero's decision here.
+ *
+ *  Facing action → the player who took it: the opener, the 3-bettor, the 4-bettor.
+ *  Unopened → the live seat BEHIND with the highest 3-bet frequency. One 3-bettor
+ *  yet to act is enough to tax a steal, so the maximum (not an average) is the
+ *  threat; and when even the widest of them is a nit, the whole field folds and the
+ *  same number correctly widens hero's open instead. */
+function preflopReadFor(state: GameState, heroIdx: number, level: number, models?: VillainModels): PreflopRead {
+  if (level >= 1) {
+    const r = lastRaiser(state);
+    return (r >= 0 ? models?.[r]?.preflop : undefined) ?? balancedPreflopRead();
+  }
+  const behind = state.players.filter((p) => !p.folded && p.id !== heroIdx && !p.hasActed);
+  const pool = behind.length ? behind : state.players.filter((p) => !p.folded && p.id !== heroIdx);
+  let out: PreflopRead | undefined;
+  for (const p of pool) {
+    const r = models?.[p.id]?.preflop;
+    if (r && (!out || r.threeBetFreq > out.threeBetFreq)) out = r;
+  }
+  return out ?? balancedPreflopRead();
+}
+
+function preflopStrategy(state: GameState, heroIdx: number, models?: VillainModels): NodeStrategy {
   // Short-stack spots collapse to push/fold — diverge before the cash charts.
   const effStackBB = effectiveStackBB(state, heroIdx);
   if (effStackBB <= 15) return pushFoldStrategy(state, heroIdx, effStackBB);
@@ -286,7 +346,19 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
   // `ai/decide.ts` shades its own preflop strength with the SAME multiplier, so the graded
   // answer keeps matching how the table plays.
   const depthMult = depthValueMult(code, effStackBB);
-  const charted = shadeForDepth(base, depthMult);
+  // The preflop READ layer (preflopModel.ts) rides on top: the chart is the balanced
+  // baseline, the read bends the marginal cells toward what beats THIS opponent.
+  // Read first, depth second — both absorb into fold, and depth is a property of the
+  // stack rather than the villain, so it should have the last word on the mix.
+  const read = preflopReadFor(state, heroIdx, level, models);
+  const adjust = isPreflopExploitable(read) ? preflopAdjust(level as PreflopLevel, code, read) : NO_PREFLOP_ADJUST;
+  const aggrId: ActionId = sc.facing === 'rfi' ? 'open' : 'raise';
+  const raiseLabel = sc.facing === 'rfi' ? 'Open' : sc.facing === 'vs4bet' ? '5-Bet' : sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
+  // Multiway already squashed the bluff raises out (no fold equity vs a field), so a
+  // read must not hand them back — the promotion channel is heads-up only.
+  const promote = multiway ? undefined : { id: aggrId, label: `${raiseLabel} (read)` };
+  const charted = shadeForDepth(applyPreflopRead(base, adjust, code, promote), depthMult);
+  const chartedBalanced = adjust.why ? shadeForDepth(base, depthMult) : charted;
   const la = legalActions(state);
   const bb = state.bigBlind;
 
@@ -300,20 +372,21 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
     return Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, target));
   };
 
+  const chartEv = (o: { kind?: ActionOption['kind']; freq: number }) => round2(BASE_EV[o.kind ?? 'fold'] * (0.5 + 0.5 * o.freq));
+
   // map charted options to concrete EVs (relative, heuristic) + explanations
   const options: ActionOption[] = charted.map((o) => {
     const amount = raiseSize(o.id);
     return {
       ...o,
       amount, // raise-to in chips; StrategyPanel renders the bb conversion
-      ev: round2(BASE_EV[o.kind ?? 'fold'] * (0.5 + 0.5 * o.freq)),
+      ev: chartEv(o),
       why: whyPreflop(o.kind, sc, code, o.freq),
       math: `Preflop chart: ${(o.freq * 100).toFixed(0)}% is the baseline frequency for ${code} in "${sc.short}". EV is a relative estimate (charts aren't EV-solved).`,
     };
   });
+  const balancedBest = chartedBalanced.reduce((a, b) => (chartEv(b) > chartEv(a) ? b : a), chartedBalanced[0]);
 
-  const aggrId: ActionId = sc.facing === 'rfi' ? 'open' : 'raise';
-  const raiseLabel = sc.facing === 'rfi' ? 'Open' : sc.facing === 'vs4bet' ? '5-Bet' : sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
   const raiseWord = sc.facing === 'rfi' ? 'opening' : `${raiseLabel.toLowerCase()}ting`; // "4-bet" → "4-betting"
   const ensure = (id: ActionId, label: string, kind: ActionOption['kind'], ev: number, why: string) => {
     if (options.some((o) => o.id === id)) return;
@@ -345,15 +418,46 @@ function preflopStrategy(state: GameState, heroIdx: number): NodeStrategy {
   }
 
   const best = options.reduce((a, b) => (b.ev > a.ev ? b : a), options[0]);
+  const exploit = adjust.why ? preflopExploit(options, best, balancedBest.id, read, adjust.why) : undefined;
+  const readNote = adjust.why
+    ? ` Read: ${adjust.why}.${exploit ? ` The chart's line is ${exploit.baselineLabel}; vs this opponent it's ${exploit.exploitLabel}.` : ' The frequencies are shaded toward that read; the chart line still stands.'}`
+    : '';
   return {
     options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),
     bestEv: best.ev,
     bestId: best.id,
     source: 'preflop-chart',
-    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''}${depthNote(code, effStackBB) ? ` ${depthNote(code, effStackBB)}` : ''} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
-    rangeNote: `${seatLabel}${multiway ? ' · multiway' : ''}`,
+    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''}${depthNote(code, effStackBB) ? ` ${depthNote(code, effStackBB)}` : ''}${straddleNote(state)}${readNote} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
+    rangeNote: `${seatLabel}${multiway ? ' · multiway' : ''}${adjust.why ? ' · read-adjusted' : ''}`,
     heroCode: code,
     scenarioId: sc.id,
+    exploit,
+  };
+}
+
+/** Preflop exploit delta. The charts are teaching baselines whose EVs are RELATIVE
+ *  estimates, not solved bb, so `gainBb` here ranks two lines against each other in
+ *  the read's own frame — it is not a solved edge, and the note must not read as one. */
+function preflopExploit(
+  options: ActionOption[],
+  best: ActionOption,
+  baselineId: ActionId,
+  read: PreflopRead,
+  why: string,
+): ExploitDelta | undefined {
+  if (baselineId === best.id) return undefined;
+  const baselineInReadFrame = options.find((o) => o.id === baselineId);
+  const gainBb = round2(best.ev - (baselineInReadFrame?.ev ?? best.ev));
+  if (gainBb <= 0.02) return undefined;
+  return {
+    baselineId,
+    baselineLabel: baselineInReadFrame?.label ?? baselineId,
+    exploitId: best.id,
+    exploitLabel: best.label,
+    gainBb,
+    why,
+    confidence: read.confidence,
+    source: read.source === 'locked' ? 'locked' : 'observed',
   };
 }
 
@@ -405,7 +509,7 @@ export function buildVillainRange(
       comboWeight,
     };
   }
-  const { baseSet, note } = roleBaseRange(state, villain);
+  const { baseSet, note } = roleBaseRange(state, villain, models?.[villain]?.preflop);
   const range = rangeFromSet(baseSet);
   const facingBet = state.currentBet > state.players[heroIdx].committed;
   let noteOut = note;
@@ -420,7 +524,11 @@ export function buildVillainRange(
  *  players get a 3-bettor / opener / flat-caller / BB range instead of a flat RFI.
  *  Weighted board-conditioning (villainActionWeight) is layered on top by callers
  *  that need it; the solver's hero side uses the base set uniformly. */
-export function roleBaseRange(state: GameState, seatIdx: number): { baseSet: Set<string>; note: string } {
+export function roleBaseRange(
+  state: GameState,
+  seatIdx: number,
+  read?: PreflopRead,
+): { baseSet: Set<string>; note: string } {
   const pos = positionLabel(seatIdx, state.buttonIndex, state.players.length);
   const seatId = state.players[seatIdx].id;
   // 'post' = blinds, not a raise, so the raise count is never inflated by blinds.
@@ -431,12 +539,15 @@ export function roleBaseRange(state: GameState, seatIdx: number): { baseSet: Set
 
   let baseSet: Set<string>;
   let note: string;
+  let role: 'open' | 'threebet' | 'continue' = 'continue';
   if (raiseRank > 0) {
+    role = 'threebet';
     // re-raised OVER an open → tight, polar 3-bet range (value + suited bluffs)
     baseSet = unionSet(THREEBET_RANGE, BLUFF_THREEBET_RANGE);
     note = `${pos}'s 3-bet range — tight value + suited bluffs`;
   } else if (raiseRank === 0) {
     // first (only) raiser → standard opening range
+    role = 'open';
     baseSet = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
     note = `${pos}'s ~${pctOf(baseSet)}% opening range`;
   } else if (pos === 'BB') {
@@ -474,6 +585,19 @@ export function roleBaseRange(state: GameState, seatIdx: number): { baseSet: Set
   }
   // Safety: never return an empty range (e.g. RFI_RANGES.BB is empty by design).
   if (baseSet.size === 0) baseSet = pos === 'BB' ? BB_DEFEND_RANGE : RFI_RANGES.BTN;
+  // A preflop read resizes the projected range: a player who 3-bets 20% modelled on
+  // the chart's ~8% 3-bet range reads too tight and too strong on every later street,
+  // which is exactly the direction that costs hero money against him. Strength-ordered,
+  // so widening admits the next-best hands rather than random junk (preflopModel.ts).
+  if (read && read.source !== 'balanced') {
+    const mult = rangeMultForRole(role, read);
+    const resized = resizeRangeByStrength(baseSet, mult);
+    if (resized.size !== baseSet.size) {
+      const dir = resized.size > baseSet.size ? 'widened' : 'tightened';
+      note += ` — ${dir} to his observed preflop frequencies (~${pctOf(resized)}%)`;
+      baseSet = resized;
+    }
+  }
   return { baseSet, note };
 }
 
@@ -655,6 +779,10 @@ function postflopStrategy(
   const oppStacks = state.players.filter((p) => !p.folded && p.id !== heroIdx).map((p) => p.stack);
   const effStack = Math.min(hero.stack, ...(oppStacks.length ? oppStacks : [hero.stack]));
 
+  // House rake, in chips — every engine and every gate below reads the SAME one, so a
+  // recommendation can't be rake-free while the table charges it. Undefined = rake-free.
+  const rake = rakeInChips(state.rake ?? 'none', state.bigBlind);
+
   // Hero's position vs the primary villain. Postflop order starts left of the
   // button, so the higher order-rank acts LATER (= in position). Drives equity
   // realisation and fold equity in the model — omitting it made the BB realise
@@ -716,6 +844,7 @@ function postflopStrategy(
       villainRange: range,
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
+      rake,
       rangeNote: note,
     };
     // NODE LOCK inside the CFR. Unlike the flop/3-way gates, a read does NOT fall
@@ -762,6 +891,7 @@ function postflopStrategy(
       fieldRanges: fieldIdx.map(() => range),
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
+      rake,
       rangeNote: note,
       fieldFoldToBet,
     });
@@ -792,6 +922,7 @@ function postflopStrategy(
       villainRange: range,
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
+      rake,
       rangeNote: note,
     };
     const solved = solveTurnNode(
@@ -827,6 +958,7 @@ function postflopStrategy(
       fieldRanges: fieldIdx.map(() => range),
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
+      rake,
       rangeNote: note,
       fieldFoldToBet,
     });
@@ -857,7 +989,43 @@ function postflopStrategy(
       villainRange: range,
       villainComboWeight: comboWeight,
       bigBlind: state.bigBlind,
+      rake,
       rangeNote: note,
+    });
+    if (solved) return solved;
+  }
+
+  // Tier-2 Stage 4: a hero-FIRST MULTIWAY FLOP node — the limped/family pot, and the most
+  // common live spot there is. Hero + primary villain by CFR over both remaining streets
+  // (runouts bucketed by texture on each), the rest of the field on a fixed MDF policy, and
+  // BOTH the check line and the called-bet line valued as nested turn subgames so the choice
+  // between them doesn't hinge on which branch got nested (see calledLineFutureValue). Same
+  // read carve-out as the other multiway gates: a read on the solved villain falls through to
+  // the per-hand model, which is where the exploit delta comes from.
+  if (
+    MULTIWAY_SOLVER_ENABLED &&
+    !primaryHasRead &&
+    state.street === 'flop' &&
+    la.callAmount === 0 &&
+    la.canCheck &&
+    la.canRaise &&
+    liveOpps >= 2 &&
+    liveOpps <= MAX_MULTIWAY_OPPONENTS
+  ) {
+    const heroRange = rangeFromSet(roleBaseRange(state, heroIdx).baseSet);
+    const solved = solveFlop3wayNode({
+      heroCards: hero.holeCards,
+      board: state.board,
+      pot,
+      effStack,
+      heroRange,
+      villainRange: range,
+      fieldRanges: fieldIdx.map(() => range),
+      villainComboWeight: comboWeight,
+      bigBlind: state.bigBlind,
+      rake,
+      rangeNote: note,
+      fieldFoldToBet,
     });
     if (solved) return solved;
   }
@@ -896,6 +1064,7 @@ function postflopStrategy(
         villainRange: range,
         villainComboWeight: comboWeight,
         bigBlind: state.bigBlind,
+        rake,
         rangeNote: note,
       };
       const solveVsBet = (a: RiverVsBetNodeParams) =>
@@ -944,6 +1113,7 @@ function postflopStrategy(
     canCheck: la.canCheck,
     canRaise: la.canRaise,
     bigBlind: state.bigBlind,
+    rake,
     iterations,
     rangeNote: note,
     heroCode: handCode(hero.holeCards),

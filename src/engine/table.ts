@@ -5,8 +5,13 @@
 import type { Card } from './cards';
 import { cardId, charToRank, makeDeck, shuffle } from './cards';
 import { evaluate7, describeHand } from './evaluator';
+import { rakeInChips, rakeOn, type RakeProfileId } from './rake';
 
 export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
+/** `utg` = the standard UTG straddle (2bb). `double` = UTG straddles and the next seat
+ *  re-straddles (4bb). `button` = the Mississippi straddle, where the BUTTON posts and
+ *  action starts with the small blind instead of UTG. */
+export type StraddleMode = 'off' | 'utg' | 'double' | 'button';
 export type Street = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'complete';
 export type ActionType = 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'post';
 
@@ -132,6 +137,20 @@ export interface GameState {
   // eliminated and play continues until one player holds all the chips. Default
   // (undefined/false) = cash-game behaviour with rebuys to the standard buy-in.
   tournament?: boolean;
+  // House rake taken from every pot that sees a flop. Undefined/'none' = rake-free.
+  rake?: RakeProfileId;
+  // Live straddle (cash only). A blind posted BEFORE the cards by a seat that then acts
+  // LAST preflop — so it doubles (or quadruples) the live bet without changing anyone's
+  // seat, which is why it is the most distorting thing in a live game: every stack is
+  // suddenly half as deep measured against the bet that matters.
+  straddle?: StraddleMode;
+  // The live bet the straddle actually posted, in chips (undefined/0 = no straddle this
+  // hand — a short stack may have posted less than the full amount). Read it through
+  // `effectiveBigBlind`, never directly, so depth logic can't miss it.
+  straddleTo?: number;
+  // Chips the house took this hand (0 until the pot is awarded). Display only —
+  // it is already out of the winner's stack.
+  rakePaid?: number;
 }
 
 export interface LegalActions {
@@ -196,6 +215,7 @@ export function createGame(
     lastAggressor: -1,
     seed: 0,
     tournament,
+    rakePaid: 0,
   };
 }
 
@@ -297,6 +317,7 @@ export function startHand(state: GameState): GameState {
   state.street = 'preflop';
   state.pots = [];
   state.winners = [];
+  state.rakePaid = 0;
   state.lastAggressor = -1;
   state.message = '';
 
@@ -346,14 +367,68 @@ export function startHand(state: GameState): GameState {
   state.currentBet = state.bigBlind;
   state.lastRaiseSize = state.bigBlind;
 
-  // first to act preflop = left of BB (UTG)
-  state.toAct = nextToAct(state, bbIdx);
-  // blinds reset hasActed so they get to act
+  // Straddles post here, after the blinds: they are blinds too, just bigger and out of
+  // order. `lastPosted` is who acts LAST preflop (the final straddler holds the option),
+  // so the first to act is the seat after them — UTG+1 behind a UTG straddle, or the small
+  // blind behind a Mississippi straddle.
+  state.straddleTo = 0;
+  let lastPosted = bbIdx;
+  for (const { idx, amount } of straddleSeats(state, b, bbIdx, nextLiveSeat)) {
+    postBlind(state, idx, amount, 'straddle');
+    lastPosted = idx;
+    state.currentBet = Math.max(state.currentBet, state.players[idx].committed);
+  }
+  if (state.currentBet > state.bigBlind) {
+    state.straddleTo = state.currentBet;
+    state.lastRaiseSize = state.currentBet; // a min-raise is now to twice the straddle
+  }
+
+  // first to act preflop = left of the last blind posted (UTG, or SB behind a Mississippi)
+  state.toAct = nextToAct(state, lastPosted);
+  // blinds and straddles reset hasActed so they get their option
   state.players[sbIdx].hasActed = false;
   state.players[bbIdx].hasActed = false;
+  for (const { idx } of straddleSeats(state, b, bbIdx, nextLiveSeat)) state.players[idx].hasActed = false;
   const anteNote = state.ante > 0 ? ` (ante ${state.ante})` : '';
-  state.message = `Hand #${state.handNumber} dealt. Blinds ${state.smallBlind}/${state.bigBlind}${anteNote}.`;
+  const strNote = state.straddleTo ? ` ${straddleLabel(state.straddle)} straddle ${state.straddleTo}.` : '';
+  state.message = `Hand #${state.handNumber} dealt. Blinds ${state.smallBlind}/${state.bigBlind}${anteNote}.${strNote}`;
   return state;
+}
+
+function straddleLabel(mode: StraddleMode | undefined): string {
+  return mode === 'button' ? 'Mississippi' : mode === 'double' ? 'Double' : 'UTG';
+}
+
+/** Which seats post a straddle this hand, and how much. Cash only (a tournament has no
+ *  straddle), and only with enough live seats for the straddler to exist and still act last. */
+function straddleSeats(
+  state: GameState,
+  buttonIdx: number,
+  bbIdx: number,
+  nextLiveSeat: (from: number) => number,
+): { idx: number; amount: number }[] {
+  const mode = state.straddle ?? 'off';
+  const live = liveSeatCount(state);
+  if (mode === 'off' || state.tournament || live < 3) return [];
+  if (mode === 'button') return [{ idx: buttonIdx, amount: 2 * state.bigBlind }];
+  const utg = nextLiveSeat(bbIdx);
+  if (utg === buttonIdx) return []; // no seat between the BB and the button to straddle from
+  if (mode === 'utg') return [{ idx: utg, amount: 2 * state.bigBlind }];
+  const utg1 = nextLiveSeat(utg);
+  // A re-straddle needs its own seat that is neither the button nor a blind, or the seat
+  // acting last would be a blind and the order below breaks.
+  if (live < 5 || utg1 === buttonIdx) return [{ idx: utg, amount: 2 * state.bigBlind }];
+  return [
+    { idx: utg, amount: 2 * state.bigBlind },
+    { idx: utg1, amount: 4 * state.bigBlind },
+  ];
+}
+
+/** The blind that MATTERS for depth: with a straddle live, a 100bb stack is 50 bets deep and
+ *  plays like it. Every depth decision — push/fold, open sizing, "am I facing a raise?" —
+ *  must read this, not `bigBlind`, or the app keeps giving 100bb advice in a 50-bet game. */
+export function effectiveBigBlind(state: GameState): number {
+  return state.straddleTo && state.straddleTo > state.bigBlind ? state.straddleTo : state.bigBlind;
 }
 
 function postBlind(state: GameState, idx: number, amount: number, label: string) {
@@ -663,9 +738,22 @@ function sameSet(a: number[], b: number[]): boolean {
   return a.length === b.length && a.every((x) => b.includes(x));
 }
 
+/** House drop, off the MAIN pot, and only once a flop was dealt ("no flop, no drop").
+ *  Rounded to whole chips because a cardroom rakes in chips, not fractions. */
+function takeRake(state: GameState): void {
+  if (state.board.length < 3 || state.pots.length === 0) return;
+  const total = state.pots.reduce((s, p) => s + p.amount, 0);
+  const rake = rakeInChips(state.rake ?? 'none', state.bigBlind);
+  const amt = Math.min(state.pots[0].amount, Math.round(rakeOn(rake, total)));
+  if (amt <= 0) return;
+  state.pots[0].amount -= amt;
+  state.rakePaid = amt;
+}
+
 function doShowdown(state: GameState) {
   state.pots = buildPots(state);
   state.winners = [];
+  takeRake(state);
 
   state.pots.forEach((pot, potIndex) => {
     const eligible = pot.eligible.filter((id) => !state.players[id].folded);
@@ -741,18 +829,24 @@ function doShowdown(state: GameState) {
     const parts = entries.map((e) => `${e.name} wins ${potLabel(Math.min(...e.pots))} with ${e.desc}`);
     state.message = `Showdown — ${parts.join('; ')}.`;
   }
+  state.message += rakeNote(state);
 }
 
 function awardUncontested(state: GameState) {
   const winner = contenders(state)[0];
-  const pot = potTotal(state);
+  state.pots = [{ amount: potTotal(state), eligible: [winner.id] }];
+  takeRake(state);
+  const pot = state.pots[0].amount;
   winner.stack += pot;
-  state.pots = [{ amount: pot, eligible: [winner.id] }];
   state.winners = [{ playerId: winner.id, amount: pot, potIndex: 0, handDesc: 'uncontested' }];
   state.street = 'complete';
   state.toAct = -1;
   updateTilt(state);
-  state.message = `${winner.name} wins ${pot} uncontested.`;
+  state.message = `${winner.name} wins ${pot} uncontested.${rakeNote(state)}`;
+}
+
+function rakeNote(state: GameState): string {
+  return (state.rakePaid ?? 0) > 0 ? ` House takes ${state.rakePaid}.` : '';
 }
 
 /** Snapshot of bb won/lost this hand for each player (call after a hand completes). */

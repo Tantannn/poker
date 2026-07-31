@@ -24,7 +24,8 @@ import { evaluate7 } from '../../engine/evaluator';
 import { solveTurn } from './turnSolver';
 import { solveVsBetEquity, type VsBetResult } from './vsBet';
 import { textureBuckets } from './cardTexture';
-import type { Combo } from './riverSolver';
+import { villainRaiseSizes, type Combo } from './riverSolver';
+import { netPot, rakeOn, type Rake } from '../../engine/rake';
 
 export interface FlopInput {
   heroRange: Combo[];
@@ -39,6 +40,11 @@ export interface FlopInput {
   nestTurnForCheck?: boolean;
   /** CFR iterations for each nested per-turn-bucket turn solve (default 260). */
   turnNestIterations?: number;
+  /** house rake in chips; rides into the nested turn subgames too. Omit for rake-free EV. */
+  rake?: Rake;
+  /** May villain RAISE hero's bet (default true)? See riverSolver — off prices every bluff as
+   *  risk-free. Rides into the nested turn subgames so both streets model the same tree. */
+  villainMayRaise?: boolean;
 }
 
 export interface FlopResult {
@@ -46,6 +52,12 @@ export interface FlopResult {
   actions: string[];
   heroActionEv: number[][]; // per hero combo, per action (chips)
   villainCallFreq: number[];
+  /** raise / continue (= call + raise) frequencies per bet size, and hero's [fold, call]
+   *  response to the raise with its range average — the bet-fold decision. */
+  villainRaiseFreq?: number[];
+  villainContinueFreq?: number[];
+  heroRaiseResponse?: number[][][];
+  heroFoldToRaiseFreq?: number[];
 }
 
 const id = (c: Card) => c.rank * 4 + c.suit;
@@ -105,6 +117,7 @@ function checkLineTurnEv(
   effStack: number,
   betSizes: number[],
   turnIters: number,
+  rake?: Rake,
 ): number[] {
   const nH = H.length;
   const acc = new Array(nH).fill(0);
@@ -130,6 +143,7 @@ function checkLineTurnEv(
       betSizes,
       iterations: turnIters,
       nestRiverForCheck: false, // bound recursion to two CFR layers; turn check = static river showdown
+      rake,
     });
     for (let k = 0; k < Hr.length; k++) {
       const s = res.heroStrategy[k];
@@ -183,7 +197,7 @@ export function solveFlop(inp: FlopInput): FlopResult {
     for (let j = 0; j < nV; j++) {
       if (!valid[i][j]) continue;
       w += V[j].w;
-      sd += V[j].w * (eq[i][j] * P); // heroSD(eq, 0) = eq × P
+      sd += V[j].w * (eq[i][j] * netPot(inp.rake, P)); // heroSD(eq, 0) = eq × pot after rake
     }
     vwSum[i] = w;
     checkStatic[i] = w > 0 ? sd / w : 0;
@@ -194,46 +208,100 @@ export function solveFlop(inp: FlopInput): FlopResult {
   const checkAvg = new Array(nH);
   const nested =
     inp.nestTurnForCheck !== false
-      ? checkLineTurnEv(H, V, inp.board, P, inp.effStack, inp.betSizes, inp.turnNestIterations ?? 260)
+      ? checkLineTurnEv(H, V, inp.board, P, inp.effStack, inp.betSizes, inp.turnNestIterations ?? 260, inp.rake)
       : null;
   for (let i = 0; i < nH; i++) {
     const v = nested ? nested[i] : NaN;
     checkAvg[i] = Number.isFinite(v) ? v : checkStatic[i];
   }
 
+  // VILLAIN MAY RAISE hero's bet (see riverSolver): one raise size, hero then folds his bet
+  // or calls for a showdown at that total. Without it a flop bluff is priced risk-free.
+  const mayRaise = inp.villainMayRaise !== false;
+  const raiseTo = villainRaiseSizes(P, inp.effStack, bets);
+  const canRaise = bets.map((b, s) => mayRaise && raiseTo[s] > b);
+
   const regretH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
   const stratSumH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
-  const regretV = Array.from({ length: nSizes }, () => Array.from({ length: nV }, () => [0, 0]));
-  const stratSumV = Array.from({ length: nSizes }, () => Array.from({ length: nV }, () => [0, 0]));
+  const regretV = canRaise.map((r) => Array.from({ length: nV }, () => new Array(r ? 3 : 2).fill(0)));
+  const stratSumV = canRaise.map((r) => Array.from({ length: nV }, () => new Array(r ? 3 : 2).fill(0)));
+  const regretH2 = bets.map(() => Array.from({ length: nH }, () => [0, 0]));
+  const stratSumH2 = bets.map(() => Array.from({ length: nH }, () => [0, 0]));
 
   // hero showdown EV given equity e and both invested inv (uses the flop pot P). The
   // bet-call line is scored as a static showdown at the flop pot — turn/river betting on
   // that line is not modelled (same simplification turnSolver makes one street later).
-  const heroSD = (e: number, inv: number) => e * (P + 2 * inv) - inv;
-  const villCall = (e: number, b: number) => (1 - e) * (P + 2 * b) - b;
+  // Terminal pots per bet size, precomputed: a showdown at size s holds P + 2·b, a fold
+  // P + b. Hoisted out of the CFR loops — these are the innermost lines of the solve, so a
+  // per-leaf call costs seconds. Rake comes off the pot collected, not the chips invested.
+  const netAtBet = bets.map((b) => netPot(inp.rake, P + 2 * b));
+  const foldWinBet = bets.map((b) => P - rakeOn(inp.rake, P + b));
+  const netAtRaise = raiseTo.map((x: number) => netPot(inp.rake, P + 2 * x));
+  const villRaiseFoldWin = bets.map((b, s) => P + b - rakeOn(inp.rake, P + b + raiseTo[s]));
 
   for (let t = 0; t < iters; t++) {
     const hS = regretH.map(strat);
     const vS = regretV.map((row) => row.map(strat));
+    const hS2 = regretH2.map((rows) => rows.map(strat));
+
+    // hero's response to the raise: give up the bet, or call for a showdown at raiseTo.
+    for (let s = 0; s < nSizes; s++) {
+      if (!canRaise[s]) continue;
+      const b = bets[s];
+      const nx = netAtRaise[s];
+      const x = raiseTo[s];
+      for (let i = 0; i < nH; i++) {
+        let aFold = 0;
+        let aCall = 0;
+        for (let j = 0; j < nV; j++) {
+          if (!valid[i][j]) continue;
+          const reach = V[j].w * vS[s][j][2];
+          if (reach === 0) continue;
+          aFold += reach * -b;
+          aCall += reach * (eq[i][j] * nx - x);
+        }
+        const st = hS2[s][i];
+        const node = st[0] * aFold + st[1] * aCall;
+        const cf = H[i].w;
+        regretH2[s][i][0] += cf * (aFold - node);
+        regretH2[s][i][1] += cf * (aCall - node);
+        stratSumH2[s][i][0] += cf * st[0];
+        stratSumH2[s][i][1] += cf * st[1];
+      }
+    }
 
     for (let s = 0; s < nSizes; s++) {
       const b = bets[s];
+      const nb = netAtBet[s];
+      const nx = netAtRaise[s];
+      const x = raiseTo[s];
+      const vrf = villRaiseFoldWin[s];
+      const raises = canRaise[s];
       for (let j = 0; j < nV; j++) {
         const vFold = 0;
         let vCall = 0;
+        let vRaise = 0;
         for (let i = 0; i < nH; i++) {
           if (!valid[i][j]) continue;
           const reach = H[i].w * hS[i][1 + s];
           if (reach === 0) continue;
-          vCall += reach * villCall(eq[i][j], b);
+          vCall += reach * ((1 - eq[i][j]) * nb - b);
+          if (raises) {
+            const h2 = hS2[s][i];
+            vRaise += reach * (h2[0] * vrf + h2[1] * ((1 - eq[i][j]) * nx - x));
+          }
         }
         const st = vS[s][j];
-        const node = st[0] * vFold + st[1] * vCall;
+        const node = st[0] * vFold + st[1] * vCall + (raises ? st[2] * vRaise : 0);
         const cf = V[j].w;
         regretV[s][j][0] += cf * (vFold - node);
         regretV[s][j][1] += cf * (vCall - node);
         stratSumV[s][j][0] += cf * st[0];
         stratSumV[s][j][1] += cf * st[1];
+        if (raises) {
+          regretV[s][j][2] += cf * (vRaise - node);
+          stratSumV[s][j][2] += cf * st[2];
+        }
       }
     }
 
@@ -242,11 +310,18 @@ export function solveFlop(inp: FlopInput): FlopResult {
       av[0] = checkAvg[i] * vwSum[i]; // check payoff on the villain-weight SUM scale the bets use
       for (let s = 0; s < nSizes; s++) {
         const b = bets[s];
+        const nb = netAtBet[s];
+        const fw = foldWinBet[s];
+        const nx = netAtRaise[s];
+        const x = raiseTo[s];
+        const h2 = hS2[s][i];
+        const raises = canRaise[s];
         let vBet = 0;
         for (let j = 0; j < nV; j++) {
           if (!valid[i][j]) continue;
           const vs = vS[s][j];
-          vBet += V[j].w * (vs[0] * P + vs[1] * heroSD(eq[i][j], b));
+          const afterRaise = raises ? vs[2] * (h2[0] * -b + h2[1] * (eq[i][j] * nx - x)) : 0;
+          vBet += V[j].w * (vs[0] * fw + vs[1] * (eq[i][j] * nb - b) + afterRaise);
         }
         av[1 + s] = vBet;
       }
@@ -268,6 +343,12 @@ export function solveFlop(inp: FlopInput): FlopResult {
   });
   const vFinal = stratSumV.map((sr) =>
     sr.map((c) => {
+      const tot = c.reduce((a, v) => a + v, 0);
+      return tot > 0 ? c.map((v) => v / tot) : c.map(() => 1 / c.length);
+    }),
+  );
+  const h2Final = stratSumH2.map((rows) =>
+    rows.map((c) => {
       const tot = c[0] + c[1];
       return tot > 0 ? [c[0] / tot, c[1] / tot] : [0.5, 0.5];
     }),
@@ -280,27 +361,56 @@ export function solveFlop(inp: FlopInput): FlopResult {
     av[0] = checkAvg[i]; // reported check EV = the turn-subgame value (average chips)
     for (let s = 0; s < nSizes; s++) {
       const b = bets[s];
+      const nb = netAtBet[s];
+      const fw = foldWinBet[s];
+      const nx = netAtRaise[s];
+      const x = raiseTo[s];
+      const h2 = h2Final[s][i];
+      const raises = canRaise[s];
       let bt = 0;
       for (let j = 0; j < nV; j++) {
         if (!valid[i][j]) continue;
         const vs = vFinal[s][j];
-        bt += V[j].w * (vs[0] * P + vs[1] * heroSD(eq[i][j], b));
+        const afterRaise = raises ? vs[2] * (h2[0] * -b + h2[1] * (eq[i][j] * nx - x)) : 0;
+        bt += V[j].w * (vs[0] * fw + vs[1] * (eq[i][j] * nb - b) + afterRaise);
       }
       av[1 + s] = bt * inv;
     }
     heroActionEv.push(av);
   }
-  const villainCallFreq = vFinal.map((sr) => {
-    let cw = 0;
-    let cc = 0;
-    for (let j = 0; j < nV; j++) {
-      cw += V[j].w;
-      cc += sr[j][1] * V[j].w;
+  const freqOf = (a: number) =>
+    vFinal.map((sr) => {
+      let cw = 0;
+      let cc = 0;
+      for (let j = 0; j < nV; j++) {
+        cw += V[j].w;
+        cc += (sr[j][a] ?? 0) * V[j].w;
+      }
+      return cw > 0 ? cc / cw : 0;
+    });
+  const villainCallFreq = freqOf(1);
+  const villainRaiseFreq = freqOf(2);
+  const heroFoldToRaiseFreq = bets.map((_, s) => {
+    if (!canRaise[s]) return 0;
+    let acc = 0;
+    let w = 0;
+    for (let i = 0; i < nH; i++) {
+      acc += H[i].w * h2Final[s][i][0];
+      w += H[i].w;
     }
-    return cw > 0 ? cc / cw : 0;
+    return w > 0 ? acc / w : 0;
   });
 
-  return { heroStrategy, actions, heroActionEv, villainCallFreq };
+  return {
+    heroStrategy,
+    actions,
+    heroActionEv,
+    villainCallFreq,
+    villainRaiseFreq,
+    villainContinueFreq: villainCallFreq.map((c, s) => c + villainRaiseFreq[s]),
+    heroRaiseResponse: h2Final,
+    heroFoldToRaiseFreq,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +433,8 @@ export interface FlopVsBetInput {
   /** NODE LOCK: villain's ¾-pot-referenced fold-to-bet read pins his response to hero's
    *  raise (see vsBet.ts). Omit for the equilibrium baseline. */
   villainFoldToBet?: number;
+  /** house rake in chips. Omit for rake-free EV. */
+  rake?: Rake;
 }
 
 export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
@@ -357,5 +469,6 @@ export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
     threeBetTo: inp.threeBetTo,
     iterations: inp.iterations,
     villainFoldToBet: inp.villainFoldToBet,
+    rake: inp.rake,
   });
 }

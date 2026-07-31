@@ -46,16 +46,21 @@ const solve = (foldToBet?: number) =>
     villainLock: foldToBet == null ? undefined : { foldToBet },
   });
 
+// Fold frequency is the complement of CONTINUING, and continuing is call + raise — villain
+// raises hero's bet with the strong end of the range he keeps, so measuring folds off calls
+// alone would report the raises as folds.
+const foldFreqs = (res: ReturnType<typeof solve>) => (res.villainContinueFreq ?? res.villainCallFreq).map((c) => 1 - c);
+
 describe('river node lock — villain is pinned, hero best-responds', () => {
   it('a locked villain folds close to the requested frequency at the reference size', () => {
     const res = solve(0.7);
     // ¾ pot is the reference the lock is quoted at (index 2 of SIZES)
-    expect(1 - res.villainCallFreq[2]).toBeCloseTo(0.7, 1);
+    expect(foldFreqs(res)[2]).toBeCloseTo(0.7, 1);
   });
 
   it('the locked villain still folds MORE to bigger bets (pot-odds scaling)', () => {
     const res = solve(0.6);
-    const folds = res.villainCallFreq.map((c) => 1 - c);
+    const folds = foldFreqs(res);
     expect(folds[0]).toBeLessThan(folds[3]); // folds less to ⅓ than to pot
     for (let s = 1; s < folds.length; s++) expect(folds[s]).toBeGreaterThanOrEqual(folds[s - 1] - 1e-9);
   });
@@ -110,12 +115,12 @@ describe('river node lock — villain is pinned, hero best-responds', () => {
     }
   });
 
-  it('call frequency is monotone in the locked read, and saturates at both ends', () => {
-    const callAt = (f: number) => solve(f).villainCallFreq[2];
-    expect(callAt(0)).toBeGreaterThan(0.98); // folds nothing → continues everything
-    expect(callAt(0.3)).toBeGreaterThan(callAt(0.6));
-    expect(callAt(0.6)).toBeGreaterThan(callAt(0.95));
-    expect(callAt(1)).toBeLessThan(0.05); // folds everything
+  it('continue frequency is monotone in the locked read, and saturates at both ends', () => {
+    const contAt = (f: number) => (solve(f).villainContinueFreq ?? solve(f).villainCallFreq)[2];
+    expect(contAt(0)).toBeGreaterThan(0.98); // folds nothing → continues everything
+    expect(contAt(0.3)).toBeGreaterThan(contAt(0.6));
+    expect(contAt(0.6)).toBeGreaterThan(contAt(0.95));
+    expect(contAt(1)).toBeLessThan(0.05); // folds everything
   });
 
   it("a locked villain keeps his STRONGEST hands: hero's value bet is called more than his bluff folds out", () => {

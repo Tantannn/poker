@@ -62,5 +62,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // The CFR suites are seconds-per-node by design (the multiway flop nests two chance
+    // layers), and vitest's parallel workers make that wall clock load-dependent — the 5s
+    // default fails a solve that passes solo. Solver cost is guarded by explicit
+    // performance.now() assertions (multiwayFlop.test.ts), not by this timeout.
+    testTimeout: 30000,
   },
 })

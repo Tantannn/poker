@@ -17,10 +17,17 @@ describe('turn solver — range vs range with a river chance layer', () => {
     { cards: C('Qh Jh'), w: 1 }, // [1] heart flush draw — semi-bluff candidate
     { cards: C('6c 5c'), w: 1 }, // [2] air (weak gutshot)
   ];
-  // VILLAIN holds bluff-catchers (overpairs that beat the draws, lose to the set).
+  // VILLAIN holds bluff-catchers (overpairs that beat the draws, lose to the set) PLUS hands
+  // that fold to pressure. The folding half matters now that villain may RAISE hero's bet: a
+  // range of nothing but nut-ish bluff-catchers can punish every bet, so hero's value hands
+  // stop betting and the node stops resembling any real spot.
   const villain: Combo[] = [
     { cards: C('Ad Ac'), w: 1 },
     { cards: C('Ts Tc'), w: 1 },
+    { cards: C('9s 9d'), w: 1 },
+    { cards: C('Ah Qd'), w: 1 },
+    { cards: C('Jc Td'), w: 1 },
+    { cards: C('7s 6s'), w: 1 },
   ];
   const r = solveTurn({ heroRange: hero, villainRange: villain, board: b, pot: 30, effStack: 300, betSizes: [0.5, 0.75, 1.0], iterations: 1500 });
   const betFreq = (row: { action: string; freq: number }[]) =>
@@ -71,9 +78,15 @@ describe('turn solver — a CHECK is valued as a river subgame, not an instant s
   const betFreq = (r: typeof flat, i: number) =>
     r.heroStrategy[i].filter((a) => a.action !== 'check').reduce((s, a) => s + a.freq, 0);
 
-  it('nesting raises the check EV for every combo (river play is worth ≥ giving up)', () => {
+  it('nesting raises the check EV across the range (river play beats giving up)', () => {
+    // Per-combo monotonicity stopped being a theorem once villain could RAISE: the nested
+    // river subgame contains that raise too, so an individual combo can come out slightly
+    // below its static-showdown baseline. What must hold is the property the nesting exists
+    // for — the range as a whole is credited for playing the river, not scored as give-up.
+    const avg = (r: typeof flat) => hero.reduce((s, _, i) => s + checkEv(r, i), 0) / hero.length;
+    expect(avg(nested)).toBeGreaterThan(avg(flat));
     for (let i = 0; i < hero.length; i++) {
-      expect(checkEv(nested, i)).toBeGreaterThanOrEqual(checkEv(flat, i) - 0.05);
+      expect(checkEv(nested, i)).toBeGreaterThan(checkEv(flat, i) - 0.5);
     }
   });
 
@@ -113,21 +126,33 @@ describe('turn node lock — villain is pinned to a fold read, hero best-respond
   const betFreqRow = (row: { action: string; freq: number }[]) =>
     row.filter((a) => a.action !== 'check').reduce((s, a) => s + a.freq, 0);
 
+  // Folds are the complement of CONTINUING, and continuing is call + raise — the locked
+  // villain raises the strong end of what he keeps, so calls alone would count those as folds.
+  const foldFreqs = (r: ReturnType<typeof solveLocked>) =>
+    (r.villainContinueFreq ?? r.villainCallFreq).map((c) => 1 - c);
+
   it('a locked villain folds close to the requested frequency at the reference size', () => {
-    const res = solveLocked(0.7);
-    expect(1 - res.villainCallFreq[2]).toBeCloseTo(0.7, 1);
+    expect(foldFreqs(solveLocked(0.7))[2]).toBeCloseTo(0.7, 1);
   });
 
   it('the locked villain folds MORE to bigger bets (pot-odds scaling)', () => {
-    const folds = solveLocked(0.6).villainCallFreq.map((c) => 1 - c);
+    const folds = foldFreqs(solveLocked(0.6));
     expect(folds[0]).toBeLessThan(folds[3]);
     for (let s = 1; s < folds.length; s++) expect(folds[s]).toBeGreaterThanOrEqual(folds[s - 1] - 1e-9);
   });
 
   it('hero barrels air more against an over-folder than against a station', () => {
-    const station = solveLocked(0.05);
-    const overFolder = solveLocked(0.85);
-    expect(betFreqRow(overFolder.heroStrategy[2])).toBeGreaterThan(betFreqRow(station.heroStrategy[2]));
+    // Measured on the FLAT check line. With the river nested, barrelling the turn and simply
+    // bluffing the river instead are near-identical vs an over-folder (they win the same folds
+    // for one less street of risk), so the frequency split there is a coin flip decided by
+    // fractions of a chip — the EV ordering is the stable claim, asserted below.
+    const flatLocked = (f: number) =>
+      solveTurn({
+        heroRange: hero, villainRange: villain, board: b, pot: 30, effStack: 300,
+        betSizes: SIZES, iterations: 1500, nestRiverForCheck: false,
+        villainLock: { foldToBet: f },
+      });
+    expect(betFreqRow(flatLocked(0.85).heroStrategy[2])).toBeGreaterThan(betFreqRow(flatLocked(0.05).heroStrategy[2]));
   });
 
   it('air bet EV rises with villain fold frequency — the reason the line changes', () => {

@@ -3,7 +3,7 @@
 // single seam where smarter engines can be swapped in.
 
 import type { Action, GameState } from '../engine/table';
-import { legalActions, positionLabel, potTotal } from '../engine/table';
+import { effectiveBigBlind, legalActions, positionLabel, potTotal } from '../engine/table';
 import { makeRng } from '../engine/cards';
 import type { Card } from '../engine/cards';
 import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
@@ -67,7 +67,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     Math.min(
       p.stack + p.committed,
       Math.max(0, ...state.players.filter((q) => !q.folded && q.id !== p.id).map((q) => q.stack + q.committed)),
-    ) / state.bigBlind;
+    ) / effectiveBigBlind(state);
 
   // per-decision human "mood": a small streaky tilt so a bot isn't a fixed robot.
   const mood = 0.85 + r() * 0.3; // ~0.85..1.15
@@ -148,7 +148,9 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     // charts (strategy/depth.ts), so a bot at 25bb and the graded answer at 25bb still agree.
     // No-ops at the ~100bb the charts are authored at and at push/fold depth.
     const strength = preflopStrength(code) * depthValueMult(code, effStackBB);
-    const facingRaise = state.currentBet > state.bigBlind;
+    // A straddle is a blind, not a raise: measure against the effective blind or every
+    // straddled pot reads as "facing a raise" and the bots play 3-bet ranges into it.
+    const facingRaise = state.currentBet > effectiveBigBlind(state);
 
     // ---- easy = raw beginner preflop ----
     // A real fish limps in with everything, raises only when the cards "look
@@ -211,7 +213,10 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         const posBump = pos === 'SB' ? 0.5 : pos === 'UTG' || pos === 'MP' ? 0.3 : 0;
         const anteShave = state.ante > 0 ? 0.2 : 0;
         const openToBB = Math.max(2, depthBB + posBump - anteShave);
-        const target = Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, Math.round(openToBB * state.bigBlind)));
+        // × the EFFECTIVE blind: over a straddle the standard open is ~2.5× the STRADDLE.
+        // Sizing off the big blind would make every open a min-raise and hand the field
+        // an irresistible price — the classic mistake in a straddled game.
+        const target = Math.max(la.minRaiseTo, Math.min(la.maxRaiseTo, Math.round(openToBB * effectiveBigBlind(state))));
         return { type: 'raise', amount: target };
       }
       return { type: 'fold' };
@@ -224,7 +229,9 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     // MIXES value, bluff, flat and fold by frequency — so the range isn't a fixed,
     // readable set (the old "only AA/KK/AK ever 4-bets, no flats" leak).
     const raiseCount = preflopRaiseCount(state);
-    const bb = state.bigBlind;
+    // 3-bet/4-bet sizing is a multiple of the bet being raised, so it too is denominated in
+    // the effective blind — over a straddle every preflop number doubles together.
+    const bb = effectiveBigBlind(state);
     const villainToBB = state.currentBet / bb; // the raise hero faces, in bb
     const raiser = state.lastAggressor;
     const nP = state.players.length;

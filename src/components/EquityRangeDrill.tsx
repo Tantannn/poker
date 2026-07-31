@@ -21,7 +21,8 @@ import { getProfile } from '../ai/profiles';
 import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
 import { PositionCheatSheet } from './PositionCheatSheet';
-import { EquityAnchors, MADE as MADE_ANCHORS, type MadeRow } from './EquityAnchors';
+import { EquityAnchors } from './EquityAnchors';
+import { MADE as MADE_ANCHORS, type MadeRow } from './equityAnchorsData';
 import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 
 interface RangeOpt {
@@ -105,10 +106,10 @@ function whyRange(
 
   const hand =
     isPureDraw ? `You have a draw (${hc.label}) — outs, but nothing made yet`
-    : s >= 4 ? `You have a strong made hand (${hc.label})`
-    : s >= 3 ? `You have a solid made hand (${hc.label})`
-    : s === 0 ? `You have air (${hc.label}) — no pair, no draw`
-    : `You have a weak made hand (${hc.label})`;
+      : s >= 4 ? `You have a strong made hand (${hc.label})`
+        : s >= 3 ? `You have a solid made hand (${hc.label})`
+          : s === 0 ? `You have air (${hc.label}) — no pair, no draw`
+            : `You have a weak made hand (${hc.label})`;
 
   const range =
     width === 'wide'
@@ -125,8 +126,8 @@ function whyRange(
       bump >= 4
         ? `Their air adds ~${bump} pts you scoop unimproved → about ${eq}%.`
         : bump <= -4
-        ? `But you must actually hit — their made hands pull it to about ${eq}%.`
-        : `That lands right around ${eq}%.`;
+          ? `But you must actually hit — their made hands pull it to about ${eq}%.`
+          : `That lands right around ${eq}%.`;
     math = `~${drawO} outs → Rule of ${mult}: ${drawO}×${mult} ≈ ${hit}% to hit. ${bumpTxt}`;
   } else if (s === 0) {
     math =
@@ -164,36 +165,34 @@ function whyRange(
     const rawHit = drawO * (street === 'Flop' ? 4 : 2);
     math +=
       isPureDraw && drawO > 0
-        ? ` He BET (${betTypeLabel}) — value-weighted, so some draw outs are DIRTY (they hit but still lose).${
-            eq < rawHit
-              ? ` Real equity ${eq}%, below the raw ${rawHit}%.`
-              : ` Raw draw ≈ ${rawHit}%; pair/air backup lifts the real number to ${eq}%.`
-          }`
-        : ` He BET (${betTypeLabel}) — ${
-            s <= 3
-              ? `and a marginal made hand like this is dominated by the better pairs/kickers he value-bets → drops to ~${eq}%.`
-              : width === 'wide'
-                ? `but a wide range's "value" is weak (any pair/ace), so a strong hand barely drops → still ~${eq}%.`
-                : `his range narrows to real value, pulling you to ~${eq}%.`
-          }`;
+        ? ` He BET (${betTypeLabel}) — value-weighted, so some draw outs are DIRTY (they hit but still lose).${eq < rawHit
+          ? ` Real equity ${eq}%, below the raw ${rawHit}%.`
+          : ` Raw draw ≈ ${rawHit}%; pair/air backup lifts the real number to ${eq}%.`
+        }`
+        : ` He BET (${betTypeLabel}) — ${s <= 3
+          ? `and a marginal made hand like this is dominated by the better pairs/kickers he value-bets → drops to ~${eq}%.`
+          : width === 'wide'
+            ? `but a wide range's "value" is weak (any pair/ace), so a strong hand barely drops → still ~${eq}%.`
+            : `his range narrows to real value, pulling you to ~${eq}%.`
+        }`;
   }
 
   const hook =
     isPureDraw
       ? `💡 Draw% ≈ outs × ${street === 'Flop' ? 4 : 2}; a wide range adds a few points.`
-    : s === 0
-      ? `💡 No pair, no draw = behind.`
-    : s >= 4
-      ? (width === 'wide'
-          ? (eq >= 68 ? `💡 Strong hand + wide range = crushing.` : `💡 A wet, connected board pulls even two pair back to earth.`)
-          : `💡 Tighter range → less equity for you.`)
-    : s >= 3
-      ? (facingBet
-          ? `💡 Marginal made hand + a bet = watch for domination.`
-          : `💡 A made hand vs a wide range ≈ ahead, but not crushing.`)
-    : (width === 'wide'
-        ? `💡 Any pair vs a wide range ≈ ahead but thin.`
-        : `💡 Weak hand + tight range = behind.`);
+      : s === 0
+        ? `💡 No pair, no draw = behind.`
+        : s >= 4
+          ? (width === 'wide'
+            ? (eq >= 68 ? `💡 Strong hand + wide range = crushing.` : `💡 A wet, connected board pulls even two pair back to earth.`)
+            : `💡 Tighter range → less equity for you.`)
+          : s >= 3
+            ? (facingBet
+              ? `💡 Marginal made hand + a bet = watch for domination.`
+              : `💡 A made hand vs a wide range ≈ ahead, but not crushing.`)
+            : (width === 'wide'
+              ? `💡 Any pair vs a wide range ≈ ahead but thin.`
+              : `💡 Weak hand + tight range = behind.`);
 
   return `${hand}; ${range}. ${math} ${hook}`;
 }

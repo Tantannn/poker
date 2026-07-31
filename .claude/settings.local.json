@@ -226,7 +226,30 @@
       "PowerShell(npx vitest run src/strategy/solver/flopSolver.test.ts src/strategy/solver/multiwaySolver.test.ts src/strategy/solver/flopWiring.test.ts src/strategy/solver/multiwayWiring.test.ts 2>&1 | Select-Object -Last 40)",
       "PowerShell(npx vitest run src/strategy/solver src/strategy/nodeLock.test.ts 2>&1 | Select-Object -Last 20)",
       "Bash(perl -pi -e 's/'\\\\''bet75'\\\\'', '\\\\''betpot'\\\\'', '\\\\''allin'\\\\''/'\\\\''bet75'\\\\'', '\\\\''betpot'\\\\'', '\\\\''bet150'\\\\'', '\\\\''allin'\\\\''/' '$f')",
-      "Bash(python -)"
+      "Bash(python -)",
+      "PowerShell(npx vitest run src/engine/rake.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx vitest run src/strategy/rake.test.ts 2>&1 | Select-Object -Last 45)",
+      "PowerShell(npx vitest run src/strategy/rake.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 10; npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx vitest run src/strategy/solver/multiwayFlop.test.ts --reporter=verbose 2>&1 | Select-Object -First 45)",
+      "PowerShell(npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 15)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 8; npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 16)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 8; npx vitest run src/strategy/solver/multiwayFlop.test.ts 2>&1 | Select-Object -Last 25)",
+      "PowerShell(npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 14)",
+      "PowerShell(npx vitest run src/strategy/solver/multiwayFlop.test.ts 2>&1 | Select-Object -Last 20)",
+      "PowerShell(npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 16)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 8; npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 14)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 10; npx vitest run src/engine/straddle.test.ts --reporter=verbose 2>&1 | Select-Object -First 35)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 10; npx vitest run src/strategy/straddle.test.ts --reporter=verbose 2>&1 | Select-Object -First 25)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 12)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 10; npx vitest run src/strategy/solver/exploitability.test.ts src/strategy/solver/riverSolver.test.ts src/strategy/solver/riverNodeLock.test.ts --reporter=verbose 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx vitest run src/strategy/solver/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 22)",
+      "PowerShell(npx vitest run src/strategy/solver/betRaiseTree.test.ts --reporter=verbose 2>&1 | Select-Object -First 30)",
+      "PowerShell(npx tsc -b 2>&1 | Select-Object -First 8; npx vitest run src/strategy/solver/betRaiseTree.test.ts --reporter=verbose 2>&1 | Select-Object -First 26)",
+      "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 14)",
+      "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 12)"
     ]
   }
 }
