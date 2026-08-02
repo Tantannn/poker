@@ -77,6 +77,9 @@ export interface HistoryHand {
   deltaBB: number;
   showdown: { name: string; cards: Card[]; folded: boolean }[];
   decisions?: DecisionSnapshot[];
+  /** Entered by hand from a real session rather than played in-app (analysis/liveHand.ts).
+   *  Every consumer treats it as a normal hand — this only labels it in review. */
+  live?: boolean;
 }
 
 const KEY = 'poker-trainer-history-v1';

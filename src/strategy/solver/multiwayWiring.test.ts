@@ -74,8 +74,17 @@ describe('live wiring: hero-first 3-way nodes route through the multiway solver'
     expect(getNodeStrategy(st, 0).note).toContain('5-way flop');
   }, 60000);
 
-  it('past MAX_MULTIWAY_OPPONENTS the field precompute stops paying — 6-way falls back', () => {
+  // 6-way is the app's own maximum table (useGame caps seats at 6), so the FULL-RING limped
+  // pot is the modal live spot — and at a cap of 4 it was the one family pot that fell out of
+  // the solver built for family pots. It survives the bump because `scaleCap` shrinks the
+  // per-player combo caps as the field grows, offsetting the 2^field caller-set enumeration.
+  it('a full 6-way table still solves — the cap reaches the app\'s own table maximum', () => {
     const st = withExtraSeats(threeWayState('9s 9c', '9h 8h 5c', 'flop'), 3);
+    expect(getNodeStrategy(st, 0).note).toContain('6-way flop');
+  }, 60000);
+
+  it('past MAX_MULTIWAY_OPPONENTS the field precompute stops paying — 7-way falls back', () => {
+    const st = withExtraSeats(threeWayState('9s 9c', '9h 8h 5c', 'flop'), 4);
     expect(getNodeStrategy(st, 0).note ?? '').not.toMatch(/-way flop solver/);
   }, 60000);
 });

@@ -138,6 +138,37 @@ export const BB_DEFEND_TOKENS = [
 ];
 export const BB_DEFEND_RANGE = resolveRangeSet('bb-defend', buildRange(BB_DEFEND_TOKENS));
 
+const ALL_CODES: string[] = RANKS.flatMap((r1, i) =>
+  RANKS.map((r2, j) => (i === j ? r1 + r1 : i < j ? r1 + r2 + 's' : r2 + r1 + 'o')),
+);
+
+/** Hands nobody open-limps often enough to earn a slot in a BINARY range set. Same
+ *  reasoning as solverCharts' DEFAULT_MIN_PLAY = 0.6: a set admits a hand at FULL
+ *  weight, so a player who limps AA one time in ten would read as always holding it. */
+const TRAP_TOKENS = ['QQ+', 'AKs', 'AKo'];
+
+/** OPEN-LIMP range — the modal live low-stakes action, and a shape no RFI chart can
+ *  express: wider than a button open AND weak-tailed AND capped at the top. Projecting
+ *  an opening range onto a limper reads him too tight and too strong on every later
+ *  street, which is the direction that costs hero money in the pot type he sees most. */
+export const LIMP_TOKENS = [
+  '22+',
+  'A2s+', 'K2s+', 'Q4s+', 'J5s+', 'T5s+', '95s+', '84s+', '74s+', '63s+', '53s+', '43s',
+  'A2o+', 'K6o+', 'Q7o+', 'J7o+', 'T7o+', '97o+', '86o+', '76o', '65o',
+];
+export const LIMP_RANGE: Set<string> = (() => {
+  const trap = buildRange(TRAP_TOKENS);
+  return new Set([...buildRange(LIMP_TOKENS)].filter((c) => !trap.has(c)));
+})();
+
+/** BB checked its option in an UNRAISED pot. It never chose to be in the hand, so the
+ *  range is every hand minus the premiums it would have raised — the widest range in
+ *  poker. BB_DEFEND_RANGE (~54%) answers a RAISE and reads far too tight here. */
+export const BB_OPTION_RANGE: Set<string> = (() => {
+  const raise = buildRange(TRAP_TOKENS);
+  return new Set(ALL_CODES.filter((c) => !raise.has(c)));
+})();
+
 /**
  * Heuristic 0..1 preflop strength for a 169-code, roughly proportional to
  * all-in equity vs a random hand. Used by AI postflop fallback & feedback.

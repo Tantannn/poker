@@ -132,7 +132,7 @@ describe('3-way flop — the check line is a turn subgame, not a static showdown
   });
 });
 
-describe('4-way and 5-way flop', () => {
+describe('4-way to 6-way flop', () => {
   // A realistic three-part range (value / draw / air). A two-combo range makes the CFR game
   // degenerate — villain's response to a range that is half air is nothing like his real one.
   const hero: Combo[] = [w1('9s 9c'), w1('Ah Kh'), w1('Ks Qs')];
@@ -171,4 +171,34 @@ describe('4-way and 5-way flop', () => {
     console.log(`5-way flop solve: ${ms.toFixed(0)}ms`);
     expect(ms).toBeLessThan(6000);
   });
+
+  // 6-way is the app's own maximum table, so the full-ring limped pot used to be the ONE
+  // family pot that fell out of the solver it was built for. It is the heaviest node here
+  // (~2.1s through the live gate vs ~1.7s 5-way) — the caller sets double while `scaleCap`
+  // is already pinned to its 12-combo floor, so this budget is the one to watch.
+  it('solves 6-way and still charges the field with a set on a wet board', () => {
+    const r6 = solve([field, field2, field, field2]);
+    for (const ev of r6.heroActionEv[0]) expect(Number.isFinite(ev)).toBe(true);
+    expect(betFreq(r6.heroStrategy[0])).toBeGreaterThan(0.5);
+  });
+
+  it('air bluffs no more 6-way than 5-way — every extra player kills more fold equity', () => {
+    expect(betFreq(solve([field, field2, field, field2]).heroStrategy[2]))
+      .toBeLessThan(betFreq(solve([field, field2, field]).heroStrategy[2]) + 0.05);
+  });
+
+  it('a 6-way flop solve at shipped settings stays inside a hero-turn budget', () => {
+    const t0 = performance.now();
+    solveFlop3way({
+      heroRange: [...hero, w1('Jh Td'), w1('5s 4s')],
+      villainRange: villain,
+      fieldRanges: [field, field2, field, field2],
+      iterations: 600,
+      turnNestIterations: 120,
+      ...args,
+    });
+    const ms = performance.now() - t0;
+    console.log(`6-way flop solve: ${ms.toFixed(0)}ms`);
+    expect(ms).toBeLessThan(8000);
+  }, 30000);
 });

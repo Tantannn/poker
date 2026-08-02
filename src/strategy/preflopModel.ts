@@ -157,7 +157,7 @@ export const NO_PREFLOP_ADJUST: PreflopAdjust = { valueMult: 1, bluffMult: 1, ca
  *  4-bets against everyone — so the adjustment tapers to nothing above ~0.82 strength
  *  and reaches full force only on the genuinely marginal tail, which is where every
  *  preflop exploit actually lives. */
-function marginality(code: string): number {
+export function marginality(code: string): number {
   return clamp((0.82 - preflopStrength(code)) / 0.3, 0, 1);
 }
 
@@ -317,8 +317,12 @@ export function resizeRangeByStrength(baseSet: Set<string>, mult: number): Set<s
  *  the role he took. Roles other than opener/3-bettor lean on the open read at half
  *  weight: a player who opens everything also defends and calls too much, but the
  *  connection is looser than his own opening frequency, so the signal is damped. */
-export function rangeMultForRole(role: 'open' | 'threebet' | 'continue', read: PreflopRead): number {
+export function rangeMultForRole(role: 'open' | 'threebet' | 'continue' | 'limp', read: PreflopRead): number {
   if (read.source === 'balanced') return 1;
+  // observed.ts counts a limp as an open CHANCE that was declined, so a habitual limper's
+  // RFI% is low by construction. Feeding it in would tighten the one range that is wide by
+  // definition, so with no limp-frequency stat the limp range takes the read unresized.
+  if (role === 'limp') return 1;
   if (role === 'threebet') return read.threeBetFreq / PF_BALANCED.threeBetFreq;
   const wide = read.openFreq / PF_BALANCED.openFreq;
   return role === 'open' ? wide : 1 + 0.5 * (wide - 1);

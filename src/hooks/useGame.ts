@@ -39,7 +39,7 @@ import type { NodeFeedback } from '../analysis/grade';
 import { gradeNode, idToClass } from '../analysis/grade';
 import { aggressionWarning } from '../analysis/aggression';
 import { assessTilt } from '../analysis/tilt';
-import type { SessionStats, PreflopFacing } from '../store/stats';
+import type { SessionStats, PreflopFacing, DecisionRecord } from '../store/stats';
 import {
   findLeaks,
   loadStats,
@@ -806,6 +806,23 @@ export function useGame(initialProfiles: string[]) {
     heroReadsRef.current = emptyReads(); // forget the hero read on a fresh start
   }, []);
 
+  // A hand entered by hand from a real session (analysis/liveHand.ts). It lands in the
+  // SAME history and the SAME decision stats as a played hand, which is the point: the
+  // leak finder has never had anything but in-app play to work from.
+  const importLiveHand = useCallback((hand: HistoryHand, records: DecisionRecord[]) => {
+    setHistory((h) => {
+      const prot = protectedIds();
+      const next = capHistory([hand, ...h], prot);
+      saveHistory(next, prot);
+      return next;
+    });
+    setStats((s) => {
+      const updated = records.reduce((acc, r) => recordDecision(acc, r), recordHand(s, hand.deltaBB));
+      saveStats(updated);
+      return updated;
+    });
+  }, []);
+
   // delete specific hands from the reviewable history (multi-select in Hand Review)
   const removeHistoryHands = useCallback((ids: string[]) => {
     const set = new Set(ids);
@@ -942,6 +959,7 @@ export function useGame(initialProfiles: string[]) {
     aggroWarning,
     tilt,
     clearHistory,
+    importLiveHand,
     removeHistoryHands,
     profiles,
     scenario,

@@ -57,8 +57,18 @@ terminal pots are precomputed **per bet size outside the loops** (`netAtBet` / `
 `netPotByBets`): calling into the rake model per leaf cost seconds of wall clock and timed
 the turn solves out. Keep it that way.
 
-Preflop is the disclosed gap: the charts are static ~100bb tables, so they don't move with
-this setting.
+Preflop reaches the charts through a shading layer, not through the chart data —
+`preflopRake.ts: shadeForRake` runs last in `preflopStrategy` (read → depth → rake, since
+the house is a property of neither the villain nor the stack). Two mechanics, and neither
+is a flat frequency cut. The **cap makes it regressive**, so `rakeTaxRate` is a function of
+pot size and the shade tapers by `marginality` — it bites the marginal tail and leaves
+coolers alone. And **no flop, no drop** makes it per-ACTION: a call always sees a flop and
+pays in full, a raise pays only on the called branch (`RAISE_TAX_SHARE`, mostly gone
+multiway), a fold pays nothing and absorbs the slack. The live lesson falls straight out —
+under rake, marginal hands are raise-or-fold.
+
+Disclosed gaps: the chart *data* is still ~100bb rake-free (this shades what it teaches),
+and `ai/decide.ts` doesn't see it, so rake changes hero's graded line, not how the bots play.
 
 ### Straddle — `table.ts: straddleSeats` / `effectiveBigBlind`
 `GameState.straddle` is `off | utg | double | button` (Mississippi); `startHand` posts it
@@ -112,10 +122,10 @@ There are **two** postflop engines behind that seam:
    shared equity-driven CFR core, fed a per-street equity matrix: exact showdown on the
    river, equity over the remaining runouts on turn/flop — and node-locked
    on villain's response to hero's raise, see below), and hero-first
-   multiway (2–4 live opponents, i.e. 3- to 5-way) on **all three** streets, capped by
-   `MAX_MULTIWAY_OPPONENTS`. What still falls back to (1): **6-way+** (the 2^field caller-set
-   enumeration stops paying) and **villain-first multiway** (facing a bet with 2+ opponents —
-   `vsBet.ts` is heads-up only).
+   multiway (2–5 live opponents, i.e. 3- to 6-way) on **all three** streets, capped by
+   `MAX_MULTIWAY_OPPONENTS` — 6-way is `useGame`'s own seat maximum, so every table the app
+   can deal is solved. What still falls back to (1): **villain-first multiway** (facing a bet
+   with 2+ opponents — `vsBet.ts` is heads-up only).
    `docs/range-vs-range-ev-design.md` is the staged plan (flop = Stage 3, multiway = Stage 4,
    both built).
 
@@ -174,10 +184,17 @@ the *called* pot, subtracts the static baseline at that same pot, and discounts 
 by the combo's scoop share (without that discount the nested solve lends pure air the barrel
 equity of a range it isn't in, and hero starts stabbing multiway flops with king-high).
 
-Cost is the constraint — ~1.7s per node vs ~1.2s for the HU flop. Two knobs hold it there:
+Cost is the constraint — measured through the live gate: **~1.35s 3-way, ~1.65s 5-way,
+~2.1s 6-way**, vs ~1.2s for the HU flop. It is the heaviest node in the app, and it grows
+only ~10% per added opponent rather than doubling, because `scaleCap` (riverAdapter.ts)
+shrinks the per-player combo caps as the field grows and offsets the 2^field caller-set
+enumeration. That is what makes `MAX_MULTIWAY_OPPONENTS = 5` affordable — but the scaling is
+**already exhausted**: every multiway *flop* cap sits on `scaleCap`'s 12-combo floor from
+nField ≥ 2 up, so tightening it further cannot buy time back. The remaining levers are
 `NEST_BUCKETS` (turn buckets solved per sweep) and solving the called line only at the
 smallest and largest size, **interpolating** the interior sizes by called pot. Both are
-disclosed abstractions; if a change makes the flop slow, they are the levers.
+disclosed abstractions; if a change makes the flop slow, they are the levers. The solve runs
+in `hudWorker.ts` off the UI thread, which is what makes 2.1s a latency cost rather than a hitch.
 `multiwayFlop.test.ts` pins the strategic direction (air stops bluffing, a wet-board set
 charges the field, nesting raises the check EV *and* the bet EV) plus a wall-clock budget.
 It deliberately does **not** pin "a set bets a dry multiway flop" — checking top set on
@@ -371,6 +388,28 @@ Three things this layer does that depth shading deliberately doesn't, and why:
 Disclosed gap: **the bots don't see any of this.** `ai/decide.ts` still plays the static
 charts, so a read is something hero exploits, not something the table adapts to.
 
+### Limped pots — `index.ts: roleBaseRange`
+Every postflop engine inherits its villain range from `roleBaseRange`, which reads a seat's
+**role** off the preflop action log. A limp is a `call` made while the pot is still unraised
+(a straddle posts as a blind, so calling one cold is a limp) — it is **not** a cold-call of
+an open, and the two are opposite range shapes. Roles: `open` / `threebet` / `limp` /
+`continue`, plus an iso-raise (`raiseRank === 0` with limpers in front, `ISO_RAISE_TIGHTEN`)
+and a limp-call (`LIMP_CALL_TIGHTEN`).
+
+`LIMP_RANGE` is wider than *any* opening range, weak-tailed, and **capped at the top** —
+premiums are excluded for the same reason `DEFAULT_MIN_PLAY` is 0.6: a binary set admits a
+hand at full weight, so a player who limps AA one time in ten would read as always holding
+it. `BB_OPTION_RANGE` (BB checked its option in an unraised pot) is wider still — it never
+chose to be in the hand. Both live in `ai/preflop.ts`; neither is a chart id, so neither
+feeds the bots' preflop ranges.
+
+Two invariants. **An empty preflop log is a synthesised spot** (Postflop Lab, drills, most
+solver tests), not a limped pot — absence of a raise only means a limp when there is action
+to read, and without that guard every constructed state hands villain an any-two range.
+And the **`limp` role takes the read unresized**: `observed.ts` counts a limp as an open
+chance *declined*, so a habitual limper's RFI% is low by construction and feeding it to
+`rangeMultForRole` would tighten the one range that is wide by definition.
+
 ### Preflop chart override layer
 `src/data/solverPreflop.json` overrides the built-in heuristic preflop charts — per
 scenario, per hand, with heuristic fallback for anything absent. `solverCharts.ts`
@@ -422,6 +461,26 @@ is played more often in the mix. `buildSizingCoach` / `buildCheckLineCoach` prod
 the prose. `observed.ts` derives live villain stats; `tilt.ts` and `aggression.ts`
 produce session warnings.
 
+### Live capture — `src/analysis/liveHand.ts` + `components/LiveHand.tsx`
+The one path into the app from outside it: a hand played at a casino, entered, graded, and
+folded into the **same** `HistoryHand` + `DecisionRecord` stream as in-app play — so Hand
+Review, `findLeaks`, bb/100 and the SRS weighting need no changes and a live hand is
+indistinguishable to them. `useGame: importLiveHand` is the single write point.
+
+`replayLiveHand` **drives the real engine** (`createGame` → `startHand` → `applyAction`)
+rather than assembling nodes by hand: `legalActions`, blind posting, side pots and `toAct`
+ordering are what make a graded node trustworthy, and a form that reimplemented them would
+drift from the table. The user enters only the action *sequence* — the engine decides whose
+turn each one is, which doubles as the validation (an action illegal for the seat on turn is
+a typo, reported with its index).
+
+Two mechanics to keep. `dealAround` gives every other seat cards drawn from a pool with
+hero's hand and the whole entered board removed, so the engine's own board deals can never
+collide; `forceBoard` then overwrites `state.board` after every action with what the user
+actually saw. Villain holdings are never entered and never needed — every engine works off
+ranges. `rngMatch` is null on these records: a replayed hand has no live roll to honour, and
+scoring it against a fresh one would be noise.
+
 ### `src/store/` — localStorage persistence, no framework
 Plain functions (`loadX` / `saveX`), no state library. **Every key must be prefixed
 `poker-` or `poker.`** — `backup.ts` filters on that prefix to build the
@@ -439,7 +498,7 @@ because the Monte-Carlo runs used to hitch the UI on phones — requests carry a
 `seq` so stale replies are dropped when state advances mid-compute.
 
 ### `src/components/` + `App.tsx`
-31 tabs. `App.tsx` holds the `Tab` union, the `TABS` array (order = display order)
+32 tabs. `App.tsx` holds the `Tab` union, the `TABS` array (order = display order)
 and `Cat` grouping for the nav dropdown; every tab except `PokerTable` is
 `lazy()`-imported from a **named** export remapped to `{ default }`. Adding a tab =
 add to the union, add a `TABS` entry with a category, add the `lazy` import, render

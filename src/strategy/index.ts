@@ -12,7 +12,7 @@ import type { WeightedRange, ComboWeight } from '../engine/range';
 import { rangeFromSet, codeToCombos } from '../engine/range';
 import { evaluate7 } from '../engine/evaluator';
 import { countOuts } from '../engine/equity';
-import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, handCode, preflopStrength } from '../ai/preflop';
+import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, LIMP_RANGE, BB_OPTION_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import { getProfile } from '../ai/profiles';
 import type { VillainModel } from './villainModel';
 import { BALANCED, balancedModel, foldToBetFromCallStation, isExploitable } from './villainModel';
@@ -30,6 +30,7 @@ import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
 import { depthValueMult, depthNote, shadeForDepth } from './depth';
+import { rakeNote, shadeForRake } from './preflopRake';
 import { solveRiverNode, solveRiverVsBetNode, solveTurnVsBetNode, solveFlopVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode, solveFlop3wayNode } from './solver/riverAdapter';
 import type { RiverVsBetNodeParams } from './solver/riverAdapter';
 
@@ -47,10 +48,13 @@ export const FLOP_SOLVER_ENABLED = true;
 // multiway CFR is out of scope; villain-first multiway stays on the per-hand model. Flip to
 // false to A/B the whole street against it.
 export const MULTIWAY_SOLVER_ENABLED = true;
-// Live opponents the multiway solver will take (2 = 3-way … 4 = 5-way). Past this the field
-// precompute and the 2^field caller-set enumeration cost more than the accuracy is worth, so
-// 6-way+ (a limped family pot) stays on the per-hand model.
-export const MAX_MULTIWAY_OPPONENTS = 4;
+// Live opponents the multiway solver will take (2 = 3-way … 5 = 6-way). 6-way is the app's
+// own maximum table, so at 4 this cap sent the FULL-TABLE limped pot — the modal live spot —
+// to the per-hand model. It survives the bump because `scaleCap` (riverAdapter.ts) shrinks
+// the per-player combo caps as the field grows, which offsets the 2^field caller-set
+// enumeration: measured flop cost rises ~10% per added opponent, not 2×. Past 6-way the
+// table can't deal a hand anyway; raising it further needs a fresh measurement.
+export const MAX_MULTIWAY_OPPONENTS = 5;
 import { solvePostflop } from './postflopModel';
 
 export type { NodeStrategy } from './types';
@@ -357,10 +361,16 @@ function preflopStrategy(state: GameState, heroIdx: number, models?: VillainMode
   // Multiway already squashed the bluff raises out (no fold equity vs a field), so a
   // read must not hand them back — the promotion channel is heads-up only.
   const promote = multiway ? undefined : { id: aggrId, label: `${raiseLabel} (read)` };
-  const charted = shadeForDepth(applyPreflopRead(base, adjust, code, promote), depthMult);
-  const chartedBalanced = adjust.why ? shadeForDepth(base, depthMult) : charted;
   const la = legalActions(state);
   const bb = state.bigBlind;
+  // The pot this decision plays for: what's out there plus hero closing the action.
+  // The cap makes the rake RATE a function of pot size, so this reference matters —
+  // a limped pot is taxed several times harder than a 4-bet pot (preflopRake.ts).
+  const refPotBB = (potTotal(state) + la.callAmount) / bb;
+  const rakeShade = <T extends { id: string; freq: number }>(opts: T[]) =>
+    shadeForRake(shadeForDepth(opts, depthMult), code, state.rake, refPotBB, multiway);
+  const charted = rakeShade(applyPreflopRead(base, adjust, code, promote));
+  const chartedBalanced = adjust.why ? rakeShade(base) : charted;
 
   // standard raise-to size (total chips) for an aggressive preflop action:
   // RFI opens ~2.5bb; a 3-bet ~3× the open; a 4-bet ~2.3× the 3-bet.
@@ -427,7 +437,7 @@ function preflopStrategy(state: GameState, heroIdx: number, models?: VillainMode
     bestEv: best.ev,
     bestId: best.id,
     source: 'preflop-chart',
-    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''}${depthNote(code, effStackBB) ? ` ${depthNote(code, effStackBB)}` : ''}${straddleNote(state)}${readNote} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
+    note: `${seatLabel}.${remapped ? ` ${heroPos} at this table size has the same players-behind as a 6-max ${sc.short}, so the open range matches.` : ''}${multiway ? ` Multiway (${liveOpps} opponents) — 3-bet bluffs are dropped (no fold equity vs a field); continue mainly for value/equity.` : ''}${depthNote(code, effStackBB) ? ` ${depthNote(code, effStackBB)}` : ''}${rakeNote(code, state.rake, refPotBB, multiway) ? ` ${rakeNote(code, state.rake, refPotBB, multiway)}` : ''}${straddleNote(state)}${readNote} Mixed frequencies from a teaching-baseline chart; EVs are relative estimates.`,
     rangeNote: `${seatLabel}${multiway ? ' · multiway' : ''}${adjust.why ? ' · read-adjusted' : ''}`,
     heroCode: code,
     scenarioId: sc.id,
@@ -501,11 +511,17 @@ export function buildVillainRange(
   const comboWeight = villainActionWeight(state, heroIdx, models);
   const villain = primaryVillain(state, heroIdx);
   if (villain < 0) {
-    // No single villain (a field). Use a neutral, CAPPED continue range — tighter
-    // than BTN's ~45% opener, since a random continuer isn't opening the button.
+    // No single villain (a field). In a LIMPED pot nobody chose a range at all, so the
+    // capped continue range below is the wrong shape — a field of limpers is wider and
+    // weaker than any opener, and that is the modal live pot.
+    const pre = state.log.filter((l) => l.handNumber === state.handNumber && l.street === 'preflop');
+    // No preflop log at all = a synthesised spot, not a limped pot. Keep the old default.
+    const raised = pre.length === 0 || pre.some((l) => l.type === 'raise' || l.type === 'bet');
+    // Otherwise a neutral, CAPPED continue range — tighter than BTN's ~45% opener,
+    // since a random continuer isn't opening the button.
     return {
-      range: rangeFromSet(diffSet(RFI_RANGES.CO, THREEBET_RANGE)),
-      note: 'a generic continuing range',
+      range: rangeFromSet(raised ? diffSet(RFI_RANGES.CO, THREEBET_RANGE) : LIMP_RANGE),
+      note: raised ? 'a generic continuing range' : 'a generic limped-pot range — wide and weak-tailed',
       comboWeight,
     };
   }
@@ -518,6 +534,11 @@ export function buildVillainRange(
   }
   return { range, note: noteOut, comboWeight };
 }
+
+/** How much tighter an iso-raise is than the same seat's RFI. */
+const ISO_RAISE_TIGHTEN = 0.85;
+/** How much of the open-limp range survives having to call a raise. */
+const LIMP_CALL_TIGHTEN = 0.7;
 
 /** A player's realistic preflop base range from their action-log role. Shared by
  *  the villain-range builder AND the range-vs-range solver's HERO range, so both
@@ -536,10 +557,19 @@ export function roleBaseRange(
   const preRaises = pre.filter((l) => l.type === 'raise' || l.type === 'bet');
   const raiseRank = preRaises.findIndex((l) => l.playerId === seatId);
   const called = pre.some((l) => l.playerId === seatId && l.type === 'call');
+  // A LIMP is a call made while the pot is still unraised — a straddle posts as a blind,
+  // so calling one cold is a limp too. Distinguishing it from a cold-call of a raise is
+  // the whole point: they are opposite range shapes (weak-tailed vs capped-but-strong).
+  const firstRaiseAt = pre.findIndex((l) => l.type === 'raise' || l.type === 'bet');
+  // An EMPTY preflop log is a synthesised spot (Postflop Lab, drills, tests), not a limped
+  // pot — absence of a raise is only evidence of a limp when there is action to read.
+  const unraised = firstRaiseAt < 0 && pre.length > 0;
+  const firstCallAt = pre.findIndex((l) => l.playerId === seatId && l.type === 'call');
+  const limped = firstCallAt >= 0 && (unraised || firstCallAt < firstRaiseAt);
 
   let baseSet: Set<string>;
   let note: string;
-  let role: 'open' | 'threebet' | 'continue' = 'continue';
+  let role: 'open' | 'threebet' | 'continue' | 'limp' = 'continue';
   if (raiseRank > 0) {
     role = 'threebet';
     // re-raised OVER an open → tight, polar 3-bet range (value + suited bluffs)
@@ -549,7 +579,29 @@ export function roleBaseRange(
     // first (only) raiser → standard opening range
     role = 'open';
     baseSet = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
-    note = `${pos}'s ~${pctOf(baseSet)}% opening range`;
+    // Raising OVER limpers is an iso-raise, not an open: the limpers are sticky rather
+    // than dead money, so the range is value-weighted and tighter than the same seat's RFI.
+    const myRaiseAt = pre.findIndex((l) => l.playerId === seatId && (l.type === 'raise' || l.type === 'bet'));
+    const isoRaise = pre.some((l, i) => i < myRaiseAt && l.type === 'call');
+    if (isoRaise) {
+      baseSet = resizeRangeByStrength(baseSet, ISO_RAISE_TIGHTEN);
+      note = `${pos}'s ~${pctOf(baseSet)}% iso-raise range over the limpers — tighter than an open`;
+    } else {
+      note = `${pos}'s ~${pctOf(baseSet)}% opening range`;
+    }
+  } else if (limped) {
+    role = 'limp';
+    // Limp-CALLING a raise is still a weak-tailed range, but he paid twice to be here —
+    // the pure air in the limp range is gone.
+    const limpCalled = !unraised && pre.some((l, i) => i > firstRaiseAt && l.playerId === seatId && l.type === 'call');
+    baseSet = limpCalled ? resizeRangeByStrength(LIMP_RANGE, LIMP_CALL_TIGHTEN) : LIMP_RANGE;
+    note = limpCalled
+      ? `${pos}'s ~${pctOf(baseSet)}% limp-call range — weak-tailed, but he paid a raise to continue`
+      : `${pos}'s ~${pctOf(baseSet)}% open-limp range — wide and weak-tailed, capped at the top (he'd raise the premiums)`;
+  } else if (pos === 'BB' && unraised) {
+    role = 'limp';
+    baseSet = BB_OPTION_RANGE;
+    note = `BB checked its option in an unraised pot — essentially any two cards`;
   } else if (pos === 'BB') {
     // BB called/checked its option → wide defend range
     baseSet = BB_DEFEND_RANGE;

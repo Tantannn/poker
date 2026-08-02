@@ -146,9 +146,11 @@ describe('live wiring: 4-way and 5-way hero-first nodes reach the multiway solve
     expect(s.note).toContain('2 opponents each follow');
   });
 
-  it('a 5-way river node solves (the documented ceiling)', () => {
+  // Derived from the constant, not hardcoded: the ceiling is a measured cost decision that
+  // has moved once already, and the claim being pinned is "the ceiling solves", not its value.
+  it('a node at the ceiling solves', () => {
     const s = getNodeStrategy(multiwayState(MAX_MULTIWAY_OPPONENTS, 'river'), 0);
-    expect(s.note).toContain('5-way river solver');
+    expect(s.note).toContain(`${MAX_MULTIWAY_OPPONENTS + 1}-way river solver`);
   });
 
   it('past the ceiling it falls back to the per-hand model instead of stalling', () => {

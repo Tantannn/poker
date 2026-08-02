@@ -36,10 +36,11 @@ const SizingTellDrill = lazy(() => import('./components/SizingTellDrill').then((
 const TournamentDrill = lazy(() => import('./components/TournamentDrill').then((m) => ({ default: m.TournamentDrill })));
 const DisciplineDrill = lazy(() => import('./components/DisciplineDrill').then((m) => ({ default: m.DisciplineDrill })));
 const BluffCatcherDrill = lazy(() => import('./components/BluffCatcherDrill').then((m) => ({ default: m.BluffCatcherDrill })));
+const LiveHand = lazy(() => import('./components/LiveHand').then((m) => ({ default: m.LiveHand })));
 
 const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'bluffcatch' | 'heatmap' | 'analytics' | 'reference' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'bluffcatch' | 'heatmap' | 'analytics' | 'reference' | 'livehand' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -87,6 +88,7 @@ const TABS: { id: Tab; label: string; cat: Cat }[] = [
   { id: 'mental', label: '🧘 Mental Game', cat: 'MENTAL' },
   { id: 'discipline', label: '🧊 Cold Fold', cat: 'MENTAL' },
   // REVIEW
+  { id: 'livehand', label: '🎰 Live Hand', cat: 'REVIEW' },
   { id: 'quiz', label: 'Leak Quiz', cat: 'REVIEW' },
   { id: 'replay', label: '🌟 Hand Review', cat: 'REVIEW' },
   { id: 'review', label: '🔁 Review', cat: 'REVIEW' },
@@ -380,6 +382,11 @@ export default function App() {
           {tab === 'bluffcatch' && (
             <div className="content-col">
               <BluffCatcherDrill />
+            </div>
+          )}
+          {tab === 'livehand' && (
+            <div className="content-col">
+              <LiveHand g={g} />
             </div>
           )}
           {tab === 'analytics' && (
