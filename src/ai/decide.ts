@@ -60,6 +60,27 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // occasional random bluff. Handled by its own path below, not the skill knobs.
   const isNoob = diff.id === 'easy';
 
+  // ---- preflop adaptation: attack the hero's preflop folding — the one street the
+  // postflop adapt block below never reaches (bots played the static charts here).
+  // Only hard/extreme adapt, only while the hero is still live (a folded hero can't
+  // be punished), and ramped in by sample like the postflop reads. ----
+  const stealSeat = ['CO', 'BTN', 'SB'].includes(chartPosition(pos));
+  let openWiden = 0; // hero folds blinds too much → steal wider
+  let threeBetTilt = 1; // hero over-folds to 3-bets → 3-bet (value + bluff) more
+  let fourBetBluffTilt = 1;
+  if (reads && diff.adapt > 0 && !state.players[0].folded) {
+    const a = diff.adapt;
+    const conf = (n: number, k: number) => Math.min(1, n / k);
+    if (reads.faced3Bet >= 5) {
+      const f = reads.foldTo3Bet / reads.faced3Bet;
+      const c = conf(reads.faced3Bet, 12);
+      if (f > 0.6) { threeBetTilt += a * 0.8 * c; fourBetBluffTilt += a * 0.6 * c; } // over-folds → attack
+      else if (f < 0.35) threeBetTilt -= a * 0.4 * c; // hero fights back → 3-bet him tighter
+    }
+    if (reads.blindDefends >= 5 && reads.blindFolds / reads.blindDefends > 0.7)
+      openWiden += a * 0.18 * conf(reads.blindDefends, 12);
+  }
+
   const liveOpponents = state.players.filter((q) => !q.folded && q.id !== p.id).length;
   // effective stack (bb): the shorter of hero vs the deepest live opponent — drives
   // short-stack push/fold preflop and implied-odds depth postflop.
@@ -203,7 +224,8 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       }
       // it's folded to us (or limps in front) — RFI by blueprint open frequency:
       // strong hands open ~always, borderline hands mix, a thin off-chart band steals.
-      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness)) {
+      // openWiden steals wider from late position vs a hero who over-folds his blinds.
+      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness) + (stealSeat ? openWiden : 0)) {
         // Open SIZE scales with DEPTH, not just the board (openSizing.ts). Deep
         // stacks build the pot (~2.5–3bb), but as the tournament clock lifts the
         // blinds the effective stack shrinks and a fat 3–4bb open over-commits — so
@@ -284,7 +306,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       }
       // 4-bet BLUFF: suited wheel aces block AA/AK — a thin, blocker-only bluff so the
       // 4-bet range isn't pure value (was AA/KK/AK only, trivially read).
-      if ((code === 'A5s' || code === 'A4s' || code === 'A3s') && la.canRaise && r() < profile.bluffFreq * 0.35)
+      if ((code === 'A5s' || code === 'A4s' || code === 'A3s') && la.canRaise && r() < profile.bluffFreq * 0.35 * fourBetBluffTilt)
         return fourBetSize();
       // FLAT the 3-bet in position with hands that play a flop well but don't want to
       // 4-bet-and-fold (the "no flat vs 3-bet" gap).
@@ -300,10 +322,11 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
 
     // facing an OPEN → 3-bet (value / bluff), flat, or fold.
     const valueThreeBet = THREEBET_RANGE.has(code) || strength > 0.9;
-    if (valueThreeBet && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq)) return threeBetSize();
+    if (valueThreeBet && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq) * threeBetTilt) return threeBetSize();
     // 3-bet BLUFF: blocker family (suited wheel aces + suited Broadway gappers), a
-    // touch more often IP (more fold equity, better realisation).
-    if (BLUFF_THREEBET_RANGE.has(code) && la.canRaise && r() < profile.bluffFreq * (ipPre ? 0.55 : 0.4))
+    // touch more often IP (more fold equity, better realisation). threeBetTilt widens
+    // the bluff end vs a hero who over-folds to 3-bets.
+    if (BLUFF_THREEBET_RANGE.has(code) && la.canRaise && r() < profile.bluffFreq * (ipPre ? 0.55 : 0.4) * threeBetTilt)
       return threeBetSize();
 
     // ---- flat (cold-call) / fold vs an open ----

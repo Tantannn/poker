@@ -357,6 +357,7 @@ function heroFirstNodeStrategy(
     bestEv: round2(best.ev),
     bestId: best.id,
     source: 'postflop-model',
+    engine: 'cfr',
     note: noteText,
     notes,
   };
@@ -718,6 +719,7 @@ function vsBetNodeStrategy(
     bestEv: round2(best.ev),
     bestId: best.id,
     source: 'postflop-model',
+    engine: 'cfr',
     note,
   };
 }

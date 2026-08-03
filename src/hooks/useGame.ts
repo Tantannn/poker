@@ -7,6 +7,7 @@ import type { Action, GameState, Position } from '../engine/table';
 import {
   applyAction,
   biasHoleCards,
+  chartPosition,
   createGame,
   handResults,
   legalActions,
@@ -174,6 +175,9 @@ export function useGame(initialProfiles: string[]) {
   // Live straddle. Unlike rake it only takes effect on the NEXT deal (blinds are posted at
   // deal time), so it is stamped in `deal` rather than onto the hand in progress.
   const [straddle, setStraddle] = useState<StraddleMode>((SAVED?.straddle as StraddleMode) ?? 'off');
+  // Bots initiate a UTG straddle (~half of eligible cash hands) when the hero hasn't set one —
+  // trains the depth lesson organically. Stamped in `deal` like `straddle`.
+  const [botStraddle, setBotStraddle] = useState<boolean>(SAVED?.botStraddle ?? false);
   const [watchAfterFold, setWatchAfterFold] = useState<boolean>(SAVED?.watchAfterFold ?? false);
   const [tiltWarnings, setTiltWarnings] = useState<boolean>(SAVED?.tiltWarnings ?? true);
   // when the graded answer surfaces — 'immediate' (drill) or 'deferred' (exam).
@@ -397,6 +401,7 @@ export function useGame(initialProfiles: string[]) {
       const next = structuredClone(base);
       next.rake = rake; // stamp every hand: a table rebuilt by createGame carries none
       next.straddle = straddle; // read by startHand when it posts the blinds
+      next.botStraddleFreq = botStraddle ? 0.5 : 0; // a bot may straddle when the hero hasn't
       if (scenario !== 'random') {
         // place the button so the hero (seat 0) lands on the requested seat — only
         // if that position exists at this table size, else just deal random.
@@ -419,7 +424,9 @@ export function useGame(initialProfiles: string[]) {
           const code = pickDrillCode(drillClass);
           if (code) biasHoleCards(next, 0, code);
         } else if (edgeFocus) {
-          const pos = positionLabel(0, next.buttonIndex, next.players.length);
+          // scenarios are keyed by 6-max chart seat; an added 9-max seat (UTG1/…)
+          // matches none, so map it or edge-focus silently no-ops there.
+          const pos = chartPosition(positionLabel(0, next.buttonIndex, next.players.length));
           const sc = scenariosForSize(next.players.length as TableSize).find(
             (s) => s.facing === 'rfi' && s.heroPos === pos,
           );
@@ -442,7 +449,7 @@ export function useGame(initialProfiles: string[]) {
     strategyRef.current = null;
     decisionsRef.current = [];
     playDeal();
-  }, [scenario, game, mode, edgeFocus, drillClass, autoResetOnBust, tableSize, stackDepth, profiles, rake, straddle]);
+  }, [scenario, game, mode, edgeFocus, drillClass, autoResetOnBust, tableSize, stackDepth, profiles, rake, straddle, botStraddle]);
 
   // skip current hand immediately and deal a fresh scenario
   const skipHand = useCallback(() => {
@@ -569,6 +576,18 @@ export function useGame(initialProfiles: string[]) {
     if (prev.street === 'preflop') {
       rd.preflopActions++;
       if (action.type === 'call' || action.type === 'raise' || action.type === 'bet') rd.vpipActions++;
+      // preflop fold reads the bots exploit: over-folding a blind vs a steal, or
+      // over-folding to a 3-bet. Only when hero actually faced a raise.
+      if (la.callAmount > 0) {
+        const raises = prev.log.filter(
+          (l) => l.handNumber === prev.handNumber && l.street === 'preflop' && l.type === 'raise',
+        ).length;
+        const heroPos = positionLabel(0, prev.buttonIndex, prev.players.length);
+        if (raises >= 2) { rd.faced3Bet++; if (action.type === 'fold') rd.foldTo3Bet++; }
+        else if (raises === 1 && (heroPos === 'SB' || heroPos === 'BB')) {
+          rd.blindDefends++; if (action.type === 'fold') rd.blindFolds++;
+        }
+      }
     }
     const isFold = action.type === 'fold';
     if (action.type === 'bet' || action.type === 'raise') rd.aggrActions++;
@@ -656,12 +675,12 @@ export function useGame(initialProfiles: string[]) {
     saveSettings({
       profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize,
       anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode,
-      villainLocks, readDrivenModel, rake, straddle,
+      villainLocks, readDrivenModel, rake, straddle, botStraddle,
       tournament, activeMode: mode, sessionId,
       cashSessionId: sessionIdsRef.current.cash,
       tourneySessionId: sessionIdsRef.current.tourney,
     });
-  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, villainLocks, readDrivenModel, rake, straddle, tournament, mode, sessionId]);
+  }, [profiles, stackDepth, scenario, speed, watchAfterFold, tiltWarnings, difficulty, seatDiffs, tableSize, anonymousVillains, edgeFocus, drillClass, autoResetOnBust, feedbackMode, villainLocks, readDrivenModel, rake, straddle, botStraddle, tournament, mode, sessionId]);
 
 
   // ---- HUD + strategy compute on hero's turn ----
@@ -972,6 +991,8 @@ export function useGame(initialProfiles: string[]) {
     setRake: applyRake,
     straddle,
     setStraddle,
+    botStraddle,
+    setBotStraddle,
     watchAfterFold,
     setWatchAfterFold,
     tiltWarnings,

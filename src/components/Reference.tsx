@@ -598,8 +598,9 @@ export function Reference() {
               </tbody>
             </table>
             <p className="sub">
-              Hook: <b>fewer players behind = open wider.</b> A short table just <b>deletes the front (early)
-              rungs</b> — it never changes the ranges themselves.
+              Hook: <b>fewer players behind = open wider.</b> A short table <b>deletes the front (early)
+              rungs</b>; a full-ring table <b>adds more</b> — but the added early seats all still have 5+
+              behind, so they open the <b>same UTG range</b>. The ranges themselves never change.
             </p>
           </div>
           <div>
@@ -607,6 +608,9 @@ export function Reference() {
             <table>
               <thead><tr><th>Table</th><th>Mapping (BB always defends)</th></tr></thead>
               <tbody>
+                <tr><td><b>9-max</b></td><td>UTG · UTG1 · UTG2 · LJ all→<b>UTG</b> · HJ→<b>MP</b> · CO→CO · BTN · SB</td></tr>
+                <tr><td><b>8-max</b></td><td>UTG · UTG1 · UTG2 all→<b>UTG</b> · HJ→<b>MP</b> · CO→CO · BTN · SB</td></tr>
+                <tr><td><b>7-max</b></td><td>UTG · UTG1 both→<b>UTG</b> · HJ→<b>MP</b> · CO→CO · BTN · SB</td></tr>
                 <tr><td><b>6-max</b></td><td>identical — UTG · MP · CO · BTN · SB</td></tr>
                 <tr><td><b>5-max</b></td><td>UTG→<b>MP</b> · CO→CO · BTN→BTN · SB→SB</td></tr>
                 <tr><td><b>4-max</b></td><td>UTG→<b>CO</b> · BTN→BTN · SB→SB</td></tr>

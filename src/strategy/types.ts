@@ -70,6 +70,12 @@ export interface NodeStrategy {
   bestEv: number;
   bestId: ActionId;
   source: 'preflop-chart' | 'postflop-model';
+  /** How a `postflop-model` node was actually computed: `cfr` = a real range-vs-range
+   *  CFR solve (riverAdapter), `heuristic` = the per-hand EV model (postflopModel), which
+   *  answers everything the solver gates don't reach (villain-first multiway, facing-a-bet
+   *  multiway, a read carve-out). The UI badges the two differently so a teaching estimate is
+   *  never presented as solver output (README). Undefined for `preflop-chart`. */
+  engine?: 'cfr' | 'heuristic';
   note: string;
   /** `note` split into one line per idea, for bulleted rendering. Postflop only;
    *  preflop leaves this undefined and the paragraph `note` is used. */

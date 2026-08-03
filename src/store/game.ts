@@ -134,6 +134,8 @@ export interface PersistSettings {
   rake?: string;
   /** live straddle mode (engine/table.ts StraddleMode). Missing/'off' = no straddle. */
   straddle?: string;
+  /** whether bots initiate a UTG straddle when the hero hasn't set one. */
+  botStraddle?: boolean;
   /** legacy single-mode flag — kept for back-compat reads; `activeMode` supersedes it. */
   tournament?: boolean;
   /** which mode's table was last on screen, so a refresh reopens the same tab. */

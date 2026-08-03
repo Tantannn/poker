@@ -107,19 +107,24 @@ Sequence so each stage ships value and de-risks the next:
   `FLOP_SOLVER_ENABLED`; hero-first HU only, and only when no meaningful villain read/lock
   is active (else the per-hand model runs for the exploit delta). The abstraction is
   disclosed in the node note.
-- **Stage 4 — MULTIWAY, 3-way turn/river (`multiwaySolver.ts`). ✅ BUILT.** Full
-  multiway CFR (every player optimising) is out of scope; a 3-handed pot is approximated by
-  solving hero + ONE villain with CFR while the THIRD player follows a **fixed MDF-by-strength
-  policy** (defends the top 1/(1+f) of its range facing a bet of size f, checks its whole
-  range to a checked pot; ranked by made strength on the river, by equity-vs-bettor on the
-  turn). The tractability key: hero scoops iff he beats every caller, and "beats the third"
-  marginalises into a per-hero scalar (its win-rate vs the third's calling range) that is
-  independent of the villain's specific hand up to card removal — so the third collapses to
-  precomputed scalars and the solve stays O(hero × villain), not O(hero × villain × third).
-  Gated by `MULTIWAY_SOLVER_ENABLED`; hero-first, exactly 3-way (`liveOpps === 2`), no active
-  read (else per-hand model for the exploit delta). The turn nests a 3-way river subgame on
-  the check line (river-texture bucketed, as the flop buckets turns). 4+-way and villain-first
-  multiway stay on the per-hand model. Independence + fixed policy are disclosed in the note.
+- **Stage 4 — MULTIWAY, 3- to 9-way flop/turn/river (`multiwaySolver.ts`). ✅ BUILT.** Full
+  multiway CFR (every player optimising) is out of scope; a multiway pot is approximated by
+  solving hero + ONE villain with CFR while the REST of the field each follow a **fixed
+  MDF-by-strength policy** (defends the top 1/(1+f) of its range facing a bet of size f, checks
+  its whole range to a checked pot; ranked by made strength on the river, by equity-vs-bettor on
+  the turn/flop). The tractability key: hero scoops iff he beats every caller, and "beats a fixed
+  player" marginalises into a per-hero scalar (its win-rate vs that player's calling range)
+  independent of the villain's specific hand up to card removal — so each field player collapses
+  to precomputed scalars. The field's **caller sets** used to be enumerated (2^field subsets),
+  which capped it near 6-way; `fieldCoef` replaced that with the **exact O(field²)
+  generating-function collapse** (the caller set enters `betEvVsField`/`callEvVsField` only as
+  `Σ prob·win·netByBets[callers+k]`, the coefficient of Π((1−pc)+pc·wc·x)) — so cost is now
+  linear in the field and `MAX_MULTIWAY_OPPONENTS = 8` reaches full ring (~1.0s 3-way … 2.2s
+  9-way). Gated by `MULTIWAY_SOLVER_ENABLED`; hero-first, `liveOpps` 2–8, no active read on the
+  solved primary (else per-hand model for the exploit delta; a read on a FIXED field player
+  re-anchors its MDF policy). The turn nests a multiway river subgame and the flop a turn
+  subgame on the check line (texture-bucketed). Villain-first multiway (facing a bet, 2+ opps)
+  stays on the per-hand model. Independence + fixed policy are disclosed in the node note.
 - **Stage 5 — performance / precompute (ongoing).** Cache by canonical spot
   (texture + SPR + range pair), worker pooling, optional precomputed DB (C) for
   hot flop nodes.

@@ -48,14 +48,16 @@ export const FLOP_SOLVER_ENABLED = true;
 // multiway CFR is out of scope; villain-first multiway stays on the per-hand model. Flip to
 // false to A/B the whole street against it.
 export const MULTIWAY_SOLVER_ENABLED = true;
-// Live opponents the multiway solver will take (2 = 3-way … 5 = 6-way). It survives at 5
-// because `scaleCap` (riverAdapter.ts) shrinks the per-player combo caps as the field grows,
-// which offsets the 2^field caller-set enumeration: measured flop cost rises ~10% per added
-// opponent, not 2×. The cap is BELOW the largest table the app deals — a 7- to 9-handed pot
-// with 6+ live opponents falls through to the per-hand model, and that gap is why full ring
-// gets a note rather than a solve. Raising it needs a fresh measurement, not just a bump:
-// `scaleCap` is already pinned at its 12-combo floor for every multiway flop.
-export const MAX_MULTIWAY_OPPONENTS = 5;
+// Live opponents the multiway solver will take (2 = 3-way … 8 = 9-way). 8 covers every
+// pot the largest table the app deals (9-max) can make, so nothing falls through to the
+// per-hand model for field size alone. The old 6-way ceiling was set by the field's
+// caller-set enumeration (2^field subsets); `multiwaySolver.ts: fieldCoef` replaced that
+// with the exact generating-function collapse (O(field²)), so the field side is now cheap
+// and the cost is bounded by the nested subgames, whose `scaleCap` combo caps sit on the
+// 12-floor from nField ≥ 3 up — i.e. UNCHANGED past 5-way. Measured flop cost grows only
+// linearly (a few extra ThirdAgg builds) per added opponent. See multiwayFlop.test.ts for
+// the 9-way wall-clock budget.
+export const MAX_MULTIWAY_OPPONENTS = 8;
 import { solvePostflop } from './postflopModel';
 
 export type { NodeStrategy } from './types';
@@ -931,8 +933,8 @@ function postflopStrategy(
   // Tier-2 Stage 4: a hero-FIRST MULTIWAY river node → hero + primary villain solved by CFR,
   // the rest of the field on a fixed MDF policy. Every opponent draws from the same
   // population range (as the per-hand model's multiway does). No read → CFR; a read on the
-  // SOLVED villain falls to per-hand. 3-way through 5-way; beyond that the field precompute
-  // and the caller-set enumeration stop paying for themselves.
+  // SOLVED villain falls to per-hand. 3- through 9-way (fieldCoef made the field O(field²), so
+  // the cap reaches the app's max table); a 10+-handed table would fall back.
   if (
     MULTIWAY_SOLVER_ENABLED &&
     !primaryHasRead &&

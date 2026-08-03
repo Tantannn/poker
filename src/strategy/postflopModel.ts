@@ -759,6 +759,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     bestEv: round2(bestEv),
     bestId: best.id,
     source: 'postflop-model',
+    engine: 'heuristic',
     note: noteLines.join(' '),
     notes: noteLines,
     equity: e,

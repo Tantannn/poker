@@ -249,7 +249,9 @@
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 8; npx vitest run src/strategy/solver/betRaiseTree.test.ts --reporter=verbose 2>&1 | Select-Object -First 26)",
       "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 20)",
       "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 14)",
-      "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 12)"
+      "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 12)",
+      "Bash(Get-ChildItem -Path D:\\\\Code\\\\poker\\\\src -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

@@ -3,7 +3,7 @@
 // the React layer clones state before applying so reducers stay pure.
 
 import type { Card } from './cards';
-import { cardId, charToRank, makeDeck, shuffle } from './cards';
+import { cardId, charToRank, makeDeck, makeRng, shuffle } from './cards';
 import { evaluate7, describeHand } from './evaluator';
 import { rakeInChips, rakeOn, type RakeProfileId } from './rake';
 
@@ -164,6 +164,11 @@ export interface GameState {
   // seat, which is why it is the most distorting thing in a live game: every stack is
   // suddenly half as deep measured against the bet that matters.
   straddle?: StraddleMode;
+  // 0..1 chance a BOT in the UTG seat posts a UTG straddle when the hero hasn't set one —
+  // live cash tables straddle constantly, and it's the depth lesson in action. Only a bot
+  // ever initiates (the hero is never force-straddled), and the roll is seeded per hand so a
+  // replay reproduces it. Cash only, ≥3 live seats — same gates as `straddle`.
+  botStraddleFreq?: number;
   // The live bet the straddle actually posted, in chips (undefined/0 = no straddle this
   // hand — a short stack may have posted less than the full amount). Read it through
   // `effectiveBigBlind`, never directly, so depth logic can't miss it.
@@ -392,8 +397,9 @@ export function startHand(state: GameState): GameState {
   // so the first to act is the seat after them — UTG+1 behind a UTG straddle, or the small
   // blind behind a Mississippi straddle.
   state.straddleTo = 0;
+  const straddleMode = resolveStraddleMode(state, bbIdx, b, nextLiveSeat);
   let lastPosted = bbIdx;
-  for (const { idx, amount } of straddleSeats(state, b, bbIdx, nextLiveSeat)) {
+  for (const { idx, amount } of straddleSeats(state, straddleMode, b, bbIdx, nextLiveSeat)) {
     postBlind(state, idx, amount, 'straddle');
     lastPosted = idx;
     state.currentBet = Math.max(state.currentBet, state.players[idx].committed);
@@ -408,9 +414,9 @@ export function startHand(state: GameState): GameState {
   // blinds and straddles reset hasActed so they get their option
   state.players[sbIdx].hasActed = false;
   state.players[bbIdx].hasActed = false;
-  for (const { idx } of straddleSeats(state, b, bbIdx, nextLiveSeat)) state.players[idx].hasActed = false;
+  for (const { idx } of straddleSeats(state, straddleMode, b, bbIdx, nextLiveSeat)) state.players[idx].hasActed = false;
   const anteNote = state.ante > 0 ? ` (ante ${state.ante})` : '';
-  const strNote = state.straddleTo ? ` ${straddleLabel(state.straddle)} straddle ${state.straddleTo}.` : '';
+  const strNote = state.straddleTo ? ` ${straddleLabel(straddleMode)} straddle ${state.straddleTo}.` : '';
   state.message = `Hand #${state.handNumber} dealt. Blinds ${state.smallBlind}/${state.bigBlind}${anteNote}.${strNote}`;
   return state;
 }
@@ -419,15 +425,28 @@ function straddleLabel(mode: StraddleMode | undefined): string {
   return mode === 'button' ? 'Mississippi' : mode === 'double' ? 'Double' : 'UTG';
 }
 
+/** The straddle mode in force this hand: the hero's explicit choice wins; otherwise a BOT in
+ *  the UTG seat may initiate one at `botStraddleFreq`. Never force-straddles the hero, and the
+ *  roll is seeded per hand so a replay reproduces it. Cash only, ≥3 live seats. */
+function resolveStraddleMode(state: GameState, bbIdx: number, buttonIdx: number, nextLiveSeat: (from: number) => number): StraddleMode {
+  const chosen = state.straddle ?? 'off';
+  if (chosen !== 'off') return chosen;
+  const freq = state.botStraddleFreq ?? 0;
+  if (freq <= 0 || state.tournament || liveSeatCount(state) < 3) return 'off';
+  const utg = nextLiveSeat(bbIdx);
+  if (utg === buttonIdx || state.players[utg].isHero) return 'off'; // no UTG seat, or it's the hero
+  return makeRng((state.seed ?? 0) ^ 0x57444c)() < freq ? 'utg' : 'off';
+}
+
 /** Which seats post a straddle this hand, and how much. Cash only (a tournament has no
  *  straddle), and only with enough live seats for the straddler to exist and still act last. */
 function straddleSeats(
   state: GameState,
+  mode: StraddleMode,
   buttonIdx: number,
   bbIdx: number,
   nextLiveSeat: (from: number) => number,
 ): { idx: number; amount: number }[] {
-  const mode = state.straddle ?? 'off';
   const live = liveSeatCount(state);
   if (mode === 'off' || state.tournament || live < 3) return [];
   if (mode === 'button') return [{ idx: buttonIdx, amount: 2 * state.bigBlind }];

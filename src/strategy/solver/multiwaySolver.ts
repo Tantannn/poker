@@ -90,66 +90,57 @@ function mdfCallProbs(
   });
 }
 
-/** One enumerated caller-set from the fixed field: the chance exactly those players call,
- *  the player's win-rate against all of them (a PRODUCT — the independence approximation),
- *  and how many bets they put in (which sets the pot the winner collects). */
-interface FieldOutcome {
-  prob: number;
-  win: number;
-  callers: number;
-}
-
-/** Collapse N independent fixed players into the caller sets, per size and player combo.
- *  Zero-probability branches are pruned, so one fixed player yields exactly the {folds,
- *  calls} pair the 3-way solver used before and N players yield at most 2^N. */
-function fieldOutcomes(aggs: ThirdAgg[], nSizes: number, nP: number): FieldOutcome[][][] {
+/** The fixed field collapsed to a coefficient vector: `coef[m]` is the summed prob·win-rate
+ *  over ALL caller-sets of exactly m callers. It is the generating function of the caller
+ *  count — the coefficient of x^m in Π_a ((1−pc_a) + pc_a·wc_a·x), where x tracks callers,
+ *  pc_a is player a's call prob and wc_a the aggressor's win-rate vs a's calling range.
+ *
+ *  Every caller-set of size m contributes (Π_callers pc·wc)·(Π_folders (1−pc)) = its prob·win,
+ *  so this is EXACT, not an approximation — and it replaces the old 2^N subset enumeration
+ *  that capped the solver near 6-way. Cost drops from O(2^N) to O(N²) per (size, combo), which
+ *  is what makes a 7–8-opponent (full-ring) field affordable. The independence approximation
+ *  across field players (prob and win are both products) is unchanged. */
+function fieldCoef(aggs: ThirdAgg[], nSizes: number, nP: number): Float64Array[][] {
   return Array.from({ length: nSizes }, (_, s) =>
     Array.from({ length: nP }, (_, p) => {
-      let out: FieldOutcome[] = [{ prob: 1, win: 1, callers: 0 }];
+      let coef = new Float64Array(1);
+      coef[0] = 1;
       for (const a of aggs) {
         const pc = a.pTcall[s][p];
         const wc = a.wVsT[s][p];
-        const next: FieldOutcome[] = [];
-        for (const o of out) {
-          if (pc < 1) next.push({ prob: o.prob * (1 - pc), win: o.win, callers: o.callers });
-          if (pc > 0) next.push({ prob: o.prob * pc, win: o.win * wc, callers: o.callers + 1 });
+        const next = new Float64Array(coef.length + 1);
+        for (let m = 0; m < coef.length; m++) {
+          next[m] += coef[m] * (1 - pc); // a folds → same callers, win-factor 1
+          next[m + 1] += coef[m] * (pc * wc); // a calls → one more caller, ×its win-rate
         }
-        out = next;
+        coef = next;
       }
-      return out;
+      return coef;
     }),
   );
 }
 
-/** Hero's net chips betting `b` as the lone aggressor, summed over the field's caller sets.
- *  `vs0`/`vs1` are the solved villain's fold/call probabilities and `hv` hero's win-rate vs
- *  that villain combo. Hero scoops only by beating EVERY caller, so each extra caller both
- *  raises the pot and multiplies another win-rate in. */
-function betEvVsField(
-  field: FieldOutcome[],
-  hv: number,
-  vs0: number,
-  vs1: number,
-  b: number,
-  netByBets: number[],
-): number {
-  let acc = 0;
-  for (const o of field) {
-    // netByBets[m] = what the winner collects from a pot of P + m·b. With no rake it is
-    // exactly P + m·b, so this reduces to the raw arithmetic.
-    const villainOut = o.callers === 0 ? netByBets[1] - b : o.win * netByBets[o.callers + 1] - b;
-    const villainIn = hv * o.win * netByBets[o.callers + 2] - b;
-    acc += o.prob * (vs0 * villainOut + vs1 * villainIn);
+/** Hero's net chips betting `b` as the lone aggressor, summed over the field's caller sets via
+ *  the coefficient vector. `vs0`/`vs1` are the solved villain's fold/call probs and `hv` hero's
+ *  win-rate vs that villain combo. Each extra caller both raises the pot (netByBets index) and
+ *  multiplies another win-rate in (already folded into coef). Σ_m coef counts prob·win, but Σ
+ *  prob = 1 independent of the win product, so the −b stake term is standalone. */
+function betEvVsField(coef: Float64Array, hv: number, vs0: number, vs1: number, b: number, netByBets: number[]): number {
+  let out = 0; // villain folded: hero + m field callers in the pot
+  let inn = 0; // villain called: hero + villain + m field callers
+  for (let m = 0; m < coef.length; m++) {
+    out += coef[m] * netByBets[m + 1];
+    inn += coef[m] * netByBets[m + 2];
   }
-  return acc;
+  return vs0 * (out - b) + vs1 * (hv * inn - b);
 }
 
-/** The solved villain's net chips CALLING a bet of `b`: hero and villain are both in, so
- *  every caller set adds two bets plus the field's. `vv` = villain's win-rate vs hero. */
-function callEvVsField(field: FieldOutcome[], vv: number, b: number, netByBets: number[]): number {
-  let acc = 0;
-  for (const o of field) acc += o.prob * (vv * o.win * netByBets[o.callers + 2] - b);
-  return acc;
+/** The solved villain's net chips CALLING a bet of `b`: hero and villain are both in, so every
+ *  field caller set adds two bets plus its own. `vv` = villain's win-rate vs hero. */
+function callEvVsField(coef: Float64Array, vv: number, b: number, netByBets: number[]): number {
+  let inn = 0;
+  for (let m = 0; m < coef.length; m++) inn += coef[m] * netByBets[m + 2];
+  return vv * inn - b;
 }
 
 /** Winner's collect from a pot of P + m·b, for m = 0..maxBets. Precomputed per bet size so
@@ -244,8 +235,8 @@ function multiwayCfr(p: {
   const nV = V.length;
   const netP = netPot(p.rake, P); // checked-down pot after rake
   const netBySize = bets.map((b) => netPotByBets(P, b, p.nField + 2, p.rake));
-  const fieldH = fieldOutcomes(aggsH, nSizes, nH);
-  const fieldV = fieldOutcomes(aggsV, nSizes, nV);
+  const fieldH = fieldCoef(aggsH, nSizes, nH);
+  const fieldV = fieldCoef(aggsV, nSizes, nV);
   // Checked pot: hero must beat the whole field, so the scoop chance is the product over
   // every fixed player's FULL range (nobody folded — there was no bet to fold to).
   const fullWinH = H.map((_, i) => aggsH.reduce((acc, a) => acc * a.wVsTfull[i], 1));
