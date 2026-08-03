@@ -3,7 +3,7 @@
 // single seam where smarter engines can be swapped in.
 
 import type { Action, GameState } from '../engine/table';
-import { effectiveBigBlind, legalActions, positionLabel, potTotal } from '../engine/table';
+import { chartPosition, effectiveBigBlind, legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
 import { makeRng } from '../engine/cards';
 import type { Card } from '../engine/cards';
 import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
@@ -176,7 +176,9 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
     }
 
-    const inRFI = RFI_RANGES[pos]?.has(code) ?? false;
+    // charts are keyed by the 6-max seats-behind equivalent, the same mapping the
+    // grader uses — otherwise a 9-max UTG+1 has no chart and the bot folds everything.
+    const inRFI = RFI_RANGES[sixMaxRfiEquivalent(pos, state.players.length) ?? 'BB'].has(code);
 
     // ---- short stack: push/fold (≤15bb) ----
     // Too shallow to play postflop or realise implied odds. Open-jam or 3-bet-jam a
@@ -210,7 +212,8 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         // touch (early seats / SB open bigger — less position, more players behind).
         // Push/fold (≤15bb) already returned above, so depth here is always >15bb.
         const depthBB = effStackBB >= 60 ? 2.5 : effStackBB >= 40 ? 2.3 : effStackBB >= 25 ? 2.1 : 2.0;
-        const posBump = pos === 'SB' ? 0.5 : pos === 'UTG' || pos === 'MP' ? 0.3 : 0;
+        const chartPos = chartPosition(pos); // 9-max UTG+1/+2/LJ all bump as early seats
+        const posBump = chartPos === 'SB' ? 0.5 : chartPos === 'UTG' || chartPos === 'MP' ? 0.3 : 0;
         const anteShave = state.ante > 0 ? 0.2 : 0;
         const openToBB = Math.max(2, depthBB + posBump - anteShave);
         // × the EFFECTIVE blind: over a straddle the standard open is ~2.5× the STRADDLE.

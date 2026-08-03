@@ -8,11 +8,16 @@ import { DRILL_CLASSES } from '../strategy/drillDeal';
 
 type G = ReturnType<typeof useGame>;
 
-const POSITIONS: HeroPositionPref[] = ['random', 'UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
+// seat order early → late, so the row reads like the table does. UTG1/UTG2/LJ
+// only exist at 7+ handed and grey out below that (validSeats).
+const POSITIONS: HeroPositionPref[] = ['random', 'UTG', 'UTG1', 'UTG2', 'LJ', 'MP', 'CO', 'BTN', 'SB', 'BB'];
 const SPEEDS: Speed[] = ['1x', '2x', 'instant'];
 const STACKS = [50, 100, 200];
-// seat counts: 6-max down to heads-up
+// seat counts: full ring down to heads-up
 const TABLE_SIZES: { n: number; label: string }[] = [
+  { n: 9, label: '9-max' },
+  { n: 8, label: '8-max' },
+  { n: 7, label: '7-max' },
   { n: 6, label: '6-max' },
   { n: 5, label: '5-max' },
   { n: 4, label: '4-max' },
@@ -201,7 +206,9 @@ export function ScenarioBar({ g }: { g: G }) {
             </button>
           </div>
           <div className="sc-seat-grid">
-            {g.profiles.slice(0, Math.max(0, g.tableSize - 1)).map((pid, idx) => (
+            {/* createGame pads unfilled seats with 'tag'; mirror that here so a
+                7-9 handed table still shows a picker for every bot seat */}
+            {Array.from({ length: Math.max(0, g.tableSize - 1) }, (_, i) => g.profiles[i] ?? 'tag').map((pid, idx) => (
               <label key={idx} className="sc-seat">
                 <span>Seat {idx + 1}</span>
                 <select
@@ -209,6 +216,7 @@ export function ScenarioBar({ g }: { g: G }) {
                   disabled={handInProgress}
                   onChange={(e) => {
                     const next = [...g.profiles];
+                    while (next.length <= idx) next.push('tag'); // no holes: a sparse array persists as nulls
                     next[idx] = e.target.value;
                     g.applyProfiles(next);
                   }}

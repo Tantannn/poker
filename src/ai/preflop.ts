@@ -2,7 +2,7 @@
 // score used by both the AI and the decision-feedback engine.
 
 import type { Card } from '../engine/cards';
-import type { Position } from '../engine/table';
+import type { ChartPosition } from '../engine/table';
 import { resolveRangeSet } from '../strategy/solverCharts';
 
 const RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
@@ -81,7 +81,7 @@ export function buildRange(tokens: string[]): Set<string> {
 }
 
 // ---- 6-max RFI (open-raise) charts, ~100bb cash baseline ----
-export const RFI_TOKENS: Record<Position, string[]> = {
+export const RFI_TOKENS: Record<ChartPosition, string[]> = {
   UTG: ['22+', 'A9s+', 'A5s-A4s', 'KTs+', 'QTs+', 'JTs', 'T9s', '98s', 'AJo+', 'KQo'],
   MP: ['22+', 'A8s+', 'A5s-A4s', 'K9s+', 'QTs+', 'JTs', 'T9s', '98s', '87s', 'ATo+', 'KJo+', 'QJo'],
   CO: [
@@ -102,7 +102,7 @@ export const RFI_TOKENS: Record<Position, string[]> = {
 // Prefer a solved chart per seat when data/solverPreflop.json provides one; else
 // the heuristic tokens. `resolveRangeSet` returns the fallback unchanged when no
 // chart exists, so the shipped empty file leaves these identical to before.
-export const RFI_RANGES: Record<Position, Set<string>> = {
+export const RFI_RANGES: Record<ChartPosition, Set<string>> = {
   UTG: resolveRangeSet('rfi-UTG', buildRange(RFI_TOKENS.UTG)),
   MP: resolveRangeSet('rfi-MP', buildRange(RFI_TOKENS.MP)),
   CO: resolveRangeSet('rfi-CO', buildRange(RFI_TOKENS.CO)),
@@ -111,7 +111,7 @@ export const RFI_RANGES: Record<Position, Set<string>> = {
   BB: new Set<string>(),
 };
 
-export const POSITION_NOTES: Record<Position, string> = {
+export const POSITION_NOTES: Record<ChartPosition, string> = {
   UTG: 'Earliest seat, 4 players left to act. Open tight — only hands that fare well multiway.',
   MP: 'Middle position. Slightly wider than UTG as fewer players remain behind.',
   CO: 'Cutoff — open wide; you often take the betting lead with position on most.',

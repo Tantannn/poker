@@ -2,21 +2,21 @@
 // kinds (fold / call / 3-bet value / 3-bet bluff / 4-bet) for the 13x13 grid
 // and for live preflop feedback.
 
-import type { Position } from '../engine/table';
+import type { ChartPosition } from '../engine/table';
 import { buildRange } from '../ai/preflop';
 import type { ActionId, ActionOption } from './types';
 import { solverActions } from './solverCharts';
 
 export type Facing = 'rfi' | 'vsopen' | 'vs3bet' | 'vs4bet' | 'squeeze' | 'vslimp';
-export type TableSize = 6 | 5 | 4 | 3 | 2;
+export type TableSize = 9 | 8 | 7 | 6 | 5 | 4 | 3 | 2;
 
 export interface PreflopScenario {
   id: string;
   label: string;
   short: string;
   facing: Facing;
-  heroPos: Position;
-  villainPos?: Position;
+  heroPos: ChartPosition;
+  villainPos?: ChartPosition;
   bluffFreq: number;
   open?: Set<string>;
   mixOpen?: Set<string>;
@@ -36,7 +36,7 @@ function S(tokens: string[]): Set<string> {
 }
 
 // ---- RFI opening ranges (reuse teaching baselines) ----
-const RFI: Record<Position, string[]> = {
+const RFI: Record<ChartPosition, string[]> = {
   UTG: ['22+', 'A9s+', 'A5s-A4s', 'KTs+', 'QTs+', 'JTs', 'T9s', '98s', 'AJo+', 'KQo'],
   MP: ['22+', 'A8s+', 'A5s-A4s', 'K9s+', 'QTs+', 'JTs', 'T9s', '98s', '87s', 'ATo+', 'KJo+', 'QJo'],
   CO: ['22+', 'A2s+', 'K8s+', 'Q9s+', 'J9s+', 'T8s+', '97s+', '86s+', '76s', '65s', '54s', 'A9o+', 'KTo+', 'QTo+', 'JTo'],
@@ -45,7 +45,7 @@ const RFI: Record<Position, string[]> = {
   BB: [],
 };
 
-const MIX_OPEN: Partial<Record<Position, string[]>> = {
+const MIX_OPEN: Partial<Record<ChartPosition, string[]>> = {
   UTG: ['A8s', 'KJo', 'QJo', '87s'],
   MP: ['A7s', 'A9o', 'KTo', '76s'],
   CO: ['K7s', 'Q8s', 'A8o', 'J9o'],
@@ -54,7 +54,7 @@ const MIX_OPEN: Partial<Record<Position, string[]>> = {
 };
 
 // One-line memory hook per RFI seat — surfaced as a collapsible note on the chart.
-const RFI_MNEMONIC: Record<Position, string> = {
+const RFI_MNEMONIC: Record<ChartPosition, string> = {
   UTG: 'Tightest seat. Base = pairs + strong suited aces + suited Broadways/connectors, plus AJo+/KQo. Not a pair, a strong ace, or two Broadway cards? Fold.',
   MP: 'UTG plus one rung wider: A8s+, K9s+, add 87s and ATo+/KJo+/QJo. Same shape, a touch looser.',
   CO: 'Steal seat opens up: every suited ace (A2s+), suited kings K8s+, suited connectors down to 54s, plus offsuit A9o+/KTo+/QTo+/JTo.',
@@ -63,7 +63,7 @@ const RFI_MNEMONIC: Record<Position, string> = {
   BB: '',
 };
 
-const POS_LIST: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB'];
+const POS_LIST: ChartPosition[] = ['UTG', 'MP', 'CO', 'BTN', 'SB'];
 
 export const SCENARIOS: PreflopScenario[] = [
   ...POS_LIST.map((p) => ({
@@ -485,12 +485,14 @@ export const SCENARIOS: PreflopScenario[] = [
   },
 ];
 
-const SEAT_ORDER: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
+const SEAT_ORDER: ChartPosition[] = ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
 
-/** Seats present at an N-handed table. Blinds + button are fixed anchors, so a
- *  table shrinks by lopping the EARLIEST positions off the front of the list. */
-export function seatsForSize(n: TableSize): Position[] {
-  return SEAT_ORDER.slice(SEAT_ORDER.length - n);
+/** Chart seats present at an N-handed table. Blinds + button are fixed anchors,
+ *  so a table shrinks by lopping the EARLIEST positions off the front of the
+ *  list. Past 6-max the extra seats all read UTG's chart (`chartPosition`), so
+ *  the scenario pool stops growing — every chart seat is already present. */
+export function seatsForSize(n: TableSize): ChartPosition[] {
+  return SEAT_ORDER.slice(Math.max(0, SEAT_ORDER.length - n));
 }
 
 /** Scenarios playable at table size N. 6-max charts are reused via the

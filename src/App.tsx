@@ -38,7 +38,9 @@ const DisciplineDrill = lazy(() => import('./components/DisciplineDrill').then((
 const BluffCatcherDrill = lazy(() => import('./components/BluffCatcherDrill').then((m) => ({ default: m.BluffCatcherDrill })));
 const LiveHand = lazy(() => import('./components/LiveHand').then((m) => ({ default: m.LiveHand })));
 
-const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit'];
+// one per bot seat at the largest table (9-max = 8 bots); createGame pads with
+// 'tag' for anyone whose saved list is shorter.
+const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit', 'fish', 'tag', 'lag'];
 
 type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'bluffcatch' | 'heatmap' | 'analytics' | 'reference' | 'livehand' | 'settings';
 

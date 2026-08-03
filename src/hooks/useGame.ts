@@ -3,7 +3,7 @@
 // and feeds analytics + hand history.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Action, GameState } from '../engine/table';
+import type { Action, GameState, Position } from '../engine/table';
 import {
   applyAction,
   biasHoleCards,
@@ -73,7 +73,7 @@ export type Speed = '1x' | '2x' | 'instant';
 export type FeedbackMode = 'immediate' | 'deferred';
 const SPEED_DELAY: Record<Speed, number> = { '1x': 750, '2x': 330, instant: 0 };
 
-export type HeroPositionPref = 'random' | 'BTN' | 'CO' | 'MP' | 'UTG' | 'SB' | 'BB';
+export type HeroPositionPref = 'random' | Position;
 
 // ---- HUD compute worker (module-level singleton, shared by every table) ----
 // undefined = not tried yet · null = Workers unavailable (fall back to sync).
@@ -305,7 +305,7 @@ export function useGame(initialProfiles: string[]) {
     saveDealt(null, mode);
   }, [stackDepth, tableSize, mode]);
 
-  // change the number of seats (2–6); rebuilds the table. Bots auto-fill from the
+  // change the number of seats (2–9); rebuilds the table. Bots auto-fill from the
   // profile list (createGame pads with 'tag'), so no profile resize is needed.
   const applyTableSize = useCallback((size: number) => {
     setTableSize(size);

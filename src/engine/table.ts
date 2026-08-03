@@ -7,7 +7,22 @@ import { cardId, charToRank, makeDeck, shuffle } from './cards';
 import { evaluate7, describeHand } from './evaluator';
 import { rakeInChips, rakeOn, type RakeProfileId } from './rake';
 
-export type Position = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
+/** The six seats the preflop charts are authored for. Every larger table maps
+ *  onto these — see `chartPosition` / `sixMaxRfiEquivalent`. */
+export type ChartPosition = 'BTN' | 'SB' | 'BB' | 'UTG' | 'MP' | 'CO';
+/** Seats a 7- to 9-handed table adds ahead of MP. `MP` is the hijack at 9-max. */
+export type Position = ChartPosition | 'UTG1' | 'UTG2' | 'LJ';
+
+// Every added seat sits at 5+ players behind, the same as 6-max UTG, so they all
+// read UTG's chart. This must stay equal to `sixMaxRfiEquivalent` at sizes 7-9 —
+// at 9-max only the hijack (labelled MP) and the CO have fewer than 5 behind.
+const CHART_POS: Record<Position, ChartPosition> = {
+  BTN: 'BTN', SB: 'SB', BB: 'BB', UTG: 'UTG', MP: 'MP', CO: 'CO',
+  UTG1: 'UTG', UTG2: 'UTG', LJ: 'UTG',
+};
+export function chartPosition(pos: Position): ChartPosition {
+  return CHART_POS[pos];
+}
 /** `utg` = the standard UTG straddle (2bb). `double` = UTG straddles and the next seat
  *  re-straddles (4bb). `button` = the Mississippi straddle, where the BUTTON posts and
  *  action starts with the small blind instead of UTG. */
@@ -20,15 +35,19 @@ export type ActionType = 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'post';
 const LOG_KEEP_HANDS = 10;
 
 // Position labels by offset from the button (offset 0 = button), per table size.
-// A position is really "how many players act behind you", so short tables keep
-// BTN/SB/BB and trim the early seats (UTG/MP/CO) off the front. Heads-up: the
-// button posts the small blind, so the two seats are BTN(=SB) and BB.
+// A position is really "how many players act behind you", so the blinds and the
+// button are fixed anchors and a table grows or shrinks in the MIDDLE — between
+// the BB and the CO. Heads-up: the button posts the small blind, so the two
+// seats are BTN(=SB) and BB.
 const POS_BY_OFFSET: Record<number, Position[]> = {
   2: ['BTN', 'BB'],
   3: ['BTN', 'SB', 'BB'],
   4: ['BTN', 'SB', 'BB', 'UTG'],
   5: ['BTN', 'SB', 'BB', 'UTG', 'CO'],
   6: ['BTN', 'SB', 'BB', 'UTG', 'MP', 'CO'],
+  7: ['BTN', 'SB', 'BB', 'UTG', 'UTG1', 'MP', 'CO'],
+  8: ['BTN', 'SB', 'BB', 'UTG', 'UTG1', 'UTG2', 'MP', 'CO'],
+  9: ['BTN', 'SB', 'BB', 'UTG', 'UTG1', 'UTG2', 'LJ', 'MP', 'CO'],
 };
 
 /** Ordered position labels for an n-handed table, indexed by offset from button. */
@@ -36,13 +55,14 @@ export function tablePositions(n: number): Position[] {
   return POS_BY_OFFSET[n] ?? POS_BY_OFFSET[6];
 }
 
-// Opening ranges scale with SEATS BEHIND (players still to act), so a seat at a
-// short table borrows the 6-max range with the same behind-count: 5-max UTG (4
-// behind) opens like 6-max MP, etc. HU button opens widest (BTN). Returns null
-// for the BB (it never opens first-in). Single source for the solver
-// (strategy) and the live position hint, so the two can never disagree.
-const RFI_LADDER: Position[] = ['BB', 'SB', 'BTN', 'CO', 'MP', 'UTG']; // index = seats behind
-export function sixMaxRfiEquivalent(pos: Position, n: number): Position | null {
+// Opening ranges scale with SEATS BEHIND (players still to act), so a seat at
+// any other size borrows the 6-max range with the same behind-count: 5-max UTG
+// (4 behind) opens like 6-max MP, and every 9-max seat from UTG through the
+// lojack (5+ behind) opens like 6-max UTG. HU button opens widest (BTN).
+// Returns null for the BB (it never opens first-in). Single source for the
+// solver (strategy) and the live position hint, so the two can never disagree.
+const RFI_LADDER: ChartPosition[] = ['BB', 'SB', 'BTN', 'CO', 'MP', 'UTG']; // index = seats behind
+export function sixMaxRfiEquivalent(pos: Position, n: number): ChartPosition | null {
   if (n === 2) return pos === 'BB' ? null : 'BTN';
   const off = tablePositions(n).indexOf(pos);
   if (off < 0) return null;

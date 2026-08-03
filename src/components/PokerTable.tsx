@@ -192,7 +192,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         <TiltBanner t={tilt} />
         <AggroBanner w={aggroWarning} />
         <div className="poker-table">
-          <div className="felt">
+          <div className={`felt ring-${game.players.length}`}>
             <div className="table-center">
               <div className="pot-display">
                 <span className="pot-label">POT</span>

@@ -2243,3 +2243,75 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .bc-bar { position: relative; height: 12px; border-radius: 999px; background: #0c1813; border: 1px solid var(--line); overflow: hidden; margin: 4px 0 12px; }
 .bc-bar-bluff { height: 100%; background: color-mix(in srgb, var(--gold) 70%, transparent); }
 .bc-bar-need { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--red); z-index: 1; }
+
+/* ---------- 7/8/9-handed seat rings ----------
+   The unscoped .slot-N rules above lay out up to six seats. Bigger tables need a
+   different ring, so these come LAST in the file: they must also outrank the
+   phone media block, which re-positions .slot-1/2/4/5 at (0,2,0). */
+.ring-7 .seat, .ring-8 .seat, .ring-9 .seat { width: 112px; }
+.ring-7 .seat.hero-seat, .ring-8 .seat.hero-seat, .ring-9 .seat.hero-seat { width: 150px; }
+/* clear the six-ring's offsets before each ring sets its own, so a leftover
+   right/transform can't fight the new left/top */
+.ring-7 .seat, .ring-8 .seat, .ring-9 .seat {
+  top: auto; bottom: auto; left: auto; right: auto; transform: none;
+}
+.ring-7 .seat-bet, .ring-8 .seat-bet, .ring-9 .seat-bet {
+  top: -25px; bottom: auto; left: auto; right: auto; transform: none; margin: 0;
+}
+
+.ring-7 .slot-0 { bottom: -14%; left: 50%; transform: translateX(-50%); }
+.ring-7 .slot-1 { bottom: 0%; left: 7%; }
+.ring-7 .slot-2 { top: 15%; left: -3%; }
+.ring-7 .slot-3 { top: -8%; left: 22%; }
+.ring-7 .slot-4 { top: -8%; right: 22%; }
+.ring-7 .slot-5 { top: 15%; right: -3%; }
+.ring-7 .slot-6 { bottom: 0%; right: 7%; }
+
+.ring-8 .slot-0 { bottom: -14%; left: 50%; transform: translateX(-50%); }
+.ring-8 .slot-1 { bottom: -4%; left: 14%; }
+.ring-8 .slot-2 { bottom: 21%; left: -3%; }
+.ring-8 .slot-3 { top: 5%; left: 1%; }
+.ring-8 .slot-4 { top: -8%; left: 50%; transform: translateX(-50%); }
+.ring-8 .slot-5 { top: 5%; right: 1%; }
+.ring-8 .slot-6 { bottom: 21%; right: -3%; }
+.ring-8 .slot-7 { bottom: -4%; right: 14%; }
+
+.ring-9 .slot-0 { bottom: -14%; left: 50%; transform: translateX(-50%); }
+.ring-9 .slot-1 { bottom: -6%; left: 15%; }
+.ring-9 .slot-2 { bottom: 20%; left: -3%; }
+.ring-9 .slot-3 { top: 17%; left: -3%; }
+.ring-9 .slot-4 { top: -8%; left: 24%; }
+.ring-9 .slot-5 { top: -8%; right: 24%; }
+.ring-9 .slot-6 { top: 17%; right: -3%; }
+.ring-9 .slot-7 { bottom: 20%; right: -3%; }
+.ring-9 .slot-8 { bottom: -6%; right: 15%; }
+
+/* side seats push their chip onto the inner (board-facing) edge; top seats drop
+   it below. Corner seats near the bottom keep the default chip above the cards. */
+.ring-7 .slot-2 .seat-bet,
+.ring-8 .slot-2 .seat-bet, .ring-8 .slot-3 .seat-bet,
+.ring-9 .slot-2 .seat-bet, .ring-9 .slot-3 .seat-bet {
+  top: 50%; left: 100%; transform: translateY(-50%); margin-left: 8px;
+}
+.ring-7 .slot-5 .seat-bet,
+.ring-8 .slot-5 .seat-bet, .ring-8 .slot-6 .seat-bet,
+.ring-9 .slot-6 .seat-bet, .ring-9 .slot-7 .seat-bet {
+  top: 50%; right: 100%; transform: translateY(-50%); margin-right: 8px;
+}
+.ring-7 .slot-3 .seat-bet, .ring-7 .slot-4 .seat-bet,
+.ring-8 .slot-4 .seat-bet,
+.ring-9 .slot-4 .seat-bet, .ring-9 .slot-5 .seat-bet {
+  top: auto; bottom: -20px;
+}
+
+@media (max-width: 600px) {
+  /* nine 84px seats don't fit a phone felt — shrink the villains, keep hero legible */
+  .ring-7 .seat, .ring-8 .seat, .ring-9 .seat { width: 68px; gap: 2px; }
+  .ring-7 .seat.hero-seat, .ring-8 .seat.hero-seat, .ring-9 .seat.hero-seat { width: 96px; }
+  .ring-7 .seat-name, .ring-8 .seat-name, .ring-9 .seat-name { font-size: 10px; }
+  .ring-7 .seat-info, .ring-8 .seat-info, .ring-9 .seat-info { padding: 2px 3px; }
+  .ring-7 .slot-1, .ring-7 .slot-6 { bottom: -4%; }
+  .ring-8 .slot-3, .ring-8 .slot-5 { left: auto; right: auto; }
+  .ring-8 .slot-3 { left: -2%; }
+  .ring-8 .slot-5 { right: -2%; }
+}

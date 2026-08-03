@@ -3,7 +3,7 @@
 // helpers for EV-loss scoring and RNG prescriptions.
 
 import type { Action, GameState } from '../engine/table';
-import { effectiveBigBlind, legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
+import { chartPosition, effectiveBigBlind, legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
 import { rakeInChips } from '../engine/rake';
 import type { Card } from '../engine/cards';
 import { makeRng, sameCard } from '../engine/cards';
@@ -48,12 +48,13 @@ export const FLOP_SOLVER_ENABLED = true;
 // multiway CFR is out of scope; villain-first multiway stays on the per-hand model. Flip to
 // false to A/B the whole street against it.
 export const MULTIWAY_SOLVER_ENABLED = true;
-// Live opponents the multiway solver will take (2 = 3-way … 5 = 6-way). 6-way is the app's
-// own maximum table, so at 4 this cap sent the FULL-TABLE limped pot — the modal live spot —
-// to the per-hand model. It survives the bump because `scaleCap` (riverAdapter.ts) shrinks
-// the per-player combo caps as the field grows, which offsets the 2^field caller-set
-// enumeration: measured flop cost rises ~10% per added opponent, not 2×. Past 6-way the
-// table can't deal a hand anyway; raising it further needs a fresh measurement.
+// Live opponents the multiway solver will take (2 = 3-way … 5 = 6-way). It survives at 5
+// because `scaleCap` (riverAdapter.ts) shrinks the per-player combo caps as the field grows,
+// which offsets the 2^field caller-set enumeration: measured flop cost rises ~10% per added
+// opponent, not 2×. The cap is BELOW the largest table the app deals — a 7- to 9-handed pot
+// with 6+ live opponents falls through to the per-hand model, and that gap is why full ring
+// gets a note rather than a solve. Raising it needs a fresh measurement, not just a bump:
+// `scaleCap` is already pinned at its 12-combo floor for every multiway flop.
 export const MAX_MULTIWAY_OPPONENTS = 5;
 import { solvePostflop } from './postflopModel';
 
@@ -124,6 +125,10 @@ function modelFor(state: GameState, seatIdx: number, models?: VillainModels): Vi
 function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopScenario; level: number } {
   const n = state.players.length;
   const heroPos = positionLabel(heroIdx, state.buttonIndex, n);
+  // Scenario ids are 6-max. Match on the chart seat, never the raw label: a 9-max
+  // UTG+1 matches no branch below and would fall through to the BUTTON chart —
+  // the widest continue range there is, handed to the tightest seat at the table.
+  const heroChart = chartPosition(heroPos);
   const raises = state.log.filter((l) => l.handNumber === state.handNumber && (l.type === 'raise' || l.type === 'bet')).length;
   // vs the EFFECTIVE blind: a straddle is a blind, not a raise, so an unopened straddled
   // pot must still read as an RFI spot rather than sending everyone to 3-bet ranges.
@@ -141,8 +146,8 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // facing a 4-bet (your re-raise got re-raised). Premium-only continue range,
     // matched to your position. Only UTG/CO/BTN charts exist → MP↦CO, blinds↦BTN.
     const fbId =
-      heroPos === 'UTG' ? 'utg-vs-4bet'
-        : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-4bet'
+      heroChart === 'UTG' ? 'utg-vs-4bet'
+        : heroChart === 'MP' || heroChart === 'CO' ? 'co-vs-4bet'
           : 'btn-vs-4bet';
     return { sc: getScenario(fbId), level: 3 };
   }
@@ -151,8 +156,8 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // the position YOU opened from — not always BTN. Only UTG/CO/BTN vs-3bet
     // charts exist, so MP maps to CO (next-tightest) and the blinds to BTN.
     const tbId =
-      heroPos === 'UTG' ? 'utg-vs-3bet'
-        : heroPos === 'MP' || heroPos === 'CO' ? 'co-vs-3bet'
+      heroChart === 'UTG' ? 'utg-vs-3bet'
+        : heroChart === 'MP' || heroChart === 'CO' ? 'co-vs-3bet'
           : 'btn-vs-3bet';
     return { sc: getScenario(tbId), level: 2 };
   }
@@ -163,26 +168,27 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   // back to the nearest existing one (vs-UTG = tightest baseline).
   const raiser = lastRaiser(state);
   const raiserPos = raiser >= 0 ? positionLabel(raiser, state.buttonIndex, state.players.length) : undefined;
-  if (heroPos === 'BB') {
+  const raiserChart = raiserPos ? chartPosition(raiserPos) : undefined;
+  if (heroChart === 'BB') {
     // pick the defense chart matching the ACTUAL opener, not always BTN.
     const bbId =
-      raiserPos === 'SB' ? 'bb-vs-sb'
-        : raiserPos === 'BTN' ? 'bb-vs-btn'
-          : raiserPos === 'CO' ? 'bb-vs-co'
-            : raiserPos === 'MP' ? 'bb-vs-mp'
-              : raiserPos === 'UTG' ? 'bb-vs-utg'
+      raiserChart === 'SB' ? 'bb-vs-sb'
+        : raiserChart === 'BTN' ? 'bb-vs-btn'
+          : raiserChart === 'CO' ? 'bb-vs-co'
+            : raiserChart === 'MP' ? 'bb-vs-mp'
+              : raiserChart === 'UTG' ? 'bb-vs-utg'
                 : 'bb-vs-btn';
     return { sc: getScenario(bbId), level: 1 };
   }
   // SB only has a vs-BTN (steal) defence chart — the 3-bet-or-fold shape is right
   // for any steal and far closer than the flat-heavy vs-UTG chart it used before.
-  if (heroPos === 'SB') return { sc: getScenario('sb-vs-btn'), level: 1 };
-  if (heroPos === 'BTN')
+  if (heroChart === 'SB') return { sc: getScenario('sb-vs-btn'), level: 1 };
+  if (heroChart === 'BTN')
     return {
-      sc: getScenario(raiserPos === 'CO' ? 'btn-vs-co' : raiserPos === 'MP' ? 'btn-vs-mp' : 'btn-vs-utg'),
+      sc: getScenario(raiserChart === 'CO' ? 'btn-vs-co' : raiserChart === 'MP' ? 'btn-vs-mp' : 'btn-vs-utg'),
       level: 1,
     };
-  if (heroPos === 'CO') return { sc: getScenario(raiserPos === 'MP' ? 'co-vs-mp' : 'co-vs-utg'), level: 1 };
+  if (heroChart === 'CO') return { sc: getScenario(raiserChart === 'MP' ? 'co-vs-mp' : 'co-vs-utg'), level: 1 };
   // UTG/MP facing an open ahead of them — rare, and tight: keep the vs-UTG baseline.
   return { sc: getScenario('btn-vs-utg'), level: 1 };
 }
@@ -551,6 +557,10 @@ export function roleBaseRange(
   read?: PreflopRead,
 ): { baseSet: Set<string>; note: string } {
   const pos = positionLabel(seatIdx, state.buttonIndex, state.players.length);
+  // Charts are 6-max; a 9-max seat borrows the one with the same seats-behind count.
+  // Keying RFI_RANGES on the raw label instead would miss and fall back to BTN — the
+  // WIDEST range — so a 9-max UTG+1 would read as a button steal.
+  const chartPos = sixMaxRfiEquivalent(pos, state.players.length) ?? 'BTN';
   const seatId = state.players[seatIdx].id;
   // 'post' = blinds, not a raise, so the raise count is never inflated by blinds.
   const pre = state.log.filter((l) => l.handNumber === state.handNumber && l.street === 'preflop');
@@ -578,7 +588,7 @@ export function roleBaseRange(
   } else if (raiseRank === 0) {
     // first (only) raiser → standard opening range
     role = 'open';
-    baseSet = RFI_RANGES[pos] ?? RFI_RANGES.BTN;
+    baseSet = RFI_RANGES[chartPos];
     // Raising OVER limpers is an iso-raise, not an open: the limpers are sticky rather
     // than dead money, so the range is value-weighted and tighter than the same seat's RFI.
     const myRaiseAt = pre.findIndex((l) => l.playerId === seatId && (l.type === 'raise' || l.type === 'bet'));
@@ -613,8 +623,9 @@ export function roleBaseRange(
     // loose suited); pairs (strength ≥0.76) always survive the floor.
     const openerIdx = state.players.findIndex((p) => p.id === preRaises[0]?.playerId);
     const openerPos = openerIdx >= 0 ? positionLabel(openerIdx, state.buttonIndex, state.players.length) : pos;
-    const earlyOpener = openerPos === 'UTG' || openerPos === 'MP';
-    let flat = diffSet(RFI_RANGES[pos] ?? RFI_RANGES.BTN, THREEBET_RANGE);
+    const openerChart = chartPosition(openerPos);
+    const earlyOpener = openerChart === 'UTG' || openerChart === 'MP';
+    let flat = diffSet(RFI_RANGES[chartPos], THREEBET_RANGE);
     if (earlyOpener) flat = new Set([...flat].filter((code) => preflopStrength(code) >= 0.5));
     baseSet = flat;
     note = `${pos}'s flat-call range vs a ${openerPos} open (capped${earlyOpener ? ' + tightened vs the early raiser' : ' — premiums 3-bet'})`;
@@ -631,7 +642,7 @@ export function roleBaseRange(
     // continuer isn't opening the button"); this branch was the one that skipped it.
     // Same 0.5 floor as the flat-call case, so the two agree; pairs (≥0.76) always
     // survive it.
-    const opener = diffSet(RFI_RANGES[pos] ?? RFI_RANGES.BTN, THREEBET_RANGE);
+    const opener = diffSet(RFI_RANGES[chartPos], THREEBET_RANGE);
     baseSet = new Set([...opener].filter((code) => preflopStrength(code) >= 0.5));
     note = `${pos}'s continuing range (capped — premiums 3-bet, steal-tail folds)`;
   }
