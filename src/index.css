@@ -912,6 +912,7 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .tag-maniac { background: var(--red); }
 .tag-nit { background: #7fa9c9; }
 .tag-gto { background: #b07fd9; }
+.tag-reg { background: #d99f7f; }
 .opp-arch { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
 .opp-bars { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .opp-bar-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
@@ -926,6 +927,17 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .opp-exploit { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
 .opp-exploit-lbl { font-size: 11px; font-weight: 800; color: var(--gold); }
 .opp-exploit p { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; }
+
+/* "he's adjusting" — a detected mid-session playstyle change. Amber-alert styling to read as
+   live and actionable, distinct from the static exploit note above. */
+.opp-shift { background: rgba(224,132,58,0.08); border: 1px solid #e0843a55; border-radius: 8px; padding: 9px 11px; }
+/* leveling = a fight-back aimed at YOU. Redder + a glow, because it's the highest-stakes read. */
+.opp-shift.leveling { background: rgba(224,64,64,0.1); border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; }
+.opp-shift.leveling .opp-shift-lbl { color: var(--red); }
+.opp-shift-lbl { font-size: 11px; font-weight: 800; color: #e0843a; text-transform: uppercase; letter-spacing: 0.3px; }
+.opp-shift-row { margin-top: 6px; }
+.opp-shift-head { font-size: 12.5px; font-weight: 700; }
+.opp-shift-advice { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 
 /* ---------- anonymous villains (build-your-own-read mode) ---------- */
 .opp-tag.tag-unknown { background: var(--bg2); color: var(--muted); border: 1px dashed var(--line); }

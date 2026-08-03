@@ -15,7 +15,12 @@ export interface AIProfile {
   bluffFreq: number; // chance to bluff with no equity
   callStation: number; // 0 folds correctly .. 1 calls too much
   cbetFreq: number; // continuation-bet frequency as aggressor
-  tag: 'TAG' | 'LAG' | 'LP' | 'MANIAC' | 'GTO' | 'NIT';
+  tag: 'TAG' | 'LAG' | 'LP' | 'MANIAC' | 'GTO' | 'NIT' | 'REG';
+  /** 0..1 how strongly this archetype COUNTER-ADJUSTS to the hero, independent of the
+   *  difficulty slider. A reg adapts because that's what regs do (they level you); a fish
+   *  never does. decide.ts uses max(diff.adapt, profile.adapt), so a reg adapts even on Normal
+   *  and the difficulty slider still makes everyone adapt. Omitted = 0 (static archetype). */
+  adapt?: number;
   /** one-line guidance on how to exploit this archetype. */
   exploit: string;
 }
@@ -113,9 +118,30 @@ export const PROFILES: Record<string, AIProfile> = {
     callStation: 0.3,
     cbetFreq: 0.62,
     tag: 'GTO',
+    // deliberately NO adapt: a GTO player plays the unexploitable strategy regardless of the
+    // hero — it never deviates. The exploitative counter-adjuster is the `reg` below.
     exploit:
       "Hard to exploit by design — play solid, balanced poker back. Edges come only from your own mistakes, " +
       'so focus on clean fundamentals and avoid spewing into their balanced ranges.',
+  },
+  reg: {
+    id: 'reg',
+    name: 'Reg (thinking regular)',
+    blurb: 'Solid, near-balanced, few static leaks — but he ADJUSTS to you. The low-pro you actually have to beat.',
+    // near-GTO with small, findable leaks: over-c-bets the flop and gives up the turn.
+    openLooseness: 0.48,
+    threeBetFreq: 0.52,
+    callRaiseLooseness: 0.42,
+    aggression: 0.62,
+    bluffFreq: 0.3,
+    callStation: 0.28,
+    cbetFreq: 0.72,
+    tag: 'REG',
+    adapt: 0.6, // the defining trait — he counter-adjusts to how YOU have been playing
+    exploit:
+      'Few static leaks, so change gears BEFORE he does. He over-c-bets the flop and gives up the turn — float and ' +
+      'take it away. Above all he ADAPTS: if you have been aggressive he stops folding (switch to value); if you have ' +
+      'been passive he steals more (fight back). Watch the “⚠ he’s adjusting” read and re-level first.',
   },
 };
 

@@ -41,7 +41,7 @@ const LiveHand = lazy(() => import('./components/LiveHand').then((m) => ({ defau
 
 // one per bot seat at the largest table (9-max = 8 bots); createGame pads with
 // 'tag' for anyone whose saved list is shorter.
-const DEFAULT_PROFILES = ['tag', 'lag', 'lp', 'gto', 'nit', 'fish', 'tag', 'lag'];
+const DEFAULT_PROFILES = ['reg', 'lag', 'lp', 'gto', 'nit', 'reg', 'tag', 'lag'];
 
 type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'valueraise' | 'bluffcatch' | 'heatmap' | 'analytics' | 'reference' | 'livehand' | 'settings';
 

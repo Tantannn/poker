@@ -10,6 +10,7 @@
 import type { VillainInfo } from '../hooks/useGame';
 import { getProfile, PROFILE_LIST } from '../ai/profiles';
 import type { ObservedStats } from '../analysis/observed';
+import { readShifts } from '../analysis/observed';
 import type { VillainLock, VillainModel } from '../strategy/villainModel';
 
 interface Props {
@@ -21,6 +22,9 @@ interface Props {
   anonymous?: boolean;
   /** observed stats for this villain (from the action log), for anonymous mode */
   observed?: ObservedStats | null;
+  /** the hero's OWN recent lead frequency (obsCounters[0]'s betFreqRecent) — lets the
+   *  "he's adjusting" read tell drift apart from LEVELING (a fight-back aimed at you). */
+  heroAggro?: number | null;
   /** the hero's archetype guess for this seat (profileId), if made */
   guessedId?: string;
   onGuess?: (profileId: string) => void;
@@ -46,6 +50,7 @@ const TAG_BLURB: Record<string, string> = {
   MANIAC: 'Maniac',
   NIT: 'Nit',
   GTO: 'Balanced (GTO-ish)',
+  REG: 'Reg (adjusts to you)',
 };
 
 export function OpponentPanel({
@@ -55,6 +60,7 @@ export function OpponentPanel({
   loading,
   anonymous,
   observed,
+  heroAggro,
   guessedId,
   onGuess,
   model,
@@ -144,6 +150,8 @@ export function OpponentPanel({
                   </div>
                 </>
               )}
+
+              <ShiftAlerts stats={observed} heroAggro={heroAggro} />
 
               <div className={`opp-pos ${villain.heroInPosition ? 'ip' : 'oop'}`}>
                 <span className="opp-pos-badge">
@@ -366,6 +374,28 @@ function Bar({ label, v, danger }: { label: string; v: number; danger?: boolean 
         <span className={`opp-bar-fill ${danger ? 'danger' : ''}`} style={{ width: `${Math.round(v * 100)}%` }} />
       </span>
       <span className="opp-bar-pct">{Math.round(v * 100)}%</span>
+    </div>
+  );
+}
+
+/** "He just changed" — mid-session playstyle shifts detected from a recent-vs-baseline window.
+ *  The hardest opponents (regs / low-pros) don't leak a static number, they ADJUST to you; the
+ *  lifetime average hides it, so this is the read that actually beats them. */
+function ShiftAlerts({ stats, heroAggro }: { stats?: ObservedStats | null; heroAggro?: number | null }) {
+  const shifts = stats ? readShifts(stats, { heroAggro }) : [];
+  if (!shifts.length) return null;
+  const leveling = shifts.some((s) => s.leveling);
+  return (
+    <div className={`opp-shift ${leveling ? 'leveling' : ''}`}>
+      <span className="opp-shift-lbl">{leveling ? '🎯 He’s levelling YOU' : '⚠ He’s adjusting'}</span>
+      {shifts.map((s) => (
+        <div key={s.stat} className="opp-shift-row">
+          <div className="opp-shift-head">
+            {s.headline} <b>{s.fromPct}% → {s.toPct}%</b>
+          </div>
+          <p className="opp-shift-advice">{s.advice}</p>
+        </div>
+      ))}
     </div>
   );
 }

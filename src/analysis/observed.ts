@@ -56,7 +56,20 @@ export interface ObsCounters {
    *  two independent aggregates. Strong hands are rare in any range, so a high
    *  barrel-through rate is arithmetically bluff-heavy — no showdown needed. */
   ledFlopThroughRiver: number;
+  // ---- WINDOWED reads: an EWMA over the seat's RECENT decisions, held against the
+  // cumulative rate above to catch a MID-SESSION playstyle change. The lifetime average
+  // hides a shift (a reg who has stopped folding to your bets still shows ~55% for a long
+  // time); the recent estimate moves within a few decisions. null before the first obs. */
+  foldToBetRecent: number | null;
+  betFreqRecent: number | null;
 }
+
+// EWMA weight on the newest observation. ~0.2 → the last ~6 decisions dominate, so a real
+// change surfaces within an orbit or two but a single flukey spot doesn't trip it.
+const RECENT_ALPHA = 0.2;
+const ewma = (prev: number | null, x: number) => (prev == null ? x : prev * (1 - RECENT_ALPHA) + x * RECENT_ALPHA);
+// Cumulative sample the baseline needs before a recent-vs-baseline shift is trustworthy.
+const SHIFT_MIN_SAMPLE = 8;
 
 export interface ObservedStats {
   hands: number;
@@ -89,6 +102,14 @@ export interface ObservedStats {
   barrelThrough: number | null;
   /** flop leads behind barrelThrough. */
   ledFlopSample: number;
+  // ---- windowed reads + the change they imply (null until the baseline is trustworthy) ----
+  /** recent (EWMA) fold-to-bet, and its SIGNED shift from the lifetime baseline (recent −
+   *  baseline). Negative = folding less now (adjusted to your aggression). */
+  foldToBetRecent: number | null;
+  foldToBetShift: number | null;
+  /** recent (EWMA) bet-when-checked-to, and its signed shift. Positive = barreling more now. */
+  betFreqRecent: number | null;
+  betFreqShift: number | null;
   /** raises ÷ unopened pots they could have opened, blinds excluded. null = no spot yet.
    *  How wide they steal — i.e. how weak their opening range is when you defend. */
   openFreq: number | null;
@@ -125,6 +146,8 @@ export function emptyObs(): ObsCounters {
     pfFoldedToThreeBet: 0,
     ledFlop: 0,
     ledFlopThroughRiver: 0,
+    foldToBetRecent: null,
+    betFreqRecent: null,
   };
 }
 
@@ -213,10 +236,12 @@ export function accumulateHand(
       if (betAhead) {
         c.facedBet++;
         if (l.type === 'fold') c.foldedToBet++;
+        c.foldToBetRecent = ewma(c.foldToBetRecent, l.type === 'fold' ? 1 : 0);
       } else {
         const took = l.type === 'bet' || l.type === 'raise';
         c.betChances++;
         if (took) c.betTaken++;
+        c.betFreqRecent = ewma(c.betFreqRecent, took ? 1 : 0);
         if (l.street === 'turn') {
           c.turnBetChances++;
           if (took) c.turnBetTaken++;
@@ -243,6 +268,67 @@ export function accumulateHand(
   return next;
 }
 
+/** A detected mid-session playstyle change on one exploit dimension, with the counter it
+ *  calls for. This is the whole point of the windowed reads: a reg who ADJUSTS to you is the
+ *  hardest opponent, and the lifetime average never shows it. */
+export interface ShiftAlert {
+  stat: 'foldToBet' | 'betFreq';
+  fromPct: number; // lifetime baseline, %
+  toPct: number; // recent (windowed), %
+  headline: string;
+  advice: string;
+  /** true when the shift is a FIGHT-BACK (folding less / betting more) AND the hero has been
+   *  the aggressor lately — i.e. he's adapting to YOU, not just drifting. The leveling war. */
+  leveling: boolean;
+}
+
+// A shift this large (recent vs baseline) reads as a real adjustment rather than variance.
+const SHIFT_MAG = 0.22;
+// Hero's recent lead frequency above this reads as "you have been the aggressor" — the
+// context that turns a villain fight-back into a read that he is countering YOU specifically.
+const HERO_AGGRO_HI = 0.55;
+
+/** Turn the windowed shifts into human "he just changed — do this" alerts. Pass the hero's own
+ *  recent aggression (obsCounters[0]'s betFreqRecent) to also detect LEVELING — a fight-back
+ *  aimed at the hero. Empty when the opponent is playing the same way he has all session. */
+export function readShifts(s: ObservedStats, ctx?: { heroAggro?: number | null }): ShiftAlert[] {
+  const out: ShiftAlert[] = [];
+  const heroBeenAggro = ctx?.heroAggro != null && ctx.heroAggro >= HERO_AGGRO_HI;
+  if (s.foldToBetShift != null && s.foldToBet != null && s.foldToBetRecent != null && Math.abs(s.foldToBetShift) >= SHIFT_MAG) {
+    const down = s.foldToBetShift < 0;
+    const leveling = down && heroBeenAggro; // he stopped folding BECAUSE you kept firing
+    out.push({
+      stat: 'foldToBet',
+      fromPct: Math.round(s.foldToBet * 100),
+      toPct: Math.round(s.foldToBetRecent * 100),
+      headline: down ? (leveling ? 'Countering YOUR aggression — folding less' : 'Folding LESS to bets now') : 'Folding MORE to bets now',
+      advice: leveling
+        ? "He's adapting to YOU — you've been firing, so he's stopped folding and started calling to catch your bluffs. Change gears FIRST: stop bluffing, value-bet your strong hands bigger, and check your air. Make his adjustment the wrong one."
+        : down
+          ? 'He stopped respecting your aggression — cut the bluffs, value-bet thinner and bigger, and let him pay you off.'
+          : 'He tightened up under pressure — barrel wider and bluff more; your fold equity just went up.',
+      leveling,
+    });
+  }
+  if (s.betFreqShift != null && s.betFreq != null && s.betFreqRecent != null && Math.abs(s.betFreqShift) >= SHIFT_MAG) {
+    const up = s.betFreqShift > 0;
+    const leveling = up && heroBeenAggro; // he's answering your aggression with his own
+    out.push({
+      stat: 'betFreq',
+      fromPct: Math.round(s.betFreq * 100),
+      toPct: Math.round(s.betFreqRecent * 100),
+      headline: up ? (leveling ? 'Fighting back at YOU — betting more' : 'Betting / barrelling MORE now') : 'Betting LESS now',
+      advice: leveling
+        ? "He's answering your aggression with his own — counter-barrelling and raising back. Don't get into a bluff war you're now behind in: tighten your own bluffs and bluff-CATCH his extra betting, because a lot of it is a reaction, not a real hand."
+        : up
+          ? 'His betting range just got more bluff-heavy — bluff-catch wider and stop folding your medium hands to him.'
+          : 'He went passive / straightforward — give his bets more credit, and take the betting lead yourself more often.',
+      leveling,
+    });
+  }
+  return out;
+}
+
 /** counters → display stats */
 export function toStats(c: ObsCounters | undefined): ObservedStats {
   if (!c || c.hands === 0)
@@ -260,6 +346,10 @@ export function toStats(c: ObsCounters | undefined): ObservedStats {
       turnBetFreq: null,
       barrelThrough: null,
       ledFlopSample: 0,
+      foldToBetRecent: null,
+      foldToBetShift: null,
+      betFreqRecent: null,
+      betFreqShift: null,
       openFreq: null,
       openSample: 0,
       threeBetFreq: null,
@@ -267,13 +357,25 @@ export function toStats(c: ObsCounters | undefined): ObservedStats {
       foldToThreeBet: null,
       foldToThreeBetSample: 0,
     };
+  const foldToBet = c.facedBet > 0 ? c.foldedToBet / c.facedBet : null;
+  const betFreq = c.betChances > 0 ? c.betTaken / c.betChances : null;
+  // A shift is only trustworthy once the BASELINE has a real sample; else the EWMA and the
+  // average are the same few points and every read looks like a "change".
+  const foldToBetShift =
+    foldToBet != null && c.foldToBetRecent != null && c.facedBet >= SHIFT_MIN_SAMPLE ? c.foldToBetRecent - foldToBet : null;
+  const betFreqShift =
+    betFreq != null && c.betFreqRecent != null && c.betChances >= SHIFT_MIN_SAMPLE ? c.betFreqRecent - betFreq : null;
   return {
     hands: c.hands,
     vpip: c.vpipHands / c.hands,
     pfr: c.pfrHands / c.hands,
     af: c.callActions > 0 ? c.aggrActions / c.callActions : null,
-    foldToBet: c.facedBet > 0 ? c.foldedToBet / c.facedBet : null,
-    betFreq: c.betChances > 0 ? c.betTaken / c.betChances : null,
+    foldToBet,
+    betFreq,
+    foldToBetRecent: c.foldToBetRecent ?? null,
+    foldToBetShift,
+    betFreqRecent: c.betFreqRecent ?? null,
+    betFreqShift,
     facedBetSample: c.facedBet ?? 0,
     betChanceSample: c.betChances ?? 0,
     riverBetFreq: c.riverBetChances > 0 ? c.riverBetTaken / c.riverBetChances : null,

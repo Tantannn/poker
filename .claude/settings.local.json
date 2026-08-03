@@ -251,7 +251,9 @@
       "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 14)",
       "PowerShell(npx vitest run src/strategy/_probe.test.ts --reporter=verbose 2>&1 | Select-Object -First 12)",
       "Bash(Get-ChildItem -Path D:\\\\Code\\\\poker\\\\src -Recurse -Directory)",
-      "Bash(Select-Object -ExpandProperty FullName)"
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(sed -n '5,30p' src/strategy/villainModel.test.ts)",
+      "Bash(sed -n '255,270p' src/strategy/nodeLock.test.ts)"
     ]
   }
 }
