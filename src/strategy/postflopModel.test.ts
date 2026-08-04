@@ -115,20 +115,19 @@ describe('solvePostflop — a made hand behind the field is marginal, not a semi
     pot: 25, toCall: 0, heroCommitted: 0, currentBet: 0,
     minRaiseTo: 2, maxRaiseTo: 210, canCheck: true, canRaise: true,
     bigBlind: 2, iterations: 4000, position: 'oop', effStack: 175,
+    // The true field equity here is ~0.441 (measured, 12×40k trials) — genuinely BELOW the 0.45
+    // thin bar, so the hand really is marginal. But at the 4000 trials this test runs, the ~0.008
+    // std-error straddles that bar, so the `kind` flipped thin/marginal run-to-run and blocked the
+    // deploy (CI gates on `npm test`) without a real regression. Pin the measured value so the
+    // model reuses it instead of its own Monte-Carlo (the bypass the audit test uses) — eHU stays
+    // ~0.74, far above the 0.5 made-favourite guard, so the classification is now deterministic.
+    precomputedEquity: 0.44,
   };
 
   it('classifies the small bet as marginal (passive), never bluff/semi-bluff', () => {
     const s = solvePostflop(tpwk);
     const bet = s.options.find((o) => o.id === 'bet33')!;
-    // On the value/thin-fail path. The bound is 0.48, not 0.45: this equity is an
-    // UNSEEDED Monte-Carlo run, and at 4000 trials its standard error is ~0.008, while
-    // the true value here sits at ~0.452. A 0.45 bound therefore sat ~0.3σ from the
-    // mean and failed roughly two runs in five — a coin-flip that blocks the deploy
-    // (CI gates on `npm test`) without ever indicating a real regression. 0.48 is
-    // ~3.5σ clear of the noise and still comfortably under the value bar, so it keeps
-    // the guard this line exists for: the hand must be BELOW value/thin-value, which
-    // is what makes the classification assertions below meaningful.
-    expect(s.equity!).toBeLessThan(0.48);
+    expect(s.equity!).toBeLessThan(0.48); // below the value/thin-value bar, which is what makes the kind assertion meaningful
     expect(bet.kind).toBe('passive');
     expect(bet.why?.startsWith('Marginal made hand')).toBe(true);
     expect(bet.why).not.toContain('keep barreling cards that complete your draw');

@@ -357,6 +357,7 @@ function heroFirstNodeStrategy(
     bestEv: round2(best.ev),
     bestId: best.id,
     source: 'postflop-model',
+    engine: 'cfr',
     note: noteText,
     notes,
   };
@@ -641,6 +642,10 @@ export interface RiverVsBetNodeParams {
    *  best-responds. His BETTING range composition already carries the read separately
    *  (`villainComboWeight`); that prices hero's call, this prices hero's raise. */
   villainFoldToBet?: number;
+  /** NODE LOCK, measured variant: how often he folds when his own bet gets RAISED
+   *  (observed.ts: foldToRaise). This node's lock is exactly that decision, so an observation
+   *  of it replaces re-pricing `villainFoldToBet` through pot odds. */
+  villainFoldToRaise?: number;
   /** house rake in chips. Omit for rake-free (solver-style) EV. */
   rake?: Rake;
 }
@@ -658,13 +663,18 @@ const VS_BET_TREE_NOTE =
   `(one re-raise size, capped by your stack) — so a raise is priced against being played back at.`;
 
 /** How the note describes a locked vs an equilibrium facing-a-bet solve. */
-function vsBetLockNote(foldToBet: number | undefined): string {
-  return foldToBet == null
-    ? ` Both sides solve, so the result is an equilibrium.`
-    : ` NODE LOCKED to your read: villain continues vs your raise at the rate a ~${Math.round(
-        foldToBet * 100,
-      )}% fold-to-¾-pot player would (re-priced for the raise), and your line is the BEST RESPONSE to that — which is what makes a bluff-raise show up against a player who gives up when raised. ` +
-      `His continuing hands still re-raise the top of that range, so the read can't make raising free.`;
+function vsBetLockNote(foldToBet: number | undefined, foldToRaise?: number): string {
+  if (foldToBet == null) return ` Both sides solve, so the result is an equilibrium.`;
+  const source =
+    foldToRaise == null
+      ? `at the rate a ~${Math.round(foldToBet * 100)}% fold-to-¾-pot player would (re-priced for the raise)`
+      : `at the rate you have MEASURED him folding to raises (~${Math.round(
+          foldToRaise * 100,
+        )}%), scaled across the raise sizes`;
+  return (
+    ` NODE LOCKED to your read: villain continues vs your raise ${source}, and your line is the BEST RESPONSE to that — which is what makes a bluff-raise show up against a player who gives up when raised. ` +
+    `His continuing hands still re-raise the top of that range, so the read can't make raising free.`
+  );
 }
 
 /** Shared mapping: a facing-a-bet solver result (river/turn/flop) → NodeStrategy for hero's
@@ -718,6 +728,7 @@ function vsBetNodeStrategy(
     bestEv: round2(best.ev),
     bestId: best.id,
     source: 'postflop-model',
+    engine: 'cfr',
     note,
   };
 }
@@ -742,7 +753,8 @@ export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | nul
     raiseSizes: grid.raiseTo,
     threeBetTo: grid.threeBetTo,
     iterations: 900,
-    villainLock: p.villainFoldToBet != null ? { foldToBet: p.villainFoldToBet } : undefined,
+    villainLock:
+      p.villainFoldToBet != null ? { foldToBet: p.villainFoldToBet, foldToRaise: p.villainFoldToRaise } : undefined,
     rake: p.rake,
   });
 
@@ -757,7 +769,7 @@ export function solveRiverVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | nul
     `River solver — range-vs-range (facing a bet: fold / call / raise, CFR over ` +
       `both ranges).` +
       VS_BET_TREE_NOTE +
-      vsBetLockNote(p.villainFoldToBet) +
+      vsBetLockNote(p.villainFoldToBet, p.villainFoldToRaise) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -783,6 +795,7 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     threeBetTo: grid.threeBetTo,
     iterations: 900,
     villainFoldToBet: p.villainFoldToBet,
+    villainFoldToRaise: p.villainFoldToRaise,
     rake: p.rake,
   });
 
@@ -797,7 +810,7 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     `Turn solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
       `lines are scored on hero's equity over every river runout.` +
       VS_BET_TREE_NOTE +
-      vsBetLockNote(p.villainFoldToBet) +
+      vsBetLockNote(p.villainFoldToBet, p.villainFoldToRaise) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
@@ -823,6 +836,7 @@ export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     threeBetTo: grid.threeBetTo,
     iterations: 900,
     villainFoldToBet: p.villainFoldToBet,
+    villainFoldToRaise: p.villainFoldToRaise,
     rake: p.rake,
   });
 
@@ -838,7 +852,7 @@ export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
       `lines are scored on hero's equity over every turn+river runout (a static two-street ` +
       `showdown, no future betting on the call line).` +
       VS_BET_TREE_NOTE +
-      vsBetLockNote(p.villainFoldToBet) +
+      vsBetLockNote(p.villainFoldToBet, p.villainFoldToRaise) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }

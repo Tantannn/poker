@@ -43,12 +43,26 @@ export const BALANCED = { bluffFreq: 0.33, callStation: 0.3 } as const;
  *  foldToBet: how often a balanced player folds facing a bet (MDF-adjacent). */
 const REF = { betFreq: 0.55, riverBetFreq: 0.42, foldToBet: 0.45 } as const;
 
+/** MDF ratio between the raise price a fold-to-raise is quoted at and the ¾-pot bet a
+ *  fold-to-bet is quoted at: mdf(1/3) / mdf(3/4). Facing a raise villain gets a better price
+ *  relative to the enlarged pot, so he folds LESS — the same re-pricing the node lock applies
+ *  (solver/riverSolver.ts: lockedContinueVsRaise). `villainModel.test.ts` pins the two together;
+ *  this module keeps its own copy so useGame doesn't pull the solver into its import graph. */
+const RAISE_MDF_RATIO = 1.3125;
+
+/** fold-to-bet → the fold-to-raise the node lock would derive from it, i.e. what the solver
+ *  already assumes with nothing observed. Used as the shrinkage prior so a thin measured
+ *  sample can only move the number off what the lock would have done anyway. */
+export function foldToRaiseFromFoldToBet(foldToBet: number): number {
+  return clamp(1 - RAISE_MDF_RATIO * (1 - foldToBet), 0, 1);
+}
+
 /** Sample sizes at which an observed rate gets half its weight (n/(n+K)). Keyed on
  *  the DECISION count for that specific read, not hands played — a villain can be
  *  40 hands deep and never once have faced a bet. `riverBetChance` is lower than the
  *  pooled `betChance` because river lead spots arrive ~2.5× slower; the read would
  *  otherwise stay pinned to the prior for hundreds of hands. */
-const HALF_WEIGHT = { facedBet: 12, betChance: 15, riverBetChance: 10 } as const;
+const HALF_WEIGHT = { facedBet: 12, betChance: 15, riverBetChance: 10, facedRaise: 5 } as const;
 
 /** A user-set lock. Absent fields keep the observed/prior value, so you can lock
  *  fold-to-bet alone and leave the bluff read alone. */
@@ -58,6 +72,8 @@ export interface VillainLock extends PreflopLock {
   foldToBet?: number;
   /** 0..1 — assume villain bets this often when checked to */
   betFreq?: number;
+  /** 0..1 — assume villain folds this often when his own bet gets raised */
+  foldToRaise?: number;
 }
 
 export interface VillainModel {
@@ -72,6 +88,12 @@ export interface VillainModel {
    *  call site would round-trip through a clamped affine map and quietly disagree with
    *  the number the player actually set on the slider. */
   foldToBet: number;
+  /** How often he folds when his own bet gets RAISED, or null with nothing observed/locked.
+   *  Null is meaningful: the facing-a-bet node lock then re-derives the rate from `foldToBet`,
+   *  which is what it did before this read existed. Deliberately NOT part of `isExploitable` —
+   *  that predicate gates which ENGINE solves a flop node, and a read about villain's response
+   *  to a raise must not flip it (same reasoning as `preflop`). */
+  foldToRaise: number | null;
   source: 'balanced' | 'prior' | 'observed' | 'locked';
   /** Whether the bot's archetype is information the player legitimately has. False in
    *  anonymous mode — explain text must not NAME a tag the UI is hiding, even when the
@@ -93,6 +115,7 @@ export const balancedModel = (): VillainModel => ({
   bluffFreq: BALANCED.bluffFreq,
   callStation: BALANCED.callStation,
   foldToBet: REF.foldToBet,
+  foldToRaise: null,
   source: 'balanced',
   archetypeVisible: false,
   confidence: 0,
@@ -125,6 +148,15 @@ export function foldToBetFromCallStation(callStation: number): number {
 function shrink(observed: number, prior: number, n: number, halfWeight: number): { value: number; weight: number } {
   const w = n / (n + halfWeight);
   return { value: prior + (observed - prior) * w, weight: w };
+}
+
+/** Measured fold-to-raise, shrunk toward what the node lock would have derived from
+ *  `foldToBetValue`. Returns null with no sample so the solver keeps its own derivation
+ *  rather than being handed a number that is only the derivation echoed back. */
+function resolveFoldToRaise(obs: ObservedStats | null | undefined, foldToBetValue: number): number | null {
+  if (!obs || obs.foldToRaise == null || obs.foldToRaiseSample <= 0) return null;
+  const prior = foldToRaiseFromFoldToBet(foldToBetValue);
+  return shrink(obs.foldToRaise, prior, obs.foldToRaiseSample, HALF_WEIGHT.facedRaise).value;
 }
 
 function describe(m: { bluffFreq: number; callStation: number }, locked: boolean, conf: number): string | null {
@@ -170,7 +202,7 @@ export function resolveVillainModel(
     const bluffFreq = lock.betFreq != null ? bluffFreqFromBetFreq(lock.betFreq) : prior.bluffFreq;
     const foldToBet = lock.foldToBet ?? priorFold;
     const callStation = lock.foldToBet != null ? callStationFromFoldToBet(lock.foldToBet) : prior.callStation;
-    const m = { bluffFreq, callStation, foldToBet };
+    const m = { bluffFreq, callStation, foldToBet, foldToRaise: lock.foldToRaise ?? null };
     return { ...m, source: 'locked', archetypeVisible, confidence: 1, label: describe(m, true, 1), preflop };
   }
 
@@ -186,9 +218,12 @@ export function resolveVillainModel(
 
   const hasFold = obs?.foldToBet != null && obs.facedBetSample > 0;
   const hasBet = betRate != null && betSample > 0;
+  // The raise read resolves on its own sample — a villain can be 30 spots deep on fold-to-bet
+  // and never once have had a bet raised, and vice versa.
+  const raise = resolveFoldToRaise(obs, priorFold);
   if (!obs || (!hasFold && !hasBet)) {
     const label = describe(prior, false, 0);
-    return { ...prior, foldToBet: priorFold, source: 'prior', archetypeVisible, confidence: 0, label, preflop };
+    return { ...prior, foldToBet: priorFold, foldToRaise: raise, source: 'prior', archetypeVisible, confidence: 0, label, preflop };
   }
 
   const fold = hasFold
@@ -205,6 +240,9 @@ export function resolveVillainModel(
     // a clamped archetype (fish at 0.95) isn't silently pulled off its value.
     callStation: hasFold ? callStationFromFoldToBet(fold.value) : prior.callStation,
     foldToBet: fold.value,
+    // prior for the raise read is what the LOCK would have derived from the resolved
+    // fold-to-bet, so a thin raise sample can only pull the number off that, never invent it
+    foldToRaise: resolveFoldToRaise(obs, fold.value),
   };
   return {
     ...m,

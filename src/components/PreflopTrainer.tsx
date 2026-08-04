@@ -35,11 +35,15 @@ const FACING_META: Record<Facing, { raiseLabel: string; prompt: string }> = {
 
 const ACTION_LABEL: Record<Action, string> = { raise: 'Raise', call: 'Call', fold: 'Fold' };
 
-// Table-size picker. Short tables reuse the 6-max charts via "lop the top":
-// blinds + button are fixed, so each step removes the earliest seat. Heads-up
-// is the exception — the SB is the button and opens huge, so it has its own
-// ranges. The note explains what shifts at each size.
+// Table-size picker. Every size reuses the 6-max charts by SEATS BEHIND: short
+// tables lop the earliest seat off ("lop the top"), and full ring adds seats
+// that all sit 5+ behind, so they read UTG's chart. Heads-up is the exception —
+// the SB is the button and opens huge, so it has its own ranges. The note
+// explains what shifts at each size.
 const TABLE_SIZES: { n: TableSize; label: string; note: string }[] = [
+  { n: 9, label: '9-max', note: 'Full ring. UTG · UTG1 · UTG2 · LJ all have 5+ behind — every one opens UTG’s range. Only HJ (MP) and CO widen.' },
+  { n: 8, label: '8-handed', note: 'UTG · UTG1 · UTG2 all open UTG’s range; HJ (MP) and CO widen from there.' },
+  { n: 7, label: '7-handed', note: 'UTG · UTG1 both open UTG’s range — one extra early seat over 6-max.' },
   { n: 6, label: '6-max', note: 'Full 6-max: UTG · MP · CO · BTN · SB · BB.' },
   { n: 5, label: '5-handed', note: 'UTG gone — earliest seat now plays MP’s range.' },
   { n: 4, label: '4-handed', note: 'UTG + MP gone — earliest seat plays CO’s range.' },

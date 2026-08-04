@@ -33,6 +33,9 @@ export interface VsBetEquityInput {
   /** NODE LOCK: pin villain's fold-or-call vs hero's raise to a read (¾-pot-referenced
    *  fold-to-bet) instead of solving it, so hero best-responds. Omit for the equilibrium. */
   villainFoldToBet?: number;
+  /** MEASURED fold-to-raise, when observed. Replaces the pot-odds re-derivation of the above
+   *  for this node's raise branches — the observation beats the model. */
+  villainFoldToRaise?: number;
   /** house rake in chips, taken off every pot a player collects. Omit for rake-free EV. */
   rake?: Rake;
 }
@@ -121,7 +124,7 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
   const villStrength = inp.villainFoldToBet != null ? villainEquityVsHeroRange(eq, valid, heroW) : null;
   const locked = villStrength
     ? R.map((rk, k) => {
-        const cont = lockedContinueVsRaise(inp.villainFoldToBet as number, Q, b, rk);
+        const cont = lockedContinueVsRaise(inp.villainFoldToBet as number, Q, b, rk, inp.villainFoldToRaise);
         if (!has3Bet[k]) return lockedThresholdPolicy(villW, villStrength, cont).map(([f, c]) => [f, c, 0]);
         return locked3BetPolicy(villW, villStrength, cont);
       })

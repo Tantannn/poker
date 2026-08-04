@@ -433,6 +433,8 @@ export interface FlopVsBetInput {
   /** NODE LOCK: villain's ¾-pot-referenced fold-to-bet read pins his response to hero's
    *  raise (see vsBet.ts). Omit for the equilibrium baseline. */
   villainFoldToBet?: number;
+  /** …superseded by a MEASURED fold-to-raise when the hero has one (see vsBet.ts). */
+  villainFoldToRaise?: number;
   /** house rake in chips. Omit for rake-free EV. */
   rake?: Rake;
 }
@@ -469,6 +471,7 @@ export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
     threeBetTo: inp.threeBetTo,
     iterations: inp.iterations,
     villainFoldToBet: inp.villainFoldToBet,
+    villainFoldToRaise: inp.villainFoldToRaise,
     rake: inp.rake,
   });
 }

@@ -122,10 +122,11 @@ There are **two** postflop engines behind that seam:
    shared equity-driven CFR core, fed a per-street equity matrix: exact showdown on the
    river, equity over the remaining runouts on turn/flop — and node-locked
    on villain's response to hero's raise, see below), and hero-first
-   multiway (2–5 live opponents, i.e. 3- to 6-way) on **all three** streets, capped by
-   `MAX_MULTIWAY_OPPONENTS` — 6-way is `useGame`'s own seat maximum, so every table the app
-   can deal is solved. What still falls back to (1): **villain-first multiway** (facing a bet
-   with 2+ opponents — `vsBet.ts` is heads-up only).
+   multiway (2–8 live opponents, i.e. 3- to 9-way) on **all three** streets, capped by
+   `MAX_MULTIWAY_OPPONENTS = 8` — 9-max is `useGame`'s own seat maximum, so every table the app
+   can deal is solved (the cap reached the max table once `fieldCoef` retired the 2^field
+   enumeration — see Multiway flop below). What still falls back to (1): **villain-first multiway**
+   (facing a bet with 2+ opponents — `vsBet.ts` is heads-up only).
    `docs/range-vs-range-ev-design.md` is the staged plan (flop = Stage 3, multiway = Stage 4,
    both built).
 
@@ -184,17 +185,20 @@ the *called* pot, subtracts the static baseline at that same pot, and discounts 
 by the combo's scoop share (without that discount the nested solve lends pure air the barrel
 equity of a range it isn't in, and hero starts stabbing multiway flops with king-high).
 
-Cost is the constraint — measured through the live gate: **~1.35s 3-way, ~1.65s 5-way,
-~2.1s 6-way**, vs ~1.2s for the HU flop. It is the heaviest node in the app, and it grows
-only ~10% per added opponent rather than doubling, because `scaleCap` (riverAdapter.ts)
-shrinks the per-player combo caps as the field grows and offsets the 2^field caller-set
-enumeration. That is what makes `MAX_MULTIWAY_OPPONENTS = 5` affordable — but the scaling is
-**already exhausted**: every multiway *flop* cap sits on `scaleCap`'s 12-combo floor from
-nField ≥ 2 up, so tightening it further cannot buy time back. The remaining levers are
-`NEST_BUCKETS` (turn buckets solved per sweep) and solving the called line only at the
-smallest and largest size, **interpolating** the interior sizes by called pot. Both are
-disclosed abstractions; if a change makes the flop slow, they are the levers. The solve runs
-in `hudWorker.ts` off the UI thread, which is what makes 2.1s a latency cost rather than a hitch.
+Cost is the constraint — measured through the live gate: **~1.0s 3-way, ~1.3s 6-way, ~1.9s
+8-way, ~2.2s 9-way**, vs ~1.2s for the HU flop. It is the heaviest node in the app, and it
+grows only **linearly** — ~280ms per added opponent, no doubling. That was the whole point of
+`multiwaySolver.ts: fieldCoef`: the field's caller sets used to be **enumerated** (2^field
+subsets), which capped the solver near 6-way; `betEvVsField`/`callEvVsField` consume the field
+only as `Σ prob·win·netByBets[callers+k]`, and that sum is the coefficient of a generating
+function — the exact O(field²) collapse of the enumeration, no sampling. The field side is now
+cheap, so the cost is bounded by the nested subgames, whose `scaleCap` (riverAdapter.ts) combo
+caps sit on the 12-floor from nField ≥ 3 up — i.e. **unchanged** past 5-way. That is what makes
+`MAX_MULTIWAY_OPPONENTS = 8` (full ring) affordable. If the flop ever gets slow again, the
+remaining levers are `NEST_BUCKETS` (turn buckets solved per sweep) and solving the called line
+only at the smallest and largest size, **interpolating** the interior sizes by called pot —
+both disclosed abstractions. The solve runs in `hudWorker.ts` off the UI thread, which is what
+makes ~2.2s a latency cost rather than a hitch.
 `multiwayFlop.test.ts` pins the strategic direction (air stops bluffing, a wet-board set
 charges the field, nesting raises the check EV *and* the bet EV) plus a wall-clock budget.
 It deliberately does **not** pin "a set bets a dry multiway flop" — checking top set on
@@ -253,7 +257,16 @@ Both used to be read straight off `getProfile(profileId)`, i.e. the bot's *hidde
 archetype. `resolveVillainModel(prior, obs, lock)` replaces the source without
 touching the math: observed reads (`analysis/observed.ts` counts fold-to-bet and
 bet-when-checked-to per seat) shrunk toward a prior by **that read's own** decision
-count, with a manual lock overriding outright. Models reach the engine as the 5th
+count, with a manual lock overriding outright. Two of those counters are
+**conditional** rather than pooled, because the pooled version answers the wrong
+question: `turnGiveUp` (of the flops he led that reached a turn *lead chance*, the
+share he then checked — the reg's signature "over-c-bet the flop, abandon the turn",
+which pooled `turnBetFreq` blurs with hands he entered as caller) and `foldToRaise`
+(decisions where **his own** bet got raised, which `facedBet` counts but cannot
+isolate). Both denominators exclude the spots where the decision was never offered —
+a turn someone donk-bet into him is not a barrel he declined. `turnGiveUp` feeds the
+coach, the read panel and the Leveling drill but **no engine knob**; `foldToRaise`
+drives the facing-a-bet lock (below). Models reach the engine as the 5th
 arg of `getNodeStrategy` and ride in the `hudWorker` request payload; `useGame`
 builds them (`villainModels`) from `obsCounters` + `villainLocks`.
 
@@ -314,6 +327,21 @@ The raise is re-priced, not read off the ¾-pot number directly: villain adds `r
 reference, which correctly folds him *less* here than his raw fold-to-bet figure. One
 observed read therefore drives every node without a second calibration.
 
+That derivation is a **fallback**, not the preferred input. When the hero has actually watched
+this seat's bets get raised, `observed.ts: foldToRaise` measures the decision the lock is pinning
+directly, and it wins: `VillainModel.foldToRaise` (null with no sample) rides to the facing-a-bet
+gate as `villainFoldToRaise` and `lockedContinueVsRaise` anchors on it instead. Two invariants.
+The measured number is **re-anchored, not used raw** — it is quoted at the modal raise geometry
+(`REF_RAISE_PRICE = 1/3`: a ¾-pot bet raised to the smaller grid size) and pushed back through
+the same MDF curve, so a jam still folds him out more than a min-raise. And the prior it shrinks
+toward is `foldToRaiseFromFoldToBet` — *what the lock would have derived anyway* — so a
+one-spot sample can only pull the number off that, never invent it. `villainModel.ts` keeps its
+own copy of the MDF ratio (so `useGame` doesn't pull the solver into its import graph);
+`foldToRaiseLock.test.ts` pins the two together by asserting that feeding the derived value back
+in is a no-op. `foldToRaise` is deliberately **not** part of `isExploitable`, for the same reason
+`preflop` isn't: that predicate decides which ENGINE solves a flop node, and a read about
+villain's response to a raise must not flip it.
+
 A locked villain still **re-raises**: `locked3BetPolicy` gives the strongest
 `LOCKED_THREEBET_SHARE` (0.3) of his continuing range the re-raise, the rest call. That share
 is a **disclosed abstraction, not a measured statistic** — a fold read says nothing about his
@@ -333,6 +361,36 @@ passes it as `thirdFoldToBet` and `mdfCallProbs` re-anchors his continue share t
 (via the same ¾-pot-referenced `lockedContinueBySize` curve the HU lock uses) instead of
 parameter-free MDF. The *solved* primary's read still routes through the per-hand fallback
 (the `primaryHasRead` carve-out); only the fixed player's read lands in the CFR.
+
+### Windowed reads & the leveling war — `observed.ts: readShifts`
+Every stat above is a lifetime average, and a lifetime average **cannot see an opponent
+change**: a reg who has stopped folding to your bets still reads ~55% for dozens of hands. So
+each of the two exploit dimensions also carries an EWMA over the seat's recent decisions
+(`foldToBetRecent` / `betFreqRecent`, `RECENT_ALPHA = 0.2` — the last ~6 decisions dominate),
+and `toStats` publishes the **signed shift** recent − baseline, but only once the baseline has
+`SHIFT_MIN_SAMPLE = 8` decisions behind it. `readShifts` turns a shift past `SHIFT_MAG = 0.22`
+into a `ShiftAlert` carrying the counter it calls for.
+
+The `leveling` flag is the part that matters: a *fight-back* (folding less / betting more) is
+only evidence he is countering **you** if you have actually been the aggressor, so the alert
+takes the hero's own recent lead frequency as context (`HERO_AGGRO_HI = 0.55`, fed from
+`obsCounters[0].betFreqRecent` — the hero is a seat in the same counters). Same numbers, passive
+hero: drift, advice is "he stopped respecting your aggression". Aggressive hero: leveling,
+advice is "change gears FIRST — make his adjustment the wrong one". `OpponentPanel`'s
+`ShiftAlerts` renders the two differently.
+
+The sparring partner for it is the `reg` archetype (`ai/profiles.ts`), whose defining trait is
+`adapt: 0.6` — `decide.ts` takes `effAdapt = max(diff.adapt, profile.adapt)`, so a reg
+counter-adjusts on **every** difficulty while the slider still makes all bots adapt at
+hard/extreme.
+
+`components/LevelingDrill.tsx` (🔄 Leveling War, generator in `levelingSpot.ts`) drills the
+loop: is the shift trustworthy → what is the counter → he moves back, re-level. The invariant
+is that **no answer is authored** — the generator builds `ObsCounters`, runs them through the
+real `toStats` → `readShifts`, and takes the correct answer from the resulting alert
+(`counterFor`). Hard-coding the answers would let the drill teach a threshold the table doesn't
+apply. Half of `KINDS` is deliberately thin-sample or sub-threshold noise, because the
+expensive leveling mistake is inventing an adjustment out of four hands.
 
 ### Preflop read layer — `src/strategy/preflopModel.ts`
 The node lock's analogue for the one street it never reached. Before it, the preflop
@@ -385,8 +443,13 @@ Three things this layer does that depth shading deliberately doesn't, and why:
   whose EVs are *relative estimates*. `preflopExploit`'s `gainBb` ranks two lines in the
   read's own frame; it is not a solved edge and the prose must never read as one.
 
-Disclosed gap: **the bots don't see any of this.** `ai/decide.ts` still plays the static
-charts, so a read is something hero exploits, not something the table adapts to.
+Disclosed gap: **the bots don't consume THIS layer.** `ai/decide.ts` does now adapt to the
+hero preflop — it reads the hero's fold-to-3-bet and blind-fold rates off `HeroReads` and
+3-bets / 4-bet-bluffs / steals wider vs an over-folder (hard/extreme only, sample-gated, same
+confidence ramp as the postflop `HeroReads` block — see `decide.ts` preflop adaptation and
+`adaptPreflop.test.ts`). But that is the bot's OWN parallel read, not `preflopModel.ts`'s chart
+adjustments or projected ranges — those still feed only the hero's coach. And the bots still
+play rake-free (`ai/decide.ts` never sees `state.rake`).
 
 ### Limped pots — `index.ts: roleBaseRange`
 Every postflop engine inherits its villain range from `roleBaseRange`, which reads a seat's
@@ -498,7 +561,7 @@ because the Monte-Carlo runs used to hitch the UI on phones — requests carry a
 `seq` so stale replies are dropped when state advances mid-compute.
 
 ### `src/components/` + `App.tsx`
-32 tabs. `App.tsx` holds the `Tab` union, the `TABS` array (order = display order)
+35 tabs. `App.tsx` holds the `Tab` union, the `TABS` array (order = display order)
 and `Cat` grouping for the nav dropdown; every tab except `PokerTable` is
 `lazy()`-imported from a **named** export remapped to `{ default }`. Adding a tab =
 add to the union, add a `TABS` entry with a category, add the `lazy` import, render

@@ -97,6 +97,12 @@ export interface HeroReads {
   // --- POSITION: how passive the hero is out of position postflop ---
   oopActions: number;
   oopPassive: number; // checked or folded while OOP
+  // --- PREFLOP: how the hero answers aggression, so bots can exploit the one
+  // street the postflop buckets above never reach (bots were static preflop) ---
+  faced3Bet: number; // hero faced a 3-bet+ preflop (had a continue/fold decision)
+  foldTo3Bet: number;
+  blindDefends: number; // hero in a blind faced a single raise (a steal spot)
+  blindFolds: number;
 }
 
 export function emptyReads(): HeroReads {
@@ -118,5 +124,9 @@ export function emptyReads(): HeroReads {
     riverCalls: 0,
     oopActions: 0,
     oopPassive: 0,
+    faced3Bet: 0,
+    foldTo3Bet: 0,
+    blindDefends: 0,
+    blindFolds: 0,
   };
 }

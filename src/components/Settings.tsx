@@ -59,6 +59,10 @@ export function Settings({ g }: { g: G }) {
             <option value="button">Mississippi — button (2× blind)</option>
           </select>
         </label>
+        <label className="sc-check" title="When YOU haven't set a straddle, a bot in the UTG seat posts one about half the time — so the depth swing shows up the way it does at a real table, unprompted. Cash only, 3+ handed, and never forces you to straddle.">
+          <input type="checkbox" checked={g.botStraddle} onChange={(e) => g.setBotStraddle(e.target.checked)} disabled={g.straddle !== 'off'} />
+          🤖 Bots straddle (UTG) when you haven’t{g.straddle !== 'off' ? ' — off while you have a straddle set' : ''}
+        </label>
         <p className="note">
           The most distorting thing in a live game, and it costs the straddler nothing to
           create: nobody moves seats, but the bet that matters doubles, so a 100bb stack is

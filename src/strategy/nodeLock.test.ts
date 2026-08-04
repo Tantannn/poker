@@ -263,8 +263,10 @@ describe('node lock — provenance never leaks the hidden archetype', () => {
       1: resolveVillainModel(undefined, {
         hands: 80, vpip: 0.3, pfr: 0.2, af: 2,
         foldToBet: 0.05, betFreq: null, facedBetSample: 120, betChanceSample: 0,
+        foldToBetRecent: null, foldToBetShift: null, betFreqRecent: null, betFreqShift: null,
         riverBetFreq: null, riverBetChanceSample: 0, turnBetFreq: null,
         barrelThrough: null, ledFlopSample: 0,
+        turnGiveUp: null, turnGiveUpSample: 0, foldToRaise: null, foldToRaiseSample: 0,
         openFreq: null, openSample: 0, threeBetFreq: null, threeBetSample: 0,
         foldToThreeBet: null, foldToThreeBetSample: 0,
       }, null),

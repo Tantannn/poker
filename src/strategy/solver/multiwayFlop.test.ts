@@ -132,7 +132,7 @@ describe('3-way flop — the check line is a turn subgame, not a static showdown
   });
 });
 
-describe('4-way to 6-way flop', () => {
+describe('4-way to 9-way flop', () => {
   // A realistic three-part range (value / draw / air). A two-combo range makes the CFR game
   // degenerate — villain's response to a range that is half air is nothing like his real one.
   const hero: Combo[] = [w1('9s 9c'), w1('Ah Kh'), w1('Ks Qs')];
@@ -172,10 +172,6 @@ describe('4-way to 6-way flop', () => {
     expect(ms).toBeLessThan(6000);
   });
 
-  // 6-way is the app's own maximum table, so the full-ring limped pot used to be the ONE
-  // family pot that fell out of the solver it was built for. It is the heaviest node here
-  // (~2.1s through the live gate vs ~1.7s 5-way) — the caller sets double while `scaleCap`
-  // is already pinned to its 12-combo floor, so this budget is the one to watch.
   it('solves 6-way and still charges the field with a set on a wet board', () => {
     const r6 = solve([field, field2, field, field2]);
     for (const ev of r6.heroActionEv[0]) expect(Number.isFinite(ev)).toBe(true);
@@ -187,18 +183,39 @@ describe('4-way to 6-way flop', () => {
       .toBeLessThan(betFreq(solve([field, field2, field]).heroStrategy[2]) + 0.05);
   });
 
-  it('a 6-way flop solve at shipped settings stays inside a hero-turn budget', () => {
+  // 9-way (8 opponents = 7 fixed field + 1 solved villain) is every pot the app's largest
+  // table can deal. It used to fall out of the solver: the field's caller-set enumeration was
+  // 2^field, so past 6-way it stopped paying for itself. `fieldCoef` replaced that with the
+  // exact O(field²) generating-function collapse, so the field side is now cheap and the same
+  // strategic invariants must still hold at full ring: a set charges a wet field, air does not
+  // gain fold equity from more players.
+  const nineWay = [field, field2, field, field2, field, field2, field]; // 7 fixed field players
+
+  it('solves 9-way and still charges the field with a set on a wet board', () => {
+    const r9 = solve(nineWay);
+    for (const ev of r9.heroActionEv[0]) expect(Number.isFinite(ev)).toBe(true);
+    expect(betFreq(r9.heroStrategy[0])).toBeGreaterThan(0.5);
+  });
+
+  it('air bluffs no more 9-way than 6-way — the field only ever kills more fold equity', () => {
+    expect(betFreq(solve(nineWay).heroStrategy[2]))
+      .toBeLessThan(betFreq(solve([field, field2, field, field2]).heroStrategy[2]) + 0.05);
+  });
+
+  it('a 9-way flop solve at shipped settings stays inside a hero-turn budget', () => {
     const t0 = performance.now();
     solveFlop3way({
       heroRange: [...hero, w1('Jh Td'), w1('5s 4s')],
       villainRange: villain,
-      fieldRanges: [field, field2, field, field2],
+      fieldRanges: nineWay,
       iterations: 600,
       turnNestIterations: 120,
       ...args,
     });
     const ms = performance.now() - t0;
-    console.log(`6-way flop solve: ${ms.toFixed(0)}ms`);
-    expect(ms).toBeLessThan(8000);
+    console.log(`9-way flop solve: ${ms.toFixed(0)}ms`);
+    // Only ~a few extra ThirdAgg builds over 6-way now the enumeration is gone, so the
+    // budget barely moves — the nested subgames (cap-bound, floored) dominate.
+    expect(ms).toBeLessThan(9000);
   }, 30000);
 });

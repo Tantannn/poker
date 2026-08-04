@@ -192,7 +192,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
         <TiltBanner t={tilt} />
         <AggroBanner w={aggroWarning} />
         <div className="poker-table">
-          <div className="felt">
+          <div className={`felt ring-${game.players.length}`}>
             <div className="table-center">
               <div className="pot-display">
                 <span className="pot-label">POT</span>
@@ -425,6 +425,7 @@ export function PokerTable({ g, hudEnabled, onToggleHud }: Props) {
               onToggle={toggleOpp}
               anonymous={g.anonymousVillains}
               observed={villain ? toStats(g.obsCounters[villain.seat]) : null}
+              heroAggro={toStats(g.obsCounters[0]).betFreqRecent}
               guessedId={villain ? g.villainGuesses[villain.seat] : undefined}
               onGuess={villain ? (pid) => g.guessVillain(villain.seat, pid) : undefined}
               model={villain ? g.villainModels[villain.seat] : null}

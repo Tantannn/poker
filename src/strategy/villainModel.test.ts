@@ -17,6 +17,10 @@ const obs = (o: Partial<ObservedStats>): ObservedStats => ({
   af: 2,
   foldToBet: null,
   betFreq: null,
+  foldToBetRecent: null,
+  foldToBetShift: null,
+  betFreqRecent: null,
+  betFreqShift: null,
   facedBetSample: 0,
   betChanceSample: 0,
   riverBetFreq: null,
@@ -30,6 +34,10 @@ const obs = (o: Partial<ObservedStats>): ObservedStats => ({
   foldToThreeBetSample: 0,
   barrelThrough: null,
   ledFlopSample: 0,
+  turnGiveUp: null,
+  turnGiveUpSample: 0,
+  foldToRaise: null,
+  foldToRaiseSample: 0,
   ...o,
 });
 

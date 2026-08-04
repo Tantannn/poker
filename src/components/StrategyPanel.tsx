@@ -31,6 +31,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
     <div className="strat-panel">
       <div className="strat-head">
         <span>🧠 Solver strategy</span>
+        {strategy && enabled && <EngineBadge strategy={strategy} />}
         <div className="strat-head-btns">
           <button className="toggle" onClick={onToggle}>
             {enabled ? 'Hide' : 'Show'}
@@ -139,6 +140,27 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
       )}
     </div>
   );
+}
+
+/** Honest provenance chip: a real range-vs-range CFR solve, the per-hand heuristic EV
+ *  model (a teaching estimate the solver gates don't reach — villain-first / facing-a-bet
+ *  multiway, or a read carve-out), or a preflop teaching chart. README: never present the
+ *  per-hand estimate as solver output. */
+function EngineBadge({ strategy }: { strategy: NodeStrategy }) {
+  if (strategy.source === 'preflop-chart')
+    return <span className="engine-badge chart" title="Preflop chart — a ~100bb teaching baseline, not a per-node solve.">chart</span>;
+  if (strategy.engine === 'cfr')
+    return <span className="engine-badge cfr" title="A real range-vs-range CFR solve of this exact node.">✓ solved</span>;
+  if (strategy.engine === 'heuristic')
+    return (
+      <span
+        className="engine-badge heur"
+        title="Per-hand heuristic EV model — a teaching estimate, NOT a range-vs-range solve. Used where the solver gates don't reach: villain-first or facing-a-bet multiway, or when a read routes to the exploit path."
+      >
+        ≈ estimate
+      </span>
+    );
+  return null;
 }
 
 /** The exploit delta: what balanced play does here vs what beats THIS villain, and

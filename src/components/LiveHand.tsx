@@ -5,13 +5,14 @@
 import { useMemo, useState } from 'react';
 import type { useGame } from '../hooks/useGame';
 import type { Position } from '../engine/table';
+import { tablePositions } from '../engine/table';
 import type { RakeProfileId } from '../engine/rake';
 import { RAKE_PROFILES } from '../engine/rake';
 import { cardToString } from '../engine/cards';
 import { replayLiveHand, parseActionScript, parseCards } from '../analysis/liveHand';
 import type { LiveHandResult } from '../analysis/liveHand';
 
-const POSITIONS: Position[] = ['UTG', 'MP', 'CO', 'BTN', 'SB', 'BB'];
+const SEAT_COUNTS = [2, 3, 4, 5, 6, 7, 8, 9];
 const TIER = (evLoss: number) =>
   evLoss <= 0.05 ? { label: 'Best', cls: 'good' }
     : evLoss <= 0.3 ? { label: 'Fine', cls: 'ok' }
@@ -28,6 +29,15 @@ export function LiveHand({ g }: { g: ReturnType<typeof useGame> }) {
   const [script, setScript] = useState('fold, fold, fold, raise 2.5, fold, fold');
   const [result, setResult] = useState<LiveHandResult | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // seats the engine actually deals at this size — a 3-handed table is BTN/SB/BB,
+  // not the first three of an early-to-late list, and replayLiveHand can't find a
+  // button for a seat that doesn't exist.
+  const seats = tablePositions(tableSize);
+  const resize = (n: number) => {
+    setTableSize(n);
+    if (!tablePositions(n).includes(heroPosition)) setHeroPosition('BTN');
+  };
 
   const heroCards = useMemo(() => parseCards(heroText), [heroText]);
   const board = useMemo(() => parseCards(boardText), [boardText]);
@@ -64,14 +74,14 @@ export function LiveHand({ g }: { g: ReturnType<typeof useGame> }) {
       <div className="row wrap gap">
         <label>
           Seats
-          <select value={tableSize} onChange={(e) => setTableSize(Number(e.target.value))}>
-            {[2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}-handed</option>)}
+          <select value={tableSize} onChange={(e) => resize(Number(e.target.value))}>
+            {SEAT_COUNTS.map((n) => <option key={n} value={n}>{n}-handed</option>)}
           </select>
         </label>
         <label>
           Your seat
           <select value={heroPosition} onChange={(e) => setHeroPosition(e.target.value as Position)}>
-            {POSITIONS.slice(0, tableSize).map((p) => <option key={p} value={p}>{p}</option>)}
+            {seats.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
         </label>
         <label>
