@@ -502,6 +502,16 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const overbetSpot = (state.street === 'turn' || isRiver) && behindBB > potBB * 1.2;
   const rollOverbet = () => r() < diff.overbet;
   const overbetFrac = () => jitter(1.45);
+  // JAM. The all-in as a CHOSEN size rather than a by-product of the commitment guard, which
+  // only ever upgraded a bet already worth stacking off — so every deep bot shove was the nuts
+  // and the hero could fold to it forever. Bounded on both sides: below ~1.5× pot the overbet
+  // slot already lands on the stack, and past 3× pot the price stops being one a real player
+  // offers (risking `stack` to win `pot` needs stack/(stack+pot) folds — 75% at 3×).
+  const jamSpot = (state.street === 'turn' || isRiver) && behindBB > potBB * 1.5 && behindBB <= potBB * 3;
+  const rollJam = () => r() < diff.jam;
+  // Any fraction past jamSpot's 3× ceiling lands on the stack via sizeTo's maxRaiseTo clamp;
+  // `shove` is what skips the guard that would otherwise size a bluff back down.
+  const jamBet = (): Action => sizeTo(4, true, { shove: true });
 
   if (la.callAmount > 0) {
     // facing a bet
@@ -573,8 +583,25 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // rake (zero past the cap, so big pots are unaffected). Lift the value bar accordingly.
   const valueBar = 0.62 + rakeMarginal(rake, pot) * 0.6;
   if (eqR > valueBar && r() < (0.6 + profile.aggression * 0.35) * mood * valueTilt * (isRiver ? riverValueTilt : 1)) {
+    if (equity > 0.9 && jamSpot && heads && rollJam()) return jamBet();
     if (equity > 0.88 && overbetSpot && rollOverbet()) return sizeTo(overbetFrac(), true, { willCommit: true });
     return sizeTo(tFrac(equity > 0.8 ? 0.8 : 0.6), true, { willCommit: equity > 0.78 });
+  }
+
+  // Bluff side of the JAM — the same all-in the value branch above offers, so the shove itself
+  // stops being information. Only tiers that adapt balance it (a `reg` counts on any tier via
+  // effAdapt); the rest jam their nuts alone and leave the tell in, exactly like the overbet.
+  // Tighter equity bar than the overbet's because the price is worse: this is near-pure air,
+  // and blockerMult means the air that fires is the air holding the right cards.
+  if (
+    jamSpot &&
+    heads &&
+    effAdapt > 0 &&
+    equity < 0.22 &&
+    rollJam() &&
+    r() < profile.bluffFreq * 0.7 * mood * bluffTilt * blockerMult * (isRiver ? riverBluffTilt : 1)
+  ) {
+    return jamBet();
   }
 
   // Bluff side of the overbet — same size as the value side, so the size itself

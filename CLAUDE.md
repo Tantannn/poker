@@ -507,13 +507,26 @@ same presence as one opened always and over-represents the mixed tail.
 
 ### `src/ai/` — the bots
 `decide.ts` (`decideAction`) is the bot's single decision function; `profiles.ts`
-holds archetypes (tag/lag/lp/gto/nit/fish), `difficulty.ts` layers easy→extreme
+holds archetypes (tag/lag/lp/gto/nit/reg), `difficulty.ts` layers easy→extreme
 params and per-seat overrides, `blueprint.ts` holds frequency curves.
 `DifficultyParams.overbet` gates the turn/river polar overbet (1.3–1.75× pot). Every
 tier overbets its nut end; only tiers with `adapt > 0` balance the bluff side at the
 same size, so on easy/normal an overbet *is* a value tell the hero can read. Bots and the
 grader read the same preflop charts, so keeping them in sync is a hard requirement,
 not a nicety.
+
+`DifficultyParams.jam` is the same knob for the **all-in**, and it exists because the
+commitment guard in `sizeTo` only ever upgrades a bet *already worth stacking off*
+(`willCommit`) — bluffs cap at 1.1× pot and never cross the SPR line, so at any real depth
+**every bot shove was the nuts** and the hero could fold to it forever. `jamSpot` bounds the
+window on both sides: stack **1.5–3× pot** on the turn or river, heads-up. Below 1.5× the
+overbet slot already lands on the stack; past 3× the price stops being one a real player
+offers, since risking `stack` to win `pot` needs `stack/(stack+pot)` folds (75% at 3×). The
+bluff side is gated on `effAdapt > 0` and a tighter equity bar than the overbet's — so easy
+and normal keep the shove-is-nuts tell deliberately, and a `reg` balances it on *any* tier
+through its own `adapt`. `jam.test.ts` pins both directions plus the frequency asymmetry
+(same size, still value-weighted). Note `jamBet` is the only caller of `sizeTo`'s `shove`
+flag: skipping the guard is the whole point, since the guard is what sizes a bluff back down.
 
 ### `src/analysis/` — grading
 `grade.ts: gradeNode` scores the hero's executed action as EV loss against

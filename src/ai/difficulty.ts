@@ -18,6 +18,9 @@ export interface DifficultyParams {
   overbet: number; // 0..1 chance to bet >pot in a qualifying turn/river spot. Tiers
   // with adapt > 0 balance the bluff side at the same size; the rest overbet value
   // only, which is a readable sizing tell by design.
+  jam: number; // 0..1 chance to shove a qualifying turn/river spot (stack 1.5–3× pot).
+  // Same value-only / balanced split as `overbet`, and rarer at every tier: the price a
+  // jam offers is worse, so it needs a better hand or a bigger fold read to be a real size.
 }
 
 export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
@@ -31,6 +34,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     iters: 300,
     temp: 0.1,
     overbet: 0.3,
+    jam: 0.1,
   },
   normal: {
     id: 'normal',
@@ -42,6 +46,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     iters: 500,
     temp: 0.06,
     overbet: 0.2,
+    jam: 0.08,
   },
   hard: {
     id: 'hard',
@@ -53,6 +58,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     iters: 700,
     temp: 0.035,
     overbet: 0.5,
+    jam: 0.3,
   },
   extreme: {
     id: 'extreme',
@@ -64,6 +70,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyParams> = {
     iters: 900,
     temp: 0.015,
     overbet: 0.75,
+    jam: 0.5,
   },
 };
 

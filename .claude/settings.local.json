@@ -254,7 +254,8 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(sed -n '5,30p' src/strategy/villainModel.test.ts)",
       "Bash(sed -n '255,270p' src/strategy/nodeLock.test.ts)",
-      "Bash(perl -0pi -e 's/vsBetLockNote\\\\\\(p\\\\.villainFoldToBet\\\\\\)/vsBetLockNote\\(p.villainFoldToBet, p.villainFoldToRaise\\)/g' src/strategy/solver/riverAdapter.ts)"
+      "Bash(perl -0pi -e 's/vsBetLockNote\\\\\\(p\\\\.villainFoldToBet\\\\\\)/vsBetLockNote\\(p.villainFoldToBet, p.villainFoldToRaise\\)/g' src/strategy/solver/riverAdapter.ts)",
+      "Bash(perl -0pi -e 's/    overbet: 0\\\\.3,\\\\n/    overbet: 0.3,\\\\n    jam: 0.1,\\\\n/; s/    overbet: 0\\\\.2,\\\\n/    overbet: 0.2,\\\\n    jam: 0.08,\\\\n/; s/    overbet: 0\\\\.5,\\\\n/    overbet: 0.5,\\\\n    jam: 0.3,\\\\n/; s/    overbet: 0\\\\.75,\\\\n/    overbet: 0.75,\\\\n    jam: 0.5,\\\\n/' src/ai/difficulty.ts)"
     ]
   }
 }
