@@ -257,7 +257,16 @@ Both used to be read straight off `getProfile(profileId)`, i.e. the bot's *hidde
 archetype. `resolveVillainModel(prior, obs, lock)` replaces the source without
 touching the math: observed reads (`analysis/observed.ts` counts fold-to-bet and
 bet-when-checked-to per seat) shrunk toward a prior by **that read's own** decision
-count, with a manual lock overriding outright. Models reach the engine as the 5th
+count, with a manual lock overriding outright. Two of those counters are
+**conditional** rather than pooled, because the pooled version answers the wrong
+question: `turnGiveUp` (of the flops he led that reached a turn *lead chance*, the
+share he then checked — the reg's signature "over-c-bet the flop, abandon the turn",
+which pooled `turnBetFreq` blurs with hands he entered as caller) and `foldToRaise`
+(decisions where **his own** bet got raised, which `facedBet` counts but cannot
+isolate). Both denominators exclude the spots where the decision was never offered —
+a turn someone donk-bet into him is not a barrel he declined. `turnGiveUp` feeds the
+coach, the read panel and the Leveling drill but **no engine knob**; `foldToRaise`
+drives the facing-a-bet lock (below). Models reach the engine as the 5th
 arg of `getNodeStrategy` and ride in the `hudWorker` request payload; `useGame`
 builds them (`villainModels`) from `obsCounters` + `villainLocks`.
 
@@ -318,6 +327,21 @@ The raise is re-priced, not read off the ¾-pot number directly: villain adds `r
 reference, which correctly folds him *less* here than his raw fold-to-bet figure. One
 observed read therefore drives every node without a second calibration.
 
+That derivation is a **fallback**, not the preferred input. When the hero has actually watched
+this seat's bets get raised, `observed.ts: foldToRaise` measures the decision the lock is pinning
+directly, and it wins: `VillainModel.foldToRaise` (null with no sample) rides to the facing-a-bet
+gate as `villainFoldToRaise` and `lockedContinueVsRaise` anchors on it instead. Two invariants.
+The measured number is **re-anchored, not used raw** — it is quoted at the modal raise geometry
+(`REF_RAISE_PRICE = 1/3`: a ¾-pot bet raised to the smaller grid size) and pushed back through
+the same MDF curve, so a jam still folds him out more than a min-raise. And the prior it shrinks
+toward is `foldToRaiseFromFoldToBet` — *what the lock would have derived anyway* — so a
+one-spot sample can only pull the number off that, never invent it. `villainModel.ts` keeps its
+own copy of the MDF ratio (so `useGame` doesn't pull the solver into its import graph);
+`foldToRaiseLock.test.ts` pins the two together by asserting that feeding the derived value back
+in is a no-op. `foldToRaise` is deliberately **not** part of `isExploitable`, for the same reason
+`preflop` isn't: that predicate decides which ENGINE solves a flop node, and a read about
+villain's response to a raise must not flip it.
+
 A locked villain still **re-raises**: `locked3BetPolicy` gives the strongest
 `LOCKED_THREEBET_SHARE` (0.3) of his continuing range the re-raise, the rest call. That share
 is a **disclosed abstraction, not a measured statistic** — a fold read says nothing about his
@@ -337,6 +361,36 @@ passes it as `thirdFoldToBet` and `mdfCallProbs` re-anchors his continue share t
 (via the same ¾-pot-referenced `lockedContinueBySize` curve the HU lock uses) instead of
 parameter-free MDF. The *solved* primary's read still routes through the per-hand fallback
 (the `primaryHasRead` carve-out); only the fixed player's read lands in the CFR.
+
+### Windowed reads & the leveling war — `observed.ts: readShifts`
+Every stat above is a lifetime average, and a lifetime average **cannot see an opponent
+change**: a reg who has stopped folding to your bets still reads ~55% for dozens of hands. So
+each of the two exploit dimensions also carries an EWMA over the seat's recent decisions
+(`foldToBetRecent` / `betFreqRecent`, `RECENT_ALPHA = 0.2` — the last ~6 decisions dominate),
+and `toStats` publishes the **signed shift** recent − baseline, but only once the baseline has
+`SHIFT_MIN_SAMPLE = 8` decisions behind it. `readShifts` turns a shift past `SHIFT_MAG = 0.22`
+into a `ShiftAlert` carrying the counter it calls for.
+
+The `leveling` flag is the part that matters: a *fight-back* (folding less / betting more) is
+only evidence he is countering **you** if you have actually been the aggressor, so the alert
+takes the hero's own recent lead frequency as context (`HERO_AGGRO_HI = 0.55`, fed from
+`obsCounters[0].betFreqRecent` — the hero is a seat in the same counters). Same numbers, passive
+hero: drift, advice is "he stopped respecting your aggression". Aggressive hero: leveling,
+advice is "change gears FIRST — make his adjustment the wrong one". `OpponentPanel`'s
+`ShiftAlerts` renders the two differently.
+
+The sparring partner for it is the `reg` archetype (`ai/profiles.ts`), whose defining trait is
+`adapt: 0.6` — `decide.ts` takes `effAdapt = max(diff.adapt, profile.adapt)`, so a reg
+counter-adjusts on **every** difficulty while the slider still makes all bots adapt at
+hard/extreme.
+
+`components/LevelingDrill.tsx` (🔄 Leveling War, generator in `levelingSpot.ts`) drills the
+loop: is the shift trustworthy → what is the counter → he moves back, re-level. The invariant
+is that **no answer is authored** — the generator builds `ObsCounters`, runs them through the
+real `toStats` → `readShifts`, and takes the correct answer from the resulting alert
+(`counterFor`). Hard-coding the answers would let the drill teach a threshold the table doesn't
+apply. Half of `KINDS` is deliberately thin-sample or sub-threshold noise, because the
+expensive leveling mistake is inventing an adjustment out of four hands.
 
 ### Preflop read layer — `src/strategy/preflopModel.ts`
 The node lock's analogue for the one street it never reached. Before it, the preflop
@@ -507,7 +561,7 @@ because the Monte-Carlo runs used to hitch the UI on phones — requests carry a
 `seq` so stale replies are dropped when state advances mid-compute.
 
 ### `src/components/` + `App.tsx`
-32 tabs. `App.tsx` holds the `Tab` union, the `TABS` array (order = display order)
+35 tabs. `App.tsx` holds the `Tab` union, the `TABS` array (order = display order)
 and `Cat` grouping for the nav dropdown; every tab except `PokerTable` is
 `lazy()`-imported from a **named** export remapped to `{ default }`. Adding a tab =
 add to the union, add a `TABS` entry with a category, add the `lazy` import, render

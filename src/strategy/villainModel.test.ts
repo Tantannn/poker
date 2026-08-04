@@ -34,6 +34,10 @@ const obs = (o: Partial<ObservedStats>): ObservedStats => ({
   foldToThreeBetSample: 0,
   barrelThrough: null,
   ledFlopSample: 0,
+  turnGiveUp: null,
+  turnGiveUpSample: 0,
+  foldToRaise: null,
+  foldToRaiseSample: 0,
   ...o,
 });
 

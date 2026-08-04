@@ -35,6 +35,11 @@ export interface Combo {
 export interface VillainNodeLock {
   /** 0..1, range-averaged fold frequency vs a reference-sized bet */
   foldToBet: number;
+  /** 0..1, MEASURED fold frequency when his own bet gets raised (observed.ts: foldToRaise).
+   *  Only used at facing-a-bet nodes, where villain's remaining decision IS fold-or-call a
+   *  raise. Absent → that rate is re-derived from `foldToBet` through pot odds, which is a
+   *  model; this is the observation, so it wins when present. */
+  foldToRaise?: number;
 }
 
 /** Bet size (fraction of pot) the locked `foldToBet` is quoted at. ¾ pot is the
@@ -43,6 +48,11 @@ const LOCK_REF_FRAC = 0.75;
 
 /** Minimum-defence frequency vs a bet of `frac` pot — the balanced continue rate. */
 const mdf = (frac: number) => 1 / (1 + frac);
+
+/** Pot-odds fraction a MEASURED fold-to-raise is treated as quoted at: villain bets the ¾-pot
+ *  reference (b = 0.75Q) and gets raised to the smaller grid size (r = b + ½(Q + 2b)), so he
+ *  pays 1.25Q to win 3.75Q. The modal raise geometry, which is what the observation samples. */
+const REF_RAISE_PRICE = 1 / 3;
 
 /**
  * Locked villain's continue fraction vs each bet size. Anchored so that at
@@ -103,8 +113,20 @@ export function lockedThresholdPolicy(weights: number[], strength: number[], con
  *  drives every node — and because a raise gives him a better price relative to the enlarged
  *  pot than the reference bet does, the curve correctly folds him LESS here than a bare
  *  fold-to-bet number would suggest. */
-export function lockedContinueVsRaise(foldToBet: number, Q: number, b: number, r: number): number {
-  return lockedContinueBySize(foldToBet, [(r - b) / Math.max(1e-9, Q + b + r)])[0];
+export function lockedContinueVsRaise(
+  foldToBet: number,
+  Q: number,
+  b: number,
+  r: number,
+  foldToRaise?: number,
+): number {
+  const price = (r - b) / Math.max(1e-9, Q + b + r);
+  if (foldToRaise == null) return lockedContinueBySize(foldToBet, [price])[0];
+  // A measured fold-to-raise is quoted at whatever raise prices he actually faced, so re-anchor
+  // it to the ¾-pot reference the size curve is built around and let the same curve spread it
+  // across the raise grid — a jam still folds him out more than a min-raise.
+  const anchor = ((1 - foldToRaise) * mdf(LOCK_REF_FRAC)) / mdf(REF_RAISE_PRICE);
+  return lockedContinueBySize(1 - anchor, [price])[0];
 }
 
 /** Share of a locked villain's CONTINUING range that re-raises rather than calls. A fold
@@ -638,7 +660,7 @@ export function solveRiverVsBet(inp: RiverVsBetInput): RiverVsBetResult {
   const vWeights = V.map((c) => c.w);
   const locked = inp.villainLock
     ? R.map((rk, k) => {
-        const cont = lockedContinueVsRaise(inp.villainLock!.foldToBet, Q, b, rk);
+        const cont = lockedContinueVsRaise(inp.villainLock!.foldToBet, Q, b, rk, inp.villainLock!.foldToRaise);
         if (!has3Bet[k]) return lockedThresholdPolicy(vWeights, vScore, cont).map(([f, c]) => [f, c, 0]);
         return locked3BetPolicy(vWeights, vScore, cont);
       })

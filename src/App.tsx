@@ -37,13 +37,14 @@ const TournamentDrill = lazy(() => import('./components/TournamentDrill').then((
 const DisciplineDrill = lazy(() => import('./components/DisciplineDrill').then((m) => ({ default: m.DisciplineDrill })));
 const BluffCatcherDrill = lazy(() => import('./components/BluffCatcherDrill').then((m) => ({ default: m.BluffCatcherDrill })));
 const ValueRaiseDrill = lazy(() => import('./components/ValueRaiseDrill').then((m) => ({ default: m.ValueRaiseDrill })));
+const LevelingDrill = lazy(() => import('./components/LevelingDrill').then((m) => ({ default: m.LevelingDrill })));
 const LiveHand = lazy(() => import('./components/LiveHand').then((m) => ({ default: m.LiveHand })));
 
 // one per bot seat at the largest table (9-max = 8 bots); createGame pads with
 // 'tag' for anyone whose saved list is shorter.
 const DEFAULT_PROFILES = ['reg', 'lag', 'lp', 'gto', 'nit', 'reg', 'tag', 'lag'];
 
-type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'valueraise' | 'bluffcatch' | 'heatmap' | 'analytics' | 'reference' | 'livehand' | 'settings';
+type Tab = 'learn' | 'play' | 'tournament' | 'tourneydrill' | 'charts' | 'trainer' | 'lab' | 'debug' | 'gameplan' | 'quiz' | 'exploit' | 'replay' | 'principles' | 'odds' | 'eqdrill' | 'mathdrill' | 'review' | 'sizing' | 'bankroll' | 'mental' | 'handreading' | 'story' | 'sizetell' | 'plan' | 'blocker' | 'tells' | 'discipline' | 'valueraise' | 'bluffcatch' | 'leveling' | 'heatmap' | 'analytics' | 'reference' | 'livehand' | 'settings';
 
 // Remember the last-opened section across reloads. `poker-` prefix keeps it in
 // the backup filter (backup.ts) so it travels with an export/import.
@@ -87,6 +88,7 @@ const TABS: { id: Tab; label: string; cat: Cat }[] = [
   { id: 'blocker', label: '🚫 Blockers', cat: 'READS' },
   { id: 'plan', label: '🗺 Plan the Hand', cat: 'READS' },
   { id: 'bluffcatch', label: '🎣 Bluff Catch', cat: 'READS' },
+  { id: 'leveling', label: '🔄 Leveling War', cat: 'READS' },
   // MENTAL
   { id: 'mental', label: '🧘 Mental Game', cat: 'MENTAL' },
   { id: 'discipline', label: '🧊 Cold Fold', cat: 'MENTAL' },
@@ -391,6 +393,11 @@ export default function App() {
           {tab === 'bluffcatch' && (
             <div className="content-col">
               <BluffCatcherDrill />
+            </div>
+          )}
+          {tab === 'leveling' && (
+            <div className="content-col">
+              <LevelingDrill />
             </div>
           )}
           {tab === 'livehand' && (

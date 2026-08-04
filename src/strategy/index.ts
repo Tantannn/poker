@@ -113,6 +113,8 @@ function modelFor(state: GameState, seatIdx: number, models?: VillainModels): Vi
     bluffFreq: prof.bluffFreq,
     callStation: prof.callStation,
     foldToBet: foldToBetFromCallStation(prof.callStation),
+    // …and none carries a fold-to-raise either, so the node lock re-derives it
+    foldToRaise: null,
     // No archetype carries preflop frequencies, so an un-modelled seat is balanced
     // preflop even when its postflop prior is the bot's own tag.
     preflop: balancedPreflopRead(),
@@ -1135,7 +1137,14 @@ function postflopStrategy(
       const solveVsBet = (a: RiverVsBetNodeParams) =>
         state.street === 'river' ? solveRiverVsBetNode(a) : state.street === 'turn' ? solveTurnVsBetNode(a) : solveFlopVsBetNode(a);
       const solved = solveVsBet(
-        primaryHasRead ? { ...args, villainFoldToBet: primaryModel.foldToBet } : args,
+        primaryHasRead
+          ? {
+              ...args,
+              villainFoldToBet: primaryModel.foldToBet,
+              // measured fold-to-raise when there is one; the lock re-derives it otherwise
+              villainFoldToRaise: primaryModel.foldToRaise ?? undefined,
+            }
+          : args,
       );
       if (solved) {
         if (!primaryHasRead) return solved;

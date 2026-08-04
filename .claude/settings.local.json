@@ -253,7 +253,8 @@
       "Bash(Get-ChildItem -Path D:\\\\Code\\\\poker\\\\src -Recurse -Directory)",
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(sed -n '5,30p' src/strategy/villainModel.test.ts)",
-      "Bash(sed -n '255,270p' src/strategy/nodeLock.test.ts)"
+      "Bash(sed -n '255,270p' src/strategy/nodeLock.test.ts)",
+      "Bash(perl -0pi -e 's/vsBetLockNote\\\\\\(p\\\\.villainFoldToBet\\\\\\)/vsBetLockNote\\(p.villainFoldToBet, p.villainFoldToRaise\\)/g' src/strategy/solver/riverAdapter.ts)"
     ]
   }
 }

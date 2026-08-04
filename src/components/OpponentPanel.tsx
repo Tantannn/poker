@@ -38,7 +38,7 @@ interface Props {
 
 /** What a balanced opponent does — the slider anchor, and what the engine assumes
  *  with no read. Mirrors REF in strategy/villainModel.ts. */
-const BALANCED_REF = { foldToBet: 0.45, betFreq: 0.55 };
+const BALANCED_REF = { foldToBet: 0.45, betFreq: 0.55, foldToRaise: 0.28 };
 
 /** Preflop equivalents — mirrors PF_BALANCED in strategy/preflopModel.ts. */
 const PF_REF = { openFreq: 0.26, threeBetFreq: 0.08, foldToThreeBet: 0.55 };
@@ -216,6 +216,7 @@ function NodeLock({
   const obsBet = observed?.betFreq ?? null;
   const foldVal = lock?.foldToBet ?? obsFold ?? BALANCED_REF.foldToBet;
   const betVal = lock?.betFreq ?? obsBet ?? BALANCED_REF.betFreq;
+  const foldToRaiseVal = lock?.foldToRaise ?? observed?.foldToRaise ?? BALANCED_REF.foldToRaise;
   const openVal = lock?.openFreq ?? observed?.openFreq ?? PF_REF.openFreq;
   const threeBetVal = lock?.threeBetFreq ?? observed?.threeBetFreq ?? PF_REF.threeBetFreq;
   const foldTo3Val = lock?.foldToThreeBet ?? observed?.foldToThreeBet ?? PF_REF.foldToThreeBet;
@@ -226,6 +227,7 @@ function NodeLock({
       enabled: true,
       foldToBet: foldVal,
       betFreq: betVal,
+      foldToRaise: foldToRaiseVal,
       openFreq: openVal,
       threeBetFreq: threeBetVal,
       foldToThreeBet: foldTo3Val,
@@ -268,6 +270,20 @@ function NodeLock({
       </div>
 
       <div className="opp-lock-obs gp-muted">
+        Gives up the turn after c-betting{' '}
+        <b>{observed?.turnGiveUp == null ? '—' : `${Math.round(observed.turnGiveUp * 100)}%`}</b>
+        {observed?.turnGiveUpSample ? ` (${observed.turnGiveUpSample} led flops)` : ''} · folds when his bet gets raised{' '}
+        <b>{observed?.foldToRaise == null ? '—' : `${Math.round(observed.foldToRaise * 100)}%`}</b>
+        {observed?.foldToRaiseSample ? ` (${observed.foldToRaiseSample} spots)` : ''}
+        <div className="gp-muted">
+          The reg's two leaks. A high turn give-up means he fires the flop on air and quits — float
+          in position and take the turn away. A high fold-to-raise makes raising his bets print, and
+          the engine prices your raise off this number directly instead of guessing it from his
+          fold-to-bet.
+        </div>
+      </div>
+
+      <div className="opp-lock-obs gp-muted">
         Preflop — opens{' '}
         <b>{observed?.openFreq == null ? '—' : `${Math.round(observed.openFreq * 100)}%`}</b>
         {observed?.openSample ? ` (${observed.openSample} unopened)` : ''} · 3-bets{' '}
@@ -294,6 +310,12 @@ function NodeLock({
             v={betVal}
             hint={`${Math.round(BALANCED_REF.betFreq * 100)}% is balanced. Higher → his bet range is air-heavy, so call down lighter.`}
             onChange={(v) => set({ betFreq: v })}
+          />
+          <LockSlider
+            label="Folds when his bet gets raised"
+            v={foldToRaiseVal}
+            hint={`${Math.round(BALANCED_REF.foldToRaise * 100)}% is what a balanced ${Math.round(BALANCED_REF.foldToBet * 100)}%-fold-to-bet player does at raise prices. Higher → raise his bets as a bluff.`}
+            onChange={(v) => set({ foldToRaise: v })}
           />
           <LockSlider
             label="Opens (unopened pots)"
