@@ -1330,8 +1330,31 @@ function postflopStrategy(
     notes.push(ex);
     noteText = `${noteText} ${ex}`;
   }
-  if (!vnote && !exploit) return strat;
-  return { ...strat, note: noteText, notes, exploit };
+  const engineNote = heuristicEngineNote(liveOpps, la.callAmount > 0, primaryHasRead);
+  if (!vnote && !exploit) return { ...strat, engineNote };
+  return { ...strat, note: noteText, notes, exploit, engineNote };
+}
+
+/** Name the engine that answered a per-hand node and why the CFR gate didn't take it.
+ *  Without this the two engines silently disagree at the same node — replay a spot after
+ *  a read lands and "bet pot 86%" becomes "check 98%" with nothing saying the solver was
+ *  swapped out. Ordered by which gate excludes the node FIRST: a facing-a-bet multiway
+ *  node is heuristic whether or not there's a read. */
+function heuristicEngineNote(liveOpps: number, facingBet: boolean, hasRead: boolean): string {
+  const est = 'Per-hand EV estimate, not a range-vs-range CFR solve';
+  if (facingBet && liveOpps >= 2)
+    return `${est}: you're facing a bet with ${liveOpps} opponents live, and the facing-a-bet solver is heads-up only.`;
+  if (liveOpps > MAX_MULTIWAY_OPPONENTS)
+    return `${est}: ${liveOpps + 1} players is past the multiway solver's ${MAX_MULTIWAY_OPPONENTS + 1}-way cap.`;
+  if (hasRead)
+    return (
+      `${est} — a read/lock on this villain routes the node here, because this is the engine that ` +
+      `computes the balanced-vs-villain exploit delta. The SAME spot with no read is solved by CFR, ` +
+      `and the two can prefer different lines: this number is a teaching estimate of what beats ` +
+      `THIS player, the CFR mix is the equilibrium. If one spot flipped between bet and check on a ` +
+      `replay, check which badge each one carried before treating it as a contradiction.`
+    );
+  return `${est} — this node shape isn't one the solver gates cover.`;
 }
 
 /** One-line, spot-specific villain read for the Explain panel: how this opponent's

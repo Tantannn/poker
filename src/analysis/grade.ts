@@ -3,7 +3,7 @@
 
 import type { Action, GameState } from '../engine/table';
 import { legalActions, positionLabel, potTotal } from '../engine/table';
-import type { ActionId, NodeStrategy } from '../strategy/types';
+import type { ActionId, ActionOption, NodeStrategy } from '../strategy/types';
 import { evLoss as computeEvLoss, rngPrescription } from '../strategy/types';
 import { matchActionId, primaryVillainIdx } from '../strategy';
 import { describeTexture, boardWetness } from '../engine/board';
@@ -259,6 +259,7 @@ export function buildCheckLineCoach(
     bullets.push(
       `You're not folding — you have the equity to continue. You're just not bloating a pot with a hand that isn't made yet.`,
     );
+    bullets.push(...semiBluffMath(strategy, chosenOpt));
     bullets.push(
       `Beat-the-mids caveat: vs a player who folds too much, semi-bluffing this IS good — fold equity plus your outs both print. The check is the solver's edge vs a disciplined villain, not a rule against ever betting a draw.`,
     );
@@ -289,6 +290,31 @@ export function buildCheckLineCoach(
     );
   }
   return [lead, ...bullets].join(' • ');
+}
+
+/** The semi-bluff inequality with this node's own numbers in it. In pot units (pot 1,
+ *  bet f) the called branch is worth `e(1+2f) − f`, so folds needed drop from the pure
+ *  bluff's `f/(1+f)` to `−c/(1−c)` — and vanish once equity alone covers the bet. */
+function semiBluffMath(strategy: NodeStrategy, chosen: ActionOption): string[] {
+  const f = chosen.sizePct;
+  if (!f || f <= 0) return [];
+  const pureFold = Math.round((f / (1 + f)) * 100);
+  const out = [
+    `The math — a ${Math.round(f * 100)}%-pot bet risks ${f.toFixed(2)} to win 1, so as a PURE bluff it needs him to fold ~${pureFold}% of the time.`,
+  ];
+  const eq = chosen.calledEq;
+  if (eq != null) {
+    const called = eq * (1 + 2 * f) - f;
+    out.push(
+      called >= 0
+        ? `Your ~${Math.round(eq * 100)}% equity when called covers the bet by itself (${eq.toFixed(2)} × ${(1 + 2 * f).toFixed(2)} − ${f.toFixed(2)} = ${called.toFixed(2)} pots), so this bet needs ZERO folds to profit — and it does profit, ${chosen.ev.toFixed(2)}bb.`
+        : `Your ~${Math.round(eq * 100)}% equity when called pays part of it back, cutting the folds needed from ~${pureFold}% to ~${Math.round((-called / (1 - called)) * 100)}%.`,
+    );
+  }
+  out.push(
+    `Zero was never the bar though — CHECKING already earns ${strategy.bestEv.toFixed(2)}bb, so the bet has to beat THAT, and it only makes ${chosen.ev.toFixed(2)}bb. "I have outs, so betting is fine" is measuring a semi-bluff against folding; the real comparison is against a check, which realises the same outs without putting chips at risk.`,
+  );
+  return out;
 }
 
 /** Build the rich gameplan context from the live state at the hero's decision. */

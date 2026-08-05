@@ -115,6 +115,11 @@ export interface NodeStrategy {
    *  multiway, a read carve-out). The UI badges the two differently so a teaching estimate is
    *  never presented as solver output (README). Undefined for `preflop-chart`. */
   engine?: 'cfr' | 'heuristic';
+  /** Why THIS node got THIS engine, in plain language. The two engines can prefer
+   *  different lines at the same node, so replaying one spot and getting the opposite
+   *  answer reads as the app contradicting itself unless the switch is named. Set on the
+   *  heuristic path only — a CFR node already discloses its solve in `note`. */
+  engineNote?: string;
   note: string;
   /** `note` split into one line per idea, for bulleted rendering. Postflop only;
    *  preflop leaves this undefined and the paragraph `note` is used. */

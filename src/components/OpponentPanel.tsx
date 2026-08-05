@@ -13,6 +13,7 @@ import type { ObservedStats } from '../analysis/observed';
 import { readShifts } from '../analysis/observed';
 import type { VillainLock, VillainModel } from '../strategy/villainModel';
 import { PlayerReadChecklist } from './PlayerReadChecklist';
+import { ArchetypeGuide } from './ArchetypeGuide';
 
 interface Props {
   villain: VillainInfo | null;
@@ -122,6 +123,7 @@ export function OpponentPanel({
                       ? `${observed.hands} hands observed`
                       : `Small sample (${observed?.hands ?? 0} hands) — reads firm up around 10+.`}
                   </div>
+                  <ArchetypeGuide observed={observed ?? null} />
                   {onGuess && (
                     <div className="opp-guess">
                       <span className="opp-guess-lbl">Who is this? Guess to reveal:</span>

@@ -362,6 +362,24 @@ passes it as `thirdFoldToBet` and `mdfCallProbs` re-anchors his continue share t
 parameter-free MDF. The *solved* primary's read still routes through the per-hand fallback
 (the `primaryHasRead` carve-out); only the fixed player's read lands in the CFR.
 
+### Recognising an anonymous seat — `analysis/archetypeSignature.ts`
+Anonymous mode hides the tag *and* forces the engine's prior to `BALANCED`, so the hero's own
+read is the only read — which made the guess buttons a 1-in-7 shot with nothing connecting the
+VPIP/PFR/AF bars to them. `rankArchetypes(observed)` closes that: three axes (`openLooseness`
+↔ VPIP, `(aggression+cbetFreq+bluffFreq)/3` ↔ AF, `callStation` ↔ inverted fold-to-bet), both
+sides normalised into their **own** span, distance weighted by each axis's own sample so an
+unsampled axis **drops out** rather than defaulting. `ArchetypeGuide.tsx` renders it in the
+`hidden` branch of `OpponentPanel`.
+
+Three invariants. It never reads the seat's `profileId` — the rank comes from observed stats
+plus the public dial table, which is what keeps the mode honest. Nothing is authored per
+archetype: quadrant, giveaway, nearest neighbour and discriminator all fall out of
+`PROFILE_LIST`, so retuning a bot retunes the guide (`archetypeSignature.test.ts` pins this by
+mutating a copy of the field). And `discriminator` returns a **null axis** when two archetypes
+are statically indistinguishable — that is the true answer for tag/gto/reg, a closed
+confusable clique whose only real separator is `adapt`, i.e. the `readShifts` alert below.
+The live normalisation bands are the one authored input, disclosed in the panel.
+
 ### Windowed reads & the leveling war — `observed.ts: readShifts`
 Every stat above is a lifetime average, and a lifetime average **cannot see an opponent
 change**: a reg who has stopped folding to your bets still reads ~55% for dozens of hands. So
@@ -620,6 +638,13 @@ cases. Three unusual suites worth knowing before you "fix" them:
   air before concluding the solver is wrong. And the heavy solver tests (multiway flop ≈ 1.7s a
   node) need explicit per-test timeouts: the 5s default passes solo and fails under the full
   suite's parallel load.
+- **The two postflop engines can disagree at the SAME node.** A read landing on the primary
+  villain flips a flop/multiway node from the CFR to the per-hand model (`primaryHasRead`),
+  and the per-hand model's mix is not the CFR's — replaying one spot can turn "bet pot 86%"
+  into "check 98%". `index.ts: heuristicEngineNote` names the engine and the gate that
+  excluded the node, carried on `NodeStrategy.engineNote` and rendered by `EngineBadge` +
+  the note block in `StrategyPanel` / `Feedback`. `engineNote.test.ts` pins it. Never let a
+  heuristic node render without that provenance.
 - **Rake defaults to `none`.** Every EV in the app is rake-free until the user picks a
   profile in ⚙ Settings, so the whole test suite pins rake-free numbers and a rake bug is
   invisible by default (`strategy/rake.test.ts` is the direction guard). `GameState.rake`

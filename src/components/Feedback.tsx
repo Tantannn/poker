@@ -5,6 +5,7 @@ import { SizingCheatSheet } from './SizingCheatSheet';
 import { KIND_COLOR } from './chartColors';
 import { CalcLabel, GlossaryText } from './CalcTip';
 import { ReasonList } from './ReasonList';
+import { EngineBadge } from './EngineBadge';
 
 // Villain line-shape read → scannable chip. Tone reuses the board-type pill
 // colors: dry = green (favourable to hero), semiwet = gold (caution), wet = red
@@ -63,6 +64,7 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
     <div className={`feedback-box ${cls}`}>
       <div className="fb-top">
         <div className="fb-head">{fb.headline}</div>
+        <EngineBadge strategy={strat} />
         <div className="strat-head-btns">
           <button
             className={`toggle ${explain ? 'on' : ''}`}
@@ -109,6 +111,12 @@ export function Feedback({ fb, peeked }: { fb: NodeFeedback | null; peeked?: boo
 
       {explain && (
         <div className="fb-gameplan">
+          {strat.engineNote && (
+            <div className="gp-block">
+              <div className="gp-h">How this node was solved</div>
+              <p className="strat-engine-note">≈ {strat.engineNote}</p>
+            </div>
+          )}
           {ctx && (
             <>
               <div className="gp-block">

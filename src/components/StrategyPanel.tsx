@@ -6,6 +6,7 @@ import { useState } from 'react';
 import type { NodeStrategy, ReadDetail, ReadStat } from '../strategy';
 import type { RngInfo } from '../hooks/useGame';
 import { InfoTip } from './CalcTip';
+import { EngineBadge } from './EngineBadge';
 
 // quality tier of an option vs the best line, by EV loss (bb)
 function tierOf(evLoss: number): { cls: string; tag: string } {
@@ -75,6 +76,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
               </div>
             </div>
           )}
+          {strategy.engineNote && <div className="strat-engine-note">≈ {strategy.engineNote}</div>}
           <div className="strat-sizing">
             <span>💡 Size by <b>polarization</b>, not "am I winning": monsters + bluffs → <b>big</b> · medium made → <b>small</b> · no-equity air → <b>check</b>.</span>
             <InfoTip
@@ -179,27 +181,6 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
       )}
     </div>
   );
-}
-
-/** Honest provenance chip: a real range-vs-range CFR solve, the per-hand heuristic EV
- *  model (a teaching estimate the solver gates don't reach — villain-first / facing-a-bet
- *  multiway, or a read carve-out), or a preflop teaching chart. README: never present the
- *  per-hand estimate as solver output. */
-function EngineBadge({ strategy }: { strategy: NodeStrategy }) {
-  if (strategy.source === 'preflop-chart')
-    return <span className="engine-badge chart" title="Preflop chart — a ~100bb teaching baseline, not a per-node solve.">chart</span>;
-  if (strategy.engine === 'cfr')
-    return <span className="engine-badge cfr" title="A real range-vs-range CFR solve of this exact node.">✓ solved</span>;
-  if (strategy.engine === 'heuristic')
-    return (
-      <span
-        className="engine-badge heur"
-        title="Per-hand heuristic EV model — a teaching estimate, NOT a range-vs-range solve. Used where the solver gates don't reach: villain-first or facing-a-bet multiway, or when a read routes to the exploit path."
-      >
-        ≈ estimate
-      </span>
-    );
-  return null;
 }
 
 /** The exploit delta: what balanced play does here vs what beats THIS villain, and

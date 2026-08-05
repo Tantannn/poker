@@ -255,7 +255,14 @@
       "Bash(sed -n '5,30p' src/strategy/villainModel.test.ts)",
       "Bash(sed -n '255,270p' src/strategy/nodeLock.test.ts)",
       "Bash(perl -0pi -e 's/vsBetLockNote\\\\\\(p\\\\.villainFoldToBet\\\\\\)/vsBetLockNote\\(p.villainFoldToBet, p.villainFoldToRaise\\)/g' src/strategy/solver/riverAdapter.ts)",
-      "Bash(perl -0pi -e 's/    overbet: 0\\\\.3,\\\\n/    overbet: 0.3,\\\\n    jam: 0.1,\\\\n/; s/    overbet: 0\\\\.2,\\\\n/    overbet: 0.2,\\\\n    jam: 0.08,\\\\n/; s/    overbet: 0\\\\.5,\\\\n/    overbet: 0.5,\\\\n    jam: 0.3,\\\\n/; s/    overbet: 0\\\\.75,\\\\n/    overbet: 0.75,\\\\n    jam: 0.5,\\\\n/' src/ai/difficulty.ts)"
+      "Bash(perl -0pi -e 's/    overbet: 0\\\\.3,\\\\n/    overbet: 0.3,\\\\n    jam: 0.1,\\\\n/; s/    overbet: 0\\\\.2,\\\\n/    overbet: 0.2,\\\\n    jam: 0.08,\\\\n/; s/    overbet: 0\\\\.5,\\\\n/    overbet: 0.5,\\\\n    jam: 0.3,\\\\n/; s/    overbet: 0\\\\.75,\\\\n/    overbet: 0.75,\\\\n    jam: 0.5,\\\\n/' src/ai/difficulty.ts)",
+      "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 40)",
+      "PowerShell(npx vitest run src/analysis/grade.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx vitest run src/strategy/engineNote.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx tsc -b --pretty false 2>&1 | Select-Object -First 20; npx eslint src/strategy/engineNote.test.ts src/components/EngineBadge.tsx src/analysis/grade.ts src/strategy/index.ts 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx vitest run src/analysis/archetypeSignature.test.ts 2>&1 | Select-Object -Last 60)",
+      "PowerShell(npx vitest run src/analysis/archetypeSignature.test.ts 2>&1 | Select-Object -Last 30; npx tsc -b --pretty false 2>&1 | Select-Object -First 20)",
+      "PowerShell(npx eslint src/analysis/archetypeSignature.ts src/analysis/archetypeSignature.test.ts src/components/ArchetypeGuide.tsx src/components/OpponentPanel.tsx 2>&1 | Select-Object -First 25; npx vitest run 2>&1 | Select-Object -Last 12)"
     ]
   }
 }
