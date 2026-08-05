@@ -65,6 +65,45 @@ export interface ExploitDelta {
   source: 'observed' | 'locked';
 }
 
+/** The same node with the villain treated as BALANCED — the plain chart line before
+ *  any read moved it. Present only when a read actually changed the mix, so the panel
+ *  can put the two side by side: seeing what you'd do against an unknown is what makes
+ *  the deviation legible as a deviation rather than as "the answer". */
+export interface BaselineMix {
+  /** what the baseline is, e.g. "BTN open chart" */
+  label: string;
+  options: ActionOption[];
+  bestId: ActionId;
+}
+
+/** One observed/locked number behind a read, with everything needed to judge it:
+ *  where it sits against balanced, how much evidence is behind it, whether it moves
+ *  THIS node, and what to watch for at a live table to confirm it. */
+export interface ReadStat {
+  label: string;
+  value: number;
+  baseline: number;
+  /** decisions behind the number; 0 when locked by hand */
+  sample: number;
+  /** does this stat price anything at this node, or is it just context? */
+  active: boolean;
+  effect: string;
+  spot: string;
+}
+
+/** Why the mix moved: the numbers, the per-action deltas, and the caveat. Preflop
+ *  only — the postflop engines carry their read in `ExploitDelta.why`. */
+export interface ReadDetail {
+  source: 'observed' | 'locked';
+  confidence: number;
+  /** whose tendencies moved this node */
+  who: string;
+  headline: string;
+  stats: ReadStat[];
+  moves: { id: ActionId; label: string; from: number; to: number; why: string }[];
+  caution: string;
+}
+
 export interface NodeStrategy {
   options: ActionOption[];
   bestEv: number;
@@ -87,6 +126,10 @@ export interface NodeStrategy {
    *  manual node lock) AND the balanced line differs — the "GTO says X, vs THIS
    *  player do Y" delta. Absent when the villain is balanced or the two lines agree. */
   exploit?: ExploitDelta;
+  /** the un-adjusted chart mix, when a read moved this node (preflop only). */
+  baseline?: BaselineMix;
+  /** the read that moved it, broken out stat by stat (preflop only). */
+  readDetail?: ReadDetail;
   /** hero's 169-code, for highlighting the cell in the chart popup. */
   heroCode?: string;
   /** preflop scenario id (for the chart popup), when source is preflop-chart. */

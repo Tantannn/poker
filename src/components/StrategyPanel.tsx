@@ -2,7 +2,8 @@
 // for every action, with optional "why / how it's calculated" explanations and
 // a popup of the range chart at the hero's position.
 
-import type { NodeStrategy } from '../strategy';
+import { useState } from 'react';
+import type { NodeStrategy, ReadDetail, ReadStat } from '../strategy';
 import type { RngInfo } from '../hooks/useGame';
 import { InfoTip } from './CalcTip';
 
@@ -12,6 +13,8 @@ function tierOf(evLoss: number): { cls: string; tag: string } {
   if (evLoss <= 0.4) return { cls: 'tier-ok', tag: 'inaccuracy' };
   return { cls: 'tier-bad', tag: 'mistake' };
 }
+
+const pct = (x: number) => Math.round(x * 100);
 
 interface Props {
   strategy: NodeStrategy | null;
@@ -27,6 +30,16 @@ interface Props {
 }
 
 export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroStack, heroCommitted, bigBlind, hideAnswer, onPeek }: Props) {
+  // Which mix the rows show. A read moves frequencies silently otherwise, and a
+  // deviation you can't see next to its baseline teaches nothing.
+  const [view, setView] = useState<'read' | 'chart'>('read');
+  const baseline = strategy?.baseline ?? null;
+  const showBaseline = view === 'chart' && !!baseline;
+  const mix = showBaseline ? baseline.options : (strategy?.options ?? []);
+  const bestId = showBaseline ? baseline.bestId : strategy?.bestId;
+  const bestEv = showBaseline ? Math.max(...baseline.options.map((o) => o.ev)) : (strategy?.bestEv ?? 0);
+  const baseFreq = baseline ? new Map(baseline.options.map((o) => [o.id, o.freq] as const)) : null;
+
   return (
     <div className="strat-panel">
       <div className="strat-head">
@@ -83,12 +96,31 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
               }
             />
           </div>
-          <div className="strat-rows">
-            {strategy.options.map((o) => {
+          {baseline && (
+            <div className="strat-view">
+              <div className="strat-view-btns" role="group" aria-label="Which mix to show">
+                <button className={view === 'read' ? 'on' : ''} onClick={() => setView('read')}>
+                  🎯 Read-adjusted
+                </button>
+                <button className={view === 'chart' ? 'on' : ''} onClick={() => setView('chart')}>
+                  📘 Chart baseline
+                </button>
+              </div>
+              <span className="strat-view-sub">
+                {showBaseline
+                  ? `${baseline.label} — what you'd play against a player you know nothing about.`
+                  : 'Frequencies bent toward this specific opponent. Flip to the chart to see the standard line.'}
+              </span>
+            </div>
+          )}
+          <div className={`strat-rows ${showBaseline ? 'baseline-view' : ''}`}>
+            {mix.map((o) => {
               const isPrescribed = rng?.prescribed === o.id;
-              const isBest = o.id === strategy.bestId;
-              const evLoss = Math.max(0, strategy.bestEv - o.ev);
+              const isBest = o.id === bestId;
+              const evLoss = Math.max(0, bestEv - o.ev);
               const tier = isBest ? { cls: 'tier-best', tag: 'best' } : tierOf(evLoss);
+              const from = baseFreq?.get(o.id);
+              const moved = !showBaseline && from != null && Math.abs(from - o.freq) >= 0.02;
               // how much of the remaining stack this action commits — the risk
               // EV alone hides. Flags lines that turn into a stack-off.
               const invest = o.amount != null ? Math.max(0, o.amount - heroCommitted) : 0;
@@ -99,9 +131,15 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
                   <div className={`strat-row ${isPrescribed ? 'prescribed' : ''}`}>
                     <div className="strat-bar-wrap">
                       <div className={`strat-bar kind-${o.kind ?? 'fold'}`} style={{ width: `${o.freq * 100}%` }} />
+                      {moved && <div className="strat-bar-ghost" style={{ width: `${from * 100}%` }} title={`Chart baseline: ${pct(from)}%`} />}
                       <span className="strat-label">
                         {o.label}
                         <span className={`tier-tag ${tier.cls}`}>{tier.tag}</span>
+                        {moved && (
+                          <span className={`freq-delta ${o.freq > from ? 'up' : 'down'}`} title="Chart baseline → after the read">
+                            {pct(from)}% {o.freq > from ? '↑' : '↓'}
+                          </span>
+                        )}
                         {o.id === 'allin' && <span className="risk-tag" title="High-variance: stacking off is hard to recover from in real play">⚠ risky</span>}
                         {bigCommit && <span className="risk-tag" title={`Commits ${Math.round(stackPct * 100)}% of your remaining stack — you'll be pot-committed, expect to call it off`}>⚠ {Math.round(stackPct * 100)}% stack</span>}
                         {(o.why || o.math) && (
@@ -135,6 +173,7 @@ export function StrategyPanel({ strategy, rng, enabled, onToggle, loading, heroS
             })}
           </div>
           {strategy.exploit && <ExploitBox x={strategy.exploit} />}
+          {strategy.readDetail && <ReadDetailBox d={strategy.readDetail} />}
           <div className="strat-note">{strategy.note}</div>
         </>
       )}
@@ -184,6 +223,85 @@ function ExploitBox({ x }: { x: NonNullable<NodeStrategy['exploit']> }) {
         <span className="strat-exploit-gain">+{x.gainBb.toFixed(2)} bb</span>
       </div>
       <p className="strat-exploit-why">{x.why}</p>
+    </div>
+  );
+}
+
+/** The full audit of a read-adjusted preflop node: whose read, which numbers, what
+ *  each one prices HERE, which frequencies moved, and how firm the evidence is. The
+ *  `spot` lines are the live-table version of each stat — the app's target player has
+ *  no HUD, so a stat he can't collect by watching is a stat he can't use. */
+function ReadDetailBox({ d }: { d: ReadDetail }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="strat-read">
+      <div className="strat-read-head">
+        <span className="strat-read-lbl">
+          🔎 Why this isn't the chart — {d.source === 'locked' ? 'your locked read' : `observed, ${Math.round(d.confidence * 100)}% confidence`}
+        </span>
+        <button className="toggle" onClick={() => setOpen(!open)}>
+          {open ? 'Less' : 'Break it down'}
+        </button>
+      </div>
+      <div className="strat-read-who">
+        Read on <b>{d.who}</b>
+      </div>
+      <p className="strat-read-headline">{d.headline}</p>
+
+      {d.moves.length > 0 && (
+        <div className="strat-read-moves">
+          {d.moves.map((m) => (
+            <div key={m.id} className="strat-read-move">
+              <span className="strat-read-move-lbl">{m.label}</span>
+              <span className={`strat-read-move-num ${m.to > m.from ? 'up' : 'down'}`}>
+                {pct(m.from)}% → <b>{pct(m.to)}%</b>
+              </span>
+              <span className="strat-read-move-why">{m.why}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="strat-read-stats">
+          {d.stats.map((s) => (
+            <StatRow key={s.label} s={s} />
+          ))}
+        </div>
+      )}
+
+      <p className="strat-read-caution">⚠ {d.caution}</p>
+    </div>
+  );
+}
+
+function StatRow({ s }: { s: ReadStat }) {
+  // Per-stat scale: a 26%-baseline stat and a 55%-baseline stat share no useful axis,
+  // so each bar is drawn against its own headroom with the balanced value marked.
+  const max = Math.max(0.4, s.baseline * 2.2, s.value * 1.2);
+  const off = s.value - s.baseline;
+  return (
+    <div className={`strat-read-stat ${s.active ? 'active' : 'idle'}`}>
+      <div className="strat-read-stat-head">
+        <span className="strat-read-stat-lbl">{s.label}</span>
+        <span className="strat-read-stat-val">
+          <b>{pct(s.value)}%</b> vs {pct(s.baseline)}% balanced
+          <span className={`strat-read-stat-off ${off > 0 ? 'up' : 'down'}`}>
+            {off > 0 ? '+' : ''}
+            {pct(off)}
+          </span>
+        </span>
+      </div>
+      <span className="strat-read-stat-track">
+        <span className="strat-read-stat-fill" style={{ width: `${(s.value / max) * 100}%` }} />
+        <span className="strat-read-stat-mark" style={{ left: `${(s.baseline / max) * 100}%` }} title="balanced" />
+      </span>
+      <div className="strat-read-stat-sample">
+        {s.sample > 0 ? `${s.sample} decisions seen` : 'locked by hand — no sample'}
+        {s.active ? '' : ' · not priced at this node'}
+      </div>
+      <p className="strat-read-stat-effect">{s.effect}</p>
+      <p className="strat-read-stat-spot">👁 Spot it live: {s.spot}</p>
     </div>
   );
 }

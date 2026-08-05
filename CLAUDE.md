@@ -443,6 +443,22 @@ Three things this layer does that depth shading deliberately doesn't, and why:
   whose EVs are *relative estimates*. `preflopExploit`'s `gainBb` ranks two lines in the
   read's own frame; it is not a solved edge and the prose must never read as one.
 
+A read that moves frequencies silently teaches nothing, so a read-adjusted node also
+carries the mix it deviated FROM: `NodeStrategy.baseline` is the same node re-shaded with
+the villain treated as balanced (`chartedBalanced`), and `readDetail` breaks the move down
+— whose read, the three rates with their own sample counts (`PreflopRead.samples`, since
+`confidence` is the max of the three and cannot say which one is thin), which rate prices
+*this* node, and the per-action from→to deltas. Both mixes are depth- **and** rake-shaded,
+which is what makes the gap between them the read alone. `StrategyPanel` toggles between
+them; `readBaseline.test.ts` pins that every rendered row has a baseline twin.
+
+`ReadStat.spot` is the live-table half: the app's target player has no HUD, so every stat
+is paired with the countable observation that produces it. `PlayerReadChecklist.tsx`
+(in `OpponentPanel`, keyed by seat) is the same idea as input — tick what you watched him
+do, and the ticks merge into a `VillainLock`. Tell values are deliberately coarse (one
+"wide", one "tight" per knob): a tell is evidence a rate is far from balanced, not a
+measurement of it, and opposite ticks average back to balanced on purpose.
+
 Disclosed gap: **the bots don't consume THIS layer.** `ai/decide.ts` does now adapt to the
 hero preflop — it reads the hero's fold-to-3-bet and blind-fold rates off `HeroReads` and
 3-bets / 4-bet-bluffs / steals wider vs an over-folder (hard/extreme only, sample-gated, same

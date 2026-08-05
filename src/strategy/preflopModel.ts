@@ -23,7 +23,7 @@
 import type { ObservedStats } from '../analysis/observed';
 import { preflopStrength } from '../ai/preflop';
 import { ALL_169 } from './preflopChart';
-import type { ActionId, ActionOption } from './types';
+import type { ActionId, ActionOption, ReadStat } from './types';
 
 /** Balanced ~100bb 6-max baselines — what the charts themselves assume, so a read
  *  equal to these leaves every frequency untouched.
@@ -57,6 +57,10 @@ export interface PreflopRead {
   confidence: number;
   /** one-line read for the Explain panel, or null when nothing is notable */
   label: string | null;
+  /** decisions behind each rate, for the explain panel. `confidence` is the maximum
+   *  of the three weights, so it cannot say WHICH number is thin — and a firm 3-bet
+   *  read sitting next to a one-spot fold read is the case the player must see. */
+  samples?: { open: number; threeBet: number; foldToThreeBet: number };
 }
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -66,6 +70,7 @@ export const balancedPreflopRead = (): PreflopRead => ({
   source: 'balanced',
   confidence: 0,
   label: null,
+  samples: { open: 0, threeBet: 0, foldToThreeBet: 0 },
 });
 
 function shrink(observed: number, prior: number, n: number, halfWeight: number) {
@@ -100,7 +105,13 @@ export function resolvePreflopRead(obs?: ObservedStats | null, lock?: PreflopLoc
       threeBetFreq: lock.threeBetFreq ?? PF_BALANCED.threeBetFreq,
       foldToThreeBet: lock.foldToThreeBet ?? PF_BALANCED.foldToThreeBet,
     };
-    return { ...r, source: 'locked', confidence: 1, label: describe(r, true, 1) };
+    return {
+      ...r,
+      source: 'locked',
+      confidence: 1,
+      label: describe(r, true, 1),
+      samples: { open: 0, threeBet: 0, foldToThreeBet: 0 },
+    };
   }
 
   const hasOpen = obs?.openFreq != null && obs.openSample > 0;
@@ -125,6 +136,11 @@ export function resolvePreflopRead(obs?: ObservedStats | null, lock?: PreflopLoc
     source: confidence > 0.05 ? 'observed' : 'balanced',
     confidence,
     label: describe(r, false, confidence),
+    samples: {
+      open: hasOpen ? obs.openSample : 0,
+      threeBet: has3 ? obs.threeBetSample : 0,
+      foldToThreeBet: hasF3 ? obs.foldToThreeBetSample : 0,
+    },
   };
 }
 
@@ -232,6 +248,89 @@ export function preflopAdjust(level: PreflopLevel, code: string, read: PreflopRe
         ? `He 3-bets ~${(read.threeBetFreq * 100).toFixed(0)}% (balanced ~${(PF_BALANCED.threeBetFreq * 100).toFixed(0)}%), so this ${word} is far wider than the chart assumes — continue more and re-raise more for value.`
         : `He 3-bets only ~${(read.threeBetFreq * 100).toFixed(0)}%, so this ${word} is the top of his range — fold the marginal continues and drop the bluff re-raises.`;
   return { valueMult: taper(valueMult, m), bluffMult: taper(bluffMult, m), callMult: taper(callMult, m), why };
+}
+
+// ---------------- explaining the adjustment ----------------
+//
+// The chart layer moves frequencies silently, which teaches nothing: the player sees a
+// different mix and has no way to tell a read from a chart. These three build the
+// "why" — the numbers, what each one prices HERE, and what to watch for at a live
+// table to collect it yourself. `spot` is deliberately phrased as a countable
+// observation (raise-first-ins per orbit), not a HUD stat, because live is where the
+// app's target player actually has to build the read.
+
+const PF_STAT_SPOT = {
+  open: 'Count his raise-first-ins over one orbit. 2+ in a 6-handed orbit is wide; a full orbit with none means his raise is a real range.',
+  threeBet: 'Every time someone opens and he re-raises, that is one. Balanced is ~once every other orbit — twice in one orbit is already wide.',
+  foldToThreeBet: 'Only visible when HE opened and got 3-bet. Two folds is a usable read; one call tells you almost nothing.',
+} as const;
+
+export function preflopReadStats(level: PreflopLevel, read: PreflopRead): ReadStat[] {
+  const s = read.samples ?? { open: 0, threeBet: 0, foldToThreeBet: 0 };
+  const raise = level === 3 ? '5-bet' : level === 2 ? '4-bet' : '3-bet';
+  return [
+    {
+      label: 'Opens unopened pots (RFI)',
+      value: read.openFreq,
+      baseline: PF_BALANCED.openFreq,
+      sample: s.open,
+      active: level === 1,
+      effect:
+        level === 1
+          ? 'Prices your FLAT: the wider he opens the weaker his range, so more hands are worth continuing against it.'
+          : 'Context only here — it prices your defence once he is the one who opened.',
+      spot: PF_STAT_SPOT.open,
+    },
+    {
+      label: '3-bets facing an open',
+      value: read.threeBetFreq,
+      baseline: PF_BALANCED.threeBetFreq,
+      sample: s.threeBet,
+      active: level === 0 || level >= 2,
+      effect:
+        level === 0
+          ? 'Taxes your STEAL: the marginal opens are the ones his re-raise blows off the pot, so they go first.'
+          : level >= 2
+            ? `IS the composition of the range you now face — a wide 3-bettor is re-raising hands the chart has him folding, so your ${raise} gets value and your continues widen.`
+            : 'Context only here — it prices your open, and the pot is already open.',
+      spot: PF_STAT_SPOT.threeBet,
+    },
+    {
+      label: 'Folds his open to a 3-bet',
+      value: read.foldToThreeBet,
+      baseline: PF_BALANCED.foldToThreeBet,
+      sample: s.foldToThreeBet,
+      active: level === 1,
+      effect:
+        level === 1
+          ? 'Prices your 3-BET BLUFF: this is the fold equity. High → light 3-bets print; low → 3-bet him for value only.'
+          : 'Context only here — it prices bluff-raising his opens.',
+      spot: PF_STAT_SPOT.foldToThreeBet,
+    },
+  ];
+}
+
+/** A read is only worth acting on in proportion to how much you have seen. Locked
+ *  reads carry no sample, so their caveat is about the assertion, not the evidence. */
+export function preflopReadCaution(read: PreflopRead): string {
+  if (read.source === 'locked')
+    return 'You locked this by hand — the engine takes it as fact and does not shrink it. Clear the lock if the table stops matching it.';
+  if (read.confidence < 0.3)
+    return 'Thin sample — most of this is still the balanced prior, so the mix has barely moved. Keep counting before you deviate hard.';
+  if (read.confidence < 0.6) return 'Developing read — real but not firm. Deviate on the marginal hands, not the coolers.';
+  return 'Solid sample. Watch for him CHANGING: a lifetime average cannot see a player who has started adjusting to you.';
+}
+
+/** Which of the three rates moved a given action's frequency, in one line. */
+export function preflopMoveWhy(level: PreflopLevel, kind: ActionOption['kind'], up: boolean): string {
+  const dir = up ? 'more' : 'less';
+  if (level === 0) return `His 3-bet frequency behind you re-prices every open, so you steal ${dir} here.`;
+  if (level === 1) {
+    if (kind === 'call') return `How wide he opens sets how much of your range is live, so you flat ${dir}.`;
+    if (kind === 'bluff') return `Your 3-bet bluff is priced by how often he folds his open — ${up ? 'more' : 'less'} fold equity, ${dir} bluffs.`;
+    return `His opening range is ${up ? 'weaker' : 'stronger'} than the chart assumes, so value re-raises are worth ${dir}.`;
+  }
+  return `His ${level === 3 ? '4-bet' : '3-bet'} is ${up ? 'wider' : 'tighter'} than the chart assumes, so this line is worth ${dir}.`;
 }
 
 /** Hand strength below which a chart-folded hand is never promoted into a raise, no

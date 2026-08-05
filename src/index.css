@@ -966,6 +966,71 @@ kbd { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px;
 .strat-exploit-gain { font-weight: 800; color: var(--raise2); }
 .strat-exploit-why { margin: 5px 0 0; font-size: 12px; line-height: 1.5; }
 
+/* ---------- read-adjusted vs chart baseline ---------- */
+.strat-view { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 4px; }
+.strat-view-btns { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.strat-view-btns button { background: transparent; border: 0; color: var(--muted); font: inherit; font-size: 11px; font-weight: 700; padding: 4px 11px; cursor: pointer; }
+.strat-view-btns button.on { background: var(--gold); color: #1a1206; }
+.strat-view-sub { font-size: 11px; color: var(--muted); flex: 1 1 180px; line-height: 1.4; }
+.strat-rows.baseline-view { opacity: 0.92; box-shadow: inset 3px 0 0 var(--line); padding-left: 6px; }
+/* ghost of the chart frequency behind the adjusted bar — the delta made visual */
+.strat-bar-ghost { position: absolute; left: 0; top: 0; bottom: 0; border-right: 2px dashed var(--muted); opacity: 0.6; pointer-events: none; }
+.freq-delta { margin-left: 6px; font-size: 10px; font-weight: 800; padding: 0 5px; border-radius: 999px; border: 1px solid var(--line); }
+.freq-delta.up { color: var(--raise2); }
+.freq-delta.down { color: var(--red); }
+
+.strat-read { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--bg2); }
+.strat-read-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.strat-read-lbl { font-size: 11px; font-weight: 800; color: var(--gold); }
+.strat-read-who { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.strat-read-headline { margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
+.strat-read-moves { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+.strat-read-move { display: grid; grid-template-columns: minmax(64px, auto) auto 1fr; gap: 4px 8px; align-items: baseline; font-size: 11.5px; }
+.strat-read-move-lbl { font-weight: 700; }
+.strat-read-move-num { font-variant-numeric: tabular-nums; }
+.strat-read-move-num.up { color: var(--raise2); }
+.strat-read-move-num.down { color: var(--red); }
+.strat-read-move-why { color: var(--muted); line-height: 1.45; grid-column: 1 / -1; }
+.strat-read-stats { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.strat-read-stat { border-top: 1px solid var(--line); padding-top: 8px; }
+.strat-read-stat.idle { opacity: 0.6; }
+.strat-read-stat-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; font-size: 11.5px; }
+.strat-read-stat-lbl { font-weight: 700; }
+.strat-read-stat-val { color: var(--muted); font-variant-numeric: tabular-nums; }
+.strat-read-stat-off { margin-left: 6px; font-weight: 800; }
+.strat-read-stat-off.up { color: var(--raise2); }
+.strat-read-stat-off.down { color: var(--red); }
+.strat-read-stat-track { position: relative; display: block; height: 7px; margin: 5px 0; border-radius: 999px; background: var(--bg); overflow: hidden; }
+.strat-read-stat-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gold); border-radius: 999px; }
+.strat-read-stat-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--txt); opacity: 0.75; }
+.strat-read-stat-sample { font-size: 10.5px; color: var(--muted); }
+.strat-read-stat-effect { margin: 4px 0 0; font-size: 11.5px; line-height: 1.5; }
+.strat-read-stat-spot { margin: 3px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--gold); }
+.strat-read-caution { margin: 8px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+
+/* ---------- live opponent-spotting checklist ---------- */
+.read-check { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--bg2); display: flex; flex-direction: column; gap: 8px; }
+.read-check-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.read-check-intro { font-size: 11.5px; line-height: 1.5; }
+.read-check-group { display: flex; flex-direction: column; gap: 5px; }
+.read-check-group-lbl { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.read-check-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+.read-check-row.on { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 9%, transparent); }
+.read-check-row input { margin-top: 2px; }
+.read-check-text { display: flex; flex-direction: column; gap: 2px; }
+.read-check-seen { font-size: 12px; font-weight: 600; line-height: 1.4; }
+.read-check-means { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.read-check-out { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.read-check-out-lbl { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gold); }
+.read-check-arch { font-size: 12.5px; line-height: 1.5; }
+.read-check-nums { display: flex; flex-wrap: wrap; gap: 5px; }
+.read-check-num { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.read-check-num i { color: var(--muted); font-style: normal; font-size: 10px; }
+.read-check-num.up { color: var(--raise2); }
+.read-check-num.down { color: var(--red); }
+.read-check-conflict { font-size: 11px; line-height: 1.45; color: var(--red); }
+.read-check-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+
 /* ---------- rich feedback gameplan ---------- */
 .fb-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .fb-gameplan { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 12px; }

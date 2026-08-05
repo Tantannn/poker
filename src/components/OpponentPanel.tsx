@@ -12,6 +12,7 @@ import { getProfile, PROFILE_LIST } from '../ai/profiles';
 import type { ObservedStats } from '../analysis/observed';
 import { readShifts } from '../analysis/observed';
 import type { VillainLock, VillainModel } from '../strategy/villainModel';
+import { PlayerReadChecklist } from './PlayerReadChecklist';
 
 interface Props {
   villain: VillainInfo | null;
@@ -179,7 +180,14 @@ export function OpponentPanel({
                 </div>
               )}
 
-              {onLock && <NodeLock observed={observed} model={model} lock={lock} onLock={onLock} />}
+              {onLock && (
+                <>
+                  {/* keyed by seat: a checklist is a read about ONE player, and carrying
+                      ticks over to the next villain would assert things you never saw */}
+                  <PlayerReadChecklist key={villain.seat} lock={lock} onLock={onLock} />
+                  <NodeLock observed={observed} model={model} lock={lock} onLock={onLock} />
+                </>
+              )}
             </>
           );
         })()

@@ -23,10 +23,13 @@ import {
   balancedPreflopRead,
   isPreflopExploitable,
   preflopAdjust,
+  preflopMoveWhy,
+  preflopReadCaution,
+  preflopReadStats,
   rangeMultForRole,
   resizeRangeByStrength,
 } from './preflopModel';
-import type { ActionId, ActionOption, ExploitDelta, NodeStrategy } from './types';
+import type { ActionId, ActionOption, BaselineMix, ExploitDelta, NodeStrategy, ReadDetail } from './types';
 import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
 import type { PreflopScenario } from './preflopChart';
 import { depthValueMult, depthNote, shadeForDepth } from './depth';
@@ -60,7 +63,7 @@ export const MULTIWAY_SOLVER_ENABLED = true;
 export const MAX_MULTIWAY_OPPONENTS = 8;
 import { solvePostflop } from './postflopModel';
 
-export type { NodeStrategy } from './types';
+export type { NodeStrategy, BaselineMix, ReadDetail, ReadStat } from './types';
 export { evLoss, rngPrescription } from './types';
 
 const BASE_EV: Record<NonNullable<ActionOption['kind']>, number> = {
@@ -317,19 +320,31 @@ function pushFoldStrategy(state: GameState, heroIdx: number, effStackBB: number)
  *  yet to act is enough to tax a steal, so the maximum (not an average) is the
  *  threat; and when even the widest of them is a nit, the whole field folds and the
  *  same number correctly widens hero's open instead. */
-function preflopReadFor(state: GameState, heroIdx: number, level: number, models?: VillainModels): PreflopRead {
+function preflopReadFor(
+  state: GameState,
+  heroIdx: number,
+  level: number,
+  models?: VillainModels,
+): { read: PreflopRead; who: string } {
+  const seatLabel = (i: number) =>
+    `${state.players[i].name} (${positionLabel(i, state.buttonIndex, state.players.length)})`;
   if (level >= 1) {
     const r = lastRaiser(state);
-    return (r >= 0 ? models?.[r]?.preflop : undefined) ?? balancedPreflopRead();
+    const read = r >= 0 ? models?.[r]?.preflop : undefined;
+    return read ? { read, who: seatLabel(r) } : { read: balancedPreflopRead(), who: 'the raiser' };
   }
   const behind = state.players.filter((p) => !p.folded && p.id !== heroIdx && !p.hasActed);
   const pool = behind.length ? behind : state.players.filter((p) => !p.folded && p.id !== heroIdx);
   let out: PreflopRead | undefined;
+  let outIdx = -1;
   for (const p of pool) {
     const r = models?.[p.id]?.preflop;
-    if (r && (!out || r.threeBetFreq > out.threeBetFreq)) out = r;
+    if (r && (!out || r.threeBetFreq > out.threeBetFreq)) {
+      out = r;
+      outIdx = p.id;
+    }
   }
-  return out ?? balancedPreflopRead();
+  return out ? { read: out, who: `${seatLabel(outIdx)}, still to act` } : { read: balancedPreflopRead(), who: 'the field' };
 }
 
 function preflopStrategy(state: GameState, heroIdx: number, models?: VillainModels): NodeStrategy {
@@ -364,7 +379,7 @@ function preflopStrategy(state: GameState, heroIdx: number, models?: VillainMode
   // baseline, the read bends the marginal cells toward what beats THIS opponent.
   // Read first, depth second — both absorb into fold, and depth is a property of the
   // stack rather than the villain, so it should have the last word on the mix.
-  const read = preflopReadFor(state, heroIdx, level, models);
+  const { read, who: readWho } = preflopReadFor(state, heroIdx, level, models);
   const adjust = isPreflopExploitable(read) ? preflopAdjust(level as PreflopLevel, code, read) : NO_PREFLOP_ADJUST;
   const aggrId: ActionId = sc.facing === 'rfi' ? 'open' : 'raise';
   const raiseLabel = sc.facing === 'rfi' ? 'Open' : sc.facing === 'vs4bet' ? '5-Bet' : sc.facing === 'vs3bet' ? '4-Bet' : '3-Bet';
@@ -442,8 +457,41 @@ function preflopStrategy(state: GameState, heroIdx: number, models?: VillainMode
   const readNote = adjust.why
     ? ` Read: ${adjust.why}.${exploit ? ` The chart's line is ${exploit.baselineLabel}; vs this opponent it's ${exploit.exploitLabel}.` : ' The frequencies are shaded toward that read; the chart line still stands.'}`
     : '';
+  const sorted = options.sort((a, b) => b.freq - a.freq || b.ev - a.ev);
+  // Both mixes are depth- AND rake-shaded, so the gap between them isolates the read.
+  const baseFreq = new Map(chartedBalanced.map((o) => [o.id, o.freq] as const));
+  const baseline: BaselineMix | undefined = adjust.why
+    ? {
+        label: `${sc.short} chart · villain unknown`,
+        bestId: balancedBest.id,
+        options: sorted.map((o) => {
+          const f = baseFreq.get(o.id) ?? 0;
+          return { ...o, freq: f, ev: baseFreq.has(o.id) ? chartEv({ kind: o.kind, freq: f }) : o.ev };
+        }),
+      }
+    : undefined;
+  const readDetail: ReadDetail | undefined = adjust.why
+    ? {
+        source: read.source === 'locked' ? 'locked' : 'observed',
+        confidence: read.confidence,
+        who: readWho,
+        headline: adjust.why,
+        stats: preflopReadStats(level as PreflopLevel, read),
+        moves: sorted
+          .map((o) => ({ o, from: baseFreq.get(o.id) ?? 0 }))
+          .filter(({ o, from }) => Math.abs(o.freq - from) >= 0.02)
+          .map(({ o, from }) => ({
+            id: o.id,
+            label: o.label,
+            from,
+            to: o.freq,
+            why: preflopMoveWhy(level as PreflopLevel, o.kind, o.freq > from),
+          })),
+        caution: preflopReadCaution(read),
+      }
+    : undefined;
   return {
-    options: options.sort((a, b) => b.freq - a.freq || b.ev - a.ev),
+    options: sorted,
     bestEv: best.ev,
     bestId: best.id,
     source: 'preflop-chart',
@@ -452,6 +500,8 @@ function preflopStrategy(state: GameState, heroIdx: number, models?: VillainMode
     heroCode: code,
     scenarioId: sc.id,
     exploit,
+    baseline,
+    readDetail,
   };
 }
 
