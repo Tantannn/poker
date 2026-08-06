@@ -468,6 +468,90 @@ const CHARTS = {
     ['QJs', { call: 0.5 }], ['QTs', { call: 0.3 }],
     ['JTs', { call: 0.5 }], ['T9s', { call: 0.35 }], ['98s', { call: 0.3 }], ['87s', { call: 0.25 }],
   ]),
+
+  // ================= Opener facing a 3-bet (4-bet / flat / fold) =================
+  // The opener already has a strong range, so it continues a lot — but the 4-BET is
+  // POLAR (premiums for value + suited-wheel-ace blocker bluffs), and the flat is
+  // everything too good to fold yet dominated if it 4-bets. IP (BTN/CO) flats wide;
+  // UTG is OOP and folds the offsuit tail. `raise` here is the 4-bet.
+
+  // BTN vs a blind's 3-bet — IP and deep, so the widest flat. Target: ~11% of all hands
+  // continue (≈¼ of its opens), ~2.9% 4-bet.
+  'btn-vs-3bet': VS_OPEN([
+    ['AA', { raise: 0.9, call: 0.1 }], ['KK', { raise: 0.9, call: 0.1 }], ['QQ', { raise: 0.7, call: 0.3 }],
+    ['JJ', { raise: 0.25, call: 0.75 }], ['TT', { raise: 0.1, call: 0.9 }], ['77-99', { call: 1 }],
+    ['22-66', { call: 0.55 }],
+    ['AKs', { raise: 0.75, call: 0.25 }], ['AKo', { raise: 0.7, call: 0.3 }],
+    ['AQs', { raise: 0.2, call: 0.8 }], ['AJs', { call: 1 }], ['ATs', { call: 0.9 }],
+    ['A5s-A4s', { raise: 0.5, call: 0.2 }], ['A3s-A2s', { raise: 0.3, call: 0.2 }],
+    ['AQo', { raise: 0.15, call: 0.6 }], ['AJo', { call: 0.4 }],
+    ['KQs', { raise: 0.15, call: 0.85 }], ['KJs', { call: 0.9 }], ['KTs', { call: 0.7 }],
+    ['KQo', { call: 0.5 }],
+    ['QJs', { call: 0.9 }], ['QTs', { call: 0.7 }], ['JTs', { call: 0.85 }], ['T9s', { call: 0.6 }],
+    ['98s', { call: 0.5 }], ['87s', { call: 0.4 }], ['76s', { call: 0.35 }],
+  ]),
+  // CO vs a 3-bet — a rung tighter than the BTN. Target: ~9% of all hands continue, ~2.5% 4-bet.
+  'co-vs-3bet': VS_OPEN([
+    ['AA', { raise: 0.9, call: 0.1 }], ['KK', { raise: 0.9, call: 0.1 }], ['QQ', { raise: 0.65, call: 0.35 }],
+    ['JJ', { raise: 0.2, call: 0.7 }], ['TT', { call: 0.9 }], ['88-99', { call: 0.8 }], ['22-77', { call: 0.45 }],
+    ['AKs', { raise: 0.7, call: 0.3 }], ['AKo', { raise: 0.65, call: 0.35 }],
+    ['AQs', { raise: 0.15, call: 0.7 }], ['AJs', { call: 0.85 }], ['ATs', { call: 0.6 }],
+    ['A5s-A4s', { raise: 0.45, call: 0.15 }], ['A3s-A2s', { raise: 0.25 }],
+    ['AQo', { call: 0.5 }], ['AJo', { call: 0.25 }],
+    ['KQs', { raise: 0.1, call: 0.8 }], ['KJs', { call: 0.75 }], ['KTs', { call: 0.5 }],
+    ['KQo', { call: 0.35 }],
+    ['QJs', { call: 0.75 }], ['QTs', { call: 0.5 }], ['JTs', { call: 0.7 }], ['T9s', { call: 0.45 }],
+    ['98s', { call: 0.35 }], ['87s', { call: 0.3 }],
+  ]),
+  // UTG vs a 3-bet — strong opening range but OOP, so it flats the strong hands and
+  // folds the offsuit tail rather than bloating OOP. Target: ~7% of all hands continue
+  // (a high share of its tight opens), ~1.9% 4-bet.
+  'utg-vs-3bet': VS_OPEN([
+    ['AA', { raise: 0.85, call: 0.15 }], ['KK', { raise: 0.85, call: 0.15 }], ['QQ', { raise: 0.5, call: 0.5 }],
+    ['JJ', { call: 0.9 }], ['TT', { call: 0.8 }], ['77-99', { call: 0.55 }], ['22-66', { call: 0.35 }],
+    ['AKs', { raise: 0.6, call: 0.4 }], ['AKo', { raise: 0.55, call: 0.45 }],
+    ['AQs', { call: 0.85 }], ['AJs', { call: 0.6 }], ['ATs', { call: 0.35 }],
+    ['A5s-A4s', { raise: 0.35 }],
+    ['AQo', { call: 0.4 }],
+    ['KQs', { call: 0.7 }], ['KJs', { call: 0.4 }],
+    ['QJs', { call: 0.55 }], ['JTs', { call: 0.5 }], ['T9s', { call: 0.3 }],
+  ]),
+
+  // ================= Squeeze (facing an open + a caller) =================
+  // Two opponents and dead money in the middle, so the squeeze is POLAR and a rung
+  // TIGHTER than a heads-up 3-bet: premiums for value + suited blockers, a thin flat
+  // for set-mining / suited playability. `raise` here is the squeeze.
+
+  // BTN squeeze vs an open + cold-call — IP, thin flat. Target: ~9% play, ~4.4% squeeze.
+  'sq-btn': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.7, call: 0.3 }], ['TT', { raise: 0.4, call: 0.5 }],
+    ['77-99', { call: 0.7 }], ['22-66', { call: 0.4 }],
+    ['AKs', { raise: 1 }], ['AKo', { raise: 0.9, call: 0.1 }], ['AQs', { raise: 0.6, call: 0.3 }],
+    ['AJs', { raise: 0.3, call: 0.5 }], ['ATs', { call: 0.6 }],
+    ['A5s-A4s', { raise: 0.55 }], ['A3s-A2s', { raise: 0.3 }],
+    ['AQo', { raise: 0.4, call: 0.2 }], ['AJo', { call: 0.3 }],
+    ['KQs', { raise: 0.35, call: 0.45 }], ['KJs', { raise: 0.2, call: 0.5 }], ['KTs', { call: 0.5 }],
+    ['K9s', { raise: 0.2 }],
+    ['KQo', { call: 0.3 }],
+    ['QJs', { raise: 0.2, call: 0.5 }], ['QTs', { call: 0.5 }], ['JTs', { raise: 0.15, call: 0.5 }],
+    ['T9s', { call: 0.45 }], ['98s', { call: 0.35 }], ['76s', { call: 0.3 }], ['65s', { call: 0.25 }],
+  ]),
+  // BB squeeze vs an open + cold-call — OOP, but the price lets it flat set-miners
+  // behind the squeeze. Target: ~11% play, ~4.3% squeeze.
+  'sq-bb': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.75, call: 0.25 }], ['TT', { raise: 0.45, call: 0.5 }],
+    ['66-99', { call: 0.8 }], ['22-55', { call: 0.6 }],
+    ['AKs', { raise: 1 }], ['AKo', { raise: 0.85, call: 0.15 }], ['AQs', { raise: 0.55, call: 0.35 }],
+    ['AJs', { raise: 0.3, call: 0.5 }], ['ATs', { call: 0.6 }], ['A9s', { call: 0.4 }],
+    ['A5s-A4s', { raise: 0.5, call: 0.2 }], ['A3s-A2s', { raise: 0.3 }],
+    ['AQo', { raise: 0.35, call: 0.25 }], ['AJo', { call: 0.35 }],
+    ['KQs', { raise: 0.35, call: 0.5 }], ['KJs', { raise: 0.15, call: 0.55 }], ['KTs', { call: 0.6 }],
+    ['KQo', { call: 0.4 }],
+    ['QJs', { raise: 0.2, call: 0.55 }], ['QTs', { call: 0.55 }], ['Q9s', { call: 0.35 }],
+    ['JTs', { raise: 0.15, call: 0.55 }], ['J9s', { call: 0.4 }],
+    ['T9s', { call: 0.55 }], ['98s', { call: 0.45 }], ['87s', { call: 0.35 }], ['76s', { call: 0.35 }],
+    ['65s', { call: 0.3 }], ['54s', { call: 0.25 }],
+  ]),
 };
 
 // NOTHING is derived into an opponent-range id, and that is deliberate.

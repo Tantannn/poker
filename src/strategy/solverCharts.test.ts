@@ -33,19 +33,21 @@ describe('solverCharts — fallback for uncovered scenarios', () => {
     expect(solverActive()).toBe(true);
   });
 
+  // iso-btn / cold-vs-3bet / *-vs-4bet are the still-uncovered examples here. If a batch
+  // authors one, repoint these to another scenario that stays on the heuristic.
   it('reports no chart for a scenario that is not covered', () => {
-    expect(hasSolverChart('sq-btn')).toBe(false);
+    expect(hasSolverChart('iso-btn')).toBe(false);
     expect(hasSolverChart('utg-vs-4bet')).toBe(false);
   });
 
   it('resolveRangeSet returns the fallback verbatim for an uncovered scenario', () => {
     const fallback = new Set(['AA', 'KK']);
-    expect(resolveRangeSet('sq-btn', fallback)).toBe(fallback);
+    expect(resolveRangeSet('iso-btn', fallback)).toBe(fallback);
   });
 
   it('solverActions returns null for an uncovered scenario (caller falls back)', () => {
-    expect(solverActions('sq-btn', 'AA')).toBeNull();
-    expect(solverActions('btn-vs-3bet', 'AA')).toBeNull();
+    expect(solverActions('iso-btn', 'AA')).toBeNull();
+    expect(solverActions('cold-vs-3bet', 'AA')).toBeNull();
   });
 
   it('returns null for an unknown scenario id rather than throwing', () => {
@@ -64,6 +66,7 @@ describe('solverCharts — shipped chart integrity', () => {
     'bb-vs-utg', 'bb-vs-mp', 'bb-vs-co', 'bb-vs-btn', 'bb-vs-sb',
     'sb-vs-btn',
     'btn-vs-co', 'btn-vs-mp', 'btn-vs-utg', 'co-vs-mp', 'co-vs-utg',
+    'btn-vs-3bet', 'co-vs-3bet', 'utg-vs-3bet', 'sq-btn', 'sq-bb',
   ];
 
   // The OPPONENT-RANGE ids must stay on the heuristic. They are projected to a binary
