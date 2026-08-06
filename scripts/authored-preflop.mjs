@@ -372,6 +372,102 @@ const CHARTS = {
     ['98s', { raise: 0.45, call: 0.15 }], ['87s', { raise: 0.3 }], ['76s', { raise: 0.3 }],
     ['65s', { raise: 0.3 }], ['54s', { raise: 0.25 }],
   ]),
+
+  // ================= IP cold-call / 3-bet vs an open =================
+  // In position with the blinds still behind, so the flat range is real but capped:
+  // 3-bet POLAR (premiums for value + suited-wheel/suited-K blocker bluffs), FLAT the
+  // hands that dominate nothing and flop well (pairs, suited broadways, suited
+  // connectors), and fold the rest. Wider the later the opener, tighter from the CO
+  // than the BTN (fewer seats behind and worse position). Never as wide as the BB,
+  // which closes the action and has a price these seats do not.
+
+  // BTN vs a CO ~28% steal — widest of the set. Target: ~22% play, ~6.5% 3-bet.
+  'btn-vs-co': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.7, call: 0.3 }], ['TT', { raise: 0.45, call: 0.55 }],
+    ['99', { raise: 0.3, call: 0.7 }], ['66-88', { call: 1 }], ['22-55', { call: 0.9 }],
+    ['AKs', { raise: 1 }], ['AQs', { raise: 0.6, call: 0.4 }], ['AJs', { raise: 0.35, call: 0.65 }],
+    ['ATs', { call: 1 }], ['A9s', { call: 0.85 }], ['A6s-A8s', { call: 0.7 }],
+    ['A5s-A2s', { raise: 0.6 }],
+    ['AKo', { raise: 1 }], ['AQo', { raise: 0.6, call: 0.35 }], ['AJo', { raise: 0.2, call: 0.6 }],
+    ['ATo', { call: 0.7 }], ['A5o-A2o', { raise: 0.15 }],
+    ['KQs', { raise: 0.4, call: 0.6 }], ['KJs', { raise: 0.25, call: 0.75 }], ['KTs', { call: 1 }],
+    ['K9s', { call: 0.8 }], ['K5s-K8s', { raise: 0.3 }],
+    ['KQo', { raise: 0.2, call: 0.6 }], ['KJo', { call: 0.65 }], ['KTo', { call: 0.45 }],
+    ['QJs', { raise: 0.3, call: 0.7 }], ['QTs', { call: 1 }], ['Q9s', { call: 0.8 }], ['Q8s', { call: 0.45 }],
+    ['QJo', { call: 0.6 }], ['QTo', { call: 0.4 }],
+    ['JTs', { raise: 0.2, call: 0.8 }], ['J9s', { call: 0.85 }], ['J8s', { call: 0.6 }],
+    ['JTo', { call: 0.5 }],
+    ['T9s', { call: 1 }], ['T8s', { call: 0.75 }], ['T7s', { call: 0.4 }],
+    ['98s', { call: 0.9 }], ['97s', { call: 0.6 }],
+    ['87s', { call: 0.8 }], ['86s', { call: 0.5 }],
+    ['76s', { call: 0.7 }], ['75s', { call: 0.45 }],
+    ['65s', { call: 0.65 }], ['64s', { call: 0.35 }], ['54s', { call: 0.5 }],
+  ]),
+  // BTN vs an MP ~19% open. Target: ~15% play, ~4.7% 3-bet.
+  'btn-vs-mp': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.55, call: 0.45 }], ['TT', { raise: 0.35, call: 0.65 }],
+    ['99', { raise: 0.2, call: 0.8 }], ['66-88', { call: 1 }], ['22-55', { call: 0.8 }],
+    ['AKs', { raise: 1 }], ['AQs', { raise: 0.55, call: 0.45 }], ['AJs', { raise: 0.3, call: 0.7 }],
+    ['ATs', { call: 1 }], ['A9s', { call: 0.6 }],
+    ['A5s-A2s', { raise: 0.45 }],
+    ['AKo', { raise: 1 }], ['AQo', { raise: 0.45, call: 0.4 }], ['AJo', { call: 0.6 }], ['ATo', { call: 0.35 }],
+    ['KQs', { raise: 0.35, call: 0.65 }], ['KJs', { raise: 0.2, call: 0.7 }], ['KTs', { call: 0.9 }],
+    ['K9s', { call: 0.45 }], ['K6s-K8s', { raise: 0.2 }],
+    ['KQo', { call: 0.6 }], ['KJo', { call: 0.35 }],
+    ['QJs', { raise: 0.2, call: 0.8 }], ['QTs', { call: 0.9 }], ['Q9s', { call: 0.4 }],
+    ['QJo', { call: 0.35 }],
+    ['JTs', { call: 0.9 }], ['J9s', { call: 0.55 }],
+    ['JTo', { call: 0.25 }],
+    ['T9s', { call: 0.85 }], ['T8s', { call: 0.4 }],
+    ['98s', { call: 0.7 }], ['87s', { call: 0.55 }], ['76s', { call: 0.45 }], ['65s', { call: 0.4 }],
+    ['54s', { call: 0.3 }],
+  ]),
+  // BTN vs a UTG ~16% open — the strongest opener, so flat medium and 3-bet narrow +
+  // wheel-ace blockers. Target: ~11% play, ~3.8% 3-bet.
+  'btn-vs-utg': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.45, call: 0.55 }], ['TT', { raise: 0.25, call: 0.75 }],
+    ['77-99', { call: 1 }], ['22-66', { call: 0.7 }],
+    ['AKs', { raise: 1 }], ['AQs', { raise: 0.5, call: 0.5 }], ['AJs', { raise: 0.25, call: 0.75 }],
+    ['ATs', { call: 0.9 }],
+    ['A5s-A4s', { raise: 0.4 }],
+    ['AKo', { raise: 1 }], ['AQo', { raise: 0.35, call: 0.5 }], ['AJo', { call: 0.45 }],
+    ['KQs', { raise: 0.3, call: 0.7 }], ['KJs', { call: 0.8 }], ['KTs', { call: 0.5 }],
+    ['KQo', { call: 0.45 }],
+    ['QJs', { call: 0.8 }], ['QTs', { call: 0.45 }],
+    ['JTs', { call: 0.75 }], ['J9s', { call: 0.35 }],
+    ['T9s', { call: 0.6 }], ['98s', { call: 0.45 }], ['87s', { call: 0.35 }], ['76s', { call: 0.3 }],
+    ['65s', { call: 0.25 }],
+  ]),
+  // CO vs an MP ~19% open — BTN + blinds behind, so tighter than the BTN's vs-MP.
+  // Target: ~9% play, ~4.2% 3-bet.
+  'co-vs-mp': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.55, call: 0.35 }], ['TT', { raise: 0.3, call: 0.5 }],
+    ['88-99', { call: 0.7 }], ['22-77', { call: 0.4 }],
+    ['AKs', { raise: 1 }], ['AQs', { raise: 0.55, call: 0.35 }], ['AJs', { raise: 0.25, call: 0.5 }],
+    ['ATs', { call: 0.6 }],
+    ['A5s-A4s', { raise: 0.4 }], ['A3s-A2s', { raise: 0.25 }],
+    ['AKo', { raise: 1 }], ['AQo', { raise: 0.4, call: 0.3 }], ['AJo', { call: 0.4 }],
+    ['KQs', { raise: 0.3, call: 0.5 }], ['KJs', { call: 0.6 }], ['KTs', { call: 0.35 }],
+    ['K6s-K8s', { raise: 0.2 }],
+    ['KQo', { call: 0.4 }],
+    ['QJs', { call: 0.6 }], ['QTs', { call: 0.35 }],
+    ['JTs', { call: 0.6 }], ['J9s', { call: 0.3 }],
+    ['T9s', { call: 0.45 }], ['98s', { call: 0.35 }], ['87s', { call: 0.3 }], ['76s', { call: 0.25 }],
+  ]),
+  // CO vs a UTG ~16% open — tightest spot in the set (strong opener, three seats still
+  // behind). Target: ~8% play, ~3.7% 3-bet.
+  'co-vs-utg': VS_OPEN([
+    ['QQ+', { raise: 1 }], ['JJ', { raise: 0.45, call: 0.35 }], ['TT', { raise: 0.25, call: 0.45 }],
+    ['77-99', { call: 0.55 }], ['22-66', { call: 0.3 }],
+    ['AKs', { raise: 1 }], ['AQs', { raise: 0.5, call: 0.35 }], ['AJs', { raise: 0.2, call: 0.45 }],
+    ['ATs', { call: 0.5 }],
+    ['A5s-A4s', { raise: 0.35 }],
+    ['AKo', { raise: 1 }], ['AQo', { raise: 0.3, call: 0.3 }], ['AJo', { call: 0.35 }],
+    ['KQs', { raise: 0.25, call: 0.5 }], ['KJs', { call: 0.5 }], ['KTs', { call: 0.3 }],
+    ['KQo', { call: 0.35 }],
+    ['QJs', { call: 0.5 }], ['QTs', { call: 0.3 }],
+    ['JTs', { call: 0.5 }], ['T9s', { call: 0.35 }], ['98s', { call: 0.3 }], ['87s', { call: 0.25 }],
+  ]),
 };
 
 // NOTHING is derived into an opponent-range id, and that is deliberate.

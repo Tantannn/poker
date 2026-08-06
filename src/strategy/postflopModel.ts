@@ -521,6 +521,17 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     implied = pHit * futureBet * realize * cleanFrac;
   }
 
+  // A made straight/flush is the current near-nuts but loses to a full house the moment
+  // the board PAIRS — a set/two-pair redraw the field realises on a free card. The
+  // generic denial model keys on flush/straight DRAWS, so on an unpaired (rainbow) board
+  // it under-credits this; name it so a bet reads as protection, not just raw value.
+  const heroCat = inp.board.length >= 3 ? evaluate7([...inp.hero, ...inp.board]).category : null;
+  const boatVuln =
+    (heroCat === 'Straight' || heroCat === 'Flush') && tex != null && !tex.paired && cardsToCome > 0;
+  const boatVulnClause = boatVuln
+    ? ` Your ${heroCat!.toLowerCase()} loses only if the board PAIRS — a set or two pair fills to a full house and counterfeits you, and that redraw is exactly what a free card hands the field. Betting denies it${nOpp > 1 ? `; multiway someone is likelier to hold it, so charge the whole field now rather than give a cheap card` : ''}.`
+    : '';
+
   const cands: Candidate[] = [];
 
   // passive line
@@ -641,7 +652,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       calledEq: d.e2,
       kind: classKind(cls),
       sizeNote: sizeBalanceNote(frac, isRiver),
-      why: whyBet(cls, e, d, outs, false, isRiver, frac) + (marginalOOPmw ? ` And OOP in a ${nOpp + 1}-way pot a marginal one-pair hand realises only ~${Math.round(RI_REALIZE_OOP_MW * 100)}% of its share — it gets barrelled off later streets — so this bet's showdown value is discounted and checking rates higher.` : ''),
+      why: whyBet(cls, e, d, outs, false, isRiver, frac) + boatVulnClause + (marginalOOPmw ? ` And OOP in a ${nOpp + 1}-way pot a marginal one-pair hand realises only ~${Math.round(RI_REALIZE_OOP_MW * 100)}% of its share — it gets barrelled off later streets — so this bet's showdown value is discounted and checking rates higher.` : ''),
       math: `EV = ${d.evLabel}${sv ? ' + multi-street value' : ''}\n   = ${d.evExpr}${sv ? ` + ${d.streetValue.toFixed(1)}` : ''}\n   = ${d.ev.toFixed(1)} chips${marginalOOPmw ? `\n   − ${ri.toFixed(1)} (OOP ${nOpp + 1}-way reverse-implied: a marginal hand realises only ~${Math.round(RI_REALIZE_OOP_MW * 100)}% of its called-pot equity) = ${evChips.toFixed(1)} chips` : ''} ≈ ${(evChips / bb).toFixed(2)} bb${
         d.committed
           ? `\n   (SPR < 1: you're committed, so the effective stack goes in over the streets whatever you bet now — every committing size wins ~the same; only the draws you deny THIS street differ, so sizing is a minor EV choice here)`
@@ -690,6 +701,7 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
       sizeNote: sizeBalanceNote(allinFrac, isRiver),
       why:
         whyBet(cls, e, d, outs, true, isRiver, allinFrac) +
+        boatVulnClause +
         ` Note: a ${RISK.toFixed(1)}bb risk premium is applied (scaled to SPR ${spr.toFixed(1)} — deeper stacks risk more, so the premium is bigger) — shoving your whole stack is high-variance and hard to recover from, so prefer a sized bet unless all-in is clearly best.`,
       math: `EV = ${d.evExpr} = ${d.ev.toFixed(1)} chips ≈ ${rawEv.toFixed(2)} bb\n   ${
         d.isThinValue

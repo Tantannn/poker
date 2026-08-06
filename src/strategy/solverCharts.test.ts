@@ -63,6 +63,7 @@ describe('solverCharts — shipped chart integrity', () => {
     'rfi-UTG', 'rfi-MP', 'rfi-CO', 'rfi-BTN', 'rfi-SB',
     'bb-vs-utg', 'bb-vs-mp', 'bb-vs-co', 'bb-vs-btn', 'bb-vs-sb',
     'sb-vs-btn',
+    'btn-vs-co', 'btn-vs-mp', 'btn-vs-utg', 'co-vs-mp', 'co-vs-utg',
   ];
 
   // The OPPONENT-RANGE ids must stay on the heuristic. They are projected to a binary
@@ -105,6 +106,14 @@ describe('solverCharts — shipped chart integrity', () => {
     expect(projectWidth('bb-vs-mp')).toBeLessThan(projectWidth('bb-vs-co'));
     expect(projectWidth('bb-vs-co')).toBeLessThan(projectWidth('bb-vs-btn'));
     expect(projectWidth('bb-vs-btn')).toBeLessThan(projectWidth('bb-vs-sb'));
+  });
+
+  it('IP vs-open defence widens vs a later opener, and the CO defends tighter than the BTN', () => {
+    expect(projectWidth('btn-vs-utg')).toBeLessThan(projectWidth('btn-vs-mp'));
+    expect(projectWidth('btn-vs-mp')).toBeLessThan(projectWidth('btn-vs-co'));
+    expect(projectWidth('co-vs-utg')).toBeLessThan(projectWidth('co-vs-mp'));
+    expect(projectWidth('co-vs-mp')).toBeLessThan(projectWidth('btn-vs-mp'));
+    expect(projectWidth('co-vs-utg')).toBeLessThan(projectWidth('btn-vs-utg'));
   });
 
   it('premiums are never folded and trash is never opened', () => {

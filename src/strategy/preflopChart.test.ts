@@ -6,6 +6,7 @@ import {
   scenariosForSize,
   seatsForSize,
   SCENARIOS,
+  type PreflopScenario,
 } from './preflopChart';
 
 const sumFreq = (code: string, id: string) =>
@@ -29,20 +30,36 @@ describe('cellStrategy — RFI open', () => {
   });
 });
 
-describe('cellStrategy — facing an open (btn-vs-utg)', () => {
+// cellStrategy's HEURISTIC value/bluff/call splitter — the fallback for every scenario
+// the authored charts don't override. Keyed on a synthetic scenario whose id is absent
+// from solverPreflop.json so the solver-override branch is skipped: pointing this at a
+// real vsopen scenario (btn-vs-utg) broke the moment that scenario got an authored chart.
+describe('cellStrategy — facing an open (heuristic splitter)', () => {
+  const sc: PreflopScenario = {
+    id: 'test-vsopen-heuristic',
+    label: 'test',
+    short: 'test',
+    facing: 'vsopen',
+    heroPos: 'BTN',
+    bluffFreq: 0.4,
+    value: new Set(['QQ']),
+    bluff: new Set(['A4s', 'KJs']),
+    call: new Set(['KJs', '99']),
+  };
   it('3-bets a value hand at 100%', () => {
-    const opts = cellStrategy(getScenario('btn-vs-utg'), 'QQ');
-    expect(opts).toEqual([expect.objectContaining({ id: 'raise', freq: 1, kind: 'value' })]);
+    expect(cellStrategy(sc, 'QQ')).toEqual([
+      expect.objectContaining({ id: 'raise', freq: 1, kind: 'value' }),
+    ]);
   });
   it('splits a pure bluff between raise-bluff and fold', () => {
-    const opts = cellStrategy(getScenario('btn-vs-utg'), 'A4s'); // bluff, not in call range
+    const opts = cellStrategy(sc, 'A4s'); // bluff, not in call range
     const raise = opts.find((o) => o.id === 'raise');
     const fold = opts.find((o) => o.id === 'fold');
     expect(raise?.kind).toBe('bluff');
     expect(raise!.freq + fold!.freq).toBeCloseTo(1);
   });
   it('splits a bluff-that-also-flats between raise-bluff and call', () => {
-    const opts = cellStrategy(getScenario('btn-vs-utg'), 'KJs'); // in both bluff and call
+    const opts = cellStrategy(sc, 'KJs'); // in both bluff and call
     const raise = opts.find((o) => o.id === 'raise');
     const call = opts.find((o) => o.id === 'call');
     expect(raise?.kind).toBe('bluff');
@@ -50,9 +67,7 @@ describe('cellStrategy — facing an open (btn-vs-utg)', () => {
     expect(raise!.freq + call!.freq).toBeCloseTo(1);
   });
   it('flats a call-only hand at 100%', () => {
-    expect(cellStrategy(getScenario('btn-vs-utg'), '99')).toEqual([
-      expect.objectContaining({ id: 'call', freq: 1 }),
-    ]);
+    expect(cellStrategy(sc, '99')).toEqual([expect.objectContaining({ id: 'call', freq: 1 })]);
   });
 });
 
