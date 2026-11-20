@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { genScenario } from './StoryTrainer';
+import { genScenario } from './storyScenario';
 import { readVillainStory, readHeroStory } from '../strategy/bettingStory';
 
 // tiny deterministic PRNG so the generator is reproducible in tests.

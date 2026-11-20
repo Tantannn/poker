@@ -141,6 +141,9 @@ describe('solvePostflop — sizing matters when DEEP', () => {
     pot: 84, toCall: 0, heroCommitted: 0, currentBet: 0,
     minRaiseTo: 2, maxRaiseTo: 700, canCheck: false, canRaise: true,
     bigBlind: 2, iterations: 2500, position: 'oop', effStack: 336,
+    // Measured 0.466 (8 × 40k iters; gap to bet33 ≈ 8.5bb). At 2500 iters the unseeded
+    // Monte-Carlo occasionally flipped a discrete branch and the gap fell to ~2 — pin it.
+    precomputedEquity: 0.466,
   };
 
   it('under-betting the nut overpair is a real error deep (no commitment cover)', () => {

@@ -43,9 +43,10 @@ describe('live wiring: river-first node routes through the range-vs-range solver
     const maxEv = Math.max(...strat.options.map((o) => o.ev));
     expect(best.ev).toBeCloseTo(maxEv, 5);
 
-    // the nuts on a dry board should value-bet big far more than it checks
+    // the nuts on a dry board value-bet far more than they check. Summed over sizes: they are
+    // near-indifferent between sizes, and the check is a trap to check-raise the stab.
     const check = strat.options.find((o) => o.id === 'check')!;
-    expect(best.freq).toBeGreaterThan(check.freq);
+    expect(1 - check.freq).toBeGreaterThan(2 * check.freq);
   });
 
   it('a hero-first turn node routes to the turn solver', () => {

@@ -110,6 +110,9 @@ describe('3-way flop — the check line is a turn subgame, not a static showdown
     effStack: 300,
     betSizes: sizes,
     iterations: 400,
+    // Hero-only nesting: with villain able to bet into the check, a check is worth LESS than
+    // a free checkdown, so "nesting raises the check EV" is a theorem only without the stab.
+    villainMayStab: false,
   };
   const flat = solveFlop3way({ ...args, nestTurnForCheck: false });
   const nested = solveFlop3way({ ...args, turnNestIterations: 100 });

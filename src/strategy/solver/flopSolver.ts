@@ -21,7 +21,7 @@
 
 import type { Card } from '../../engine/cards';
 import { evaluate7 } from '../../engine/evaluator';
-import { solveTurn, interpolateFuture, dampFuture, normalized, CALLED_NEST_ROUNDS, REACH_FLOOR } from './turnSolver';
+import { solveTurn, interpolateFuture, dampFuture, normalized, CALLED_NEST_ROUNDS, REACH_FLOOR, solveVsBetWithFuture, VS_BET_NEXT_SIZES } from './turnSolver';
 import { solveVsBetEquity, type VsBetResult } from './vsBet';
 import { textureBuckets } from './cardTexture';
 import { villainRaiseSizes, STAB_FRAC, type Combo } from './riverSolver';
@@ -47,6 +47,9 @@ export interface FlopInput {
   calledNestRounds?: number;
   /** May villain bet when hero checks the flop (default true)? See riverSolver STAB_FRAC. */
   villainMayStab?: boolean;
+  /** May hero CHECK-RAISE villain's bet into his check (default true)? Rides into the nested
+   *  subgames. Off = hero only folds or calls, so villain's stabs can never be punished. */
+  heroMayCheckRaise?: boolean;
   /** house rake in chips; rides into the nested turn subgames too. Omit for rake-free EV. */
   rake?: Rake;
   /** May villain RAISE hero's bet (default true)? See riverSolver — off prices every bluff as
@@ -72,6 +75,12 @@ export interface FlopResult {
   heroStabResponse?: number[][];
   villainStabFreq?: number;
   heroFoldToStabFreq?: number;
+  /** hero's check-raise total (0 = none), villain's [fold, call] to it per combo, and their
+   *  range averages. heroStabResponse is then [fold, call, check-raise] per hero combo. */
+  checkRaiseTo?: number;
+  villainCheckRaiseResponse?: number[][];
+  heroCheckRaiseFreq?: number;
+  villainFoldToCheckRaiseFreq?: number;
 }
 
 const id = (c: Card) => c.rank * 4 + c.suit;
@@ -124,6 +133,7 @@ function nestedTurnPairEv(
   rake?: Rake,
   maxBuckets = Infinity,
   villainMayStab?: boolean,
+  heroMayCheckRaise?: boolean,
 ): Float64Array[] {
   const nV = V.length;
   const acc = H.map(() => new Float64Array(nV));
@@ -147,6 +157,7 @@ function nestedTurnPairEv(
       nestRiverForCall: false,
       rake,
       villainMayStab,
+      heroMayCheckRaise,
       wantPairEv: true,
     });
     hMap.forEach((i, k) =>
@@ -199,7 +210,7 @@ export function solveFlop(inp: FlopInput): FlopResult {
   const nestedFutureAt = (hw: number[], vw: number[], pot: number, stack: number): Float64Array[] => {
     const Hs = H.map((c, i) => ({ cards: c.cards, w: c.w * (hw[i] + REACH_FLOOR) }));
     const Vs = V.map((c, j) => ({ cards: c.cards, w: c.w * (vw[j] + REACH_FLOOR) }));
-    const nested = nestedTurnPairEv(Hs, Vs, inp.board, pot, stack, inp.betSizes, Math.max(80, Math.round(turnIters / 2)), inp.rake, FUTURE_TURN_BUCKETS, inp.villainMayStab);
+    const nested = nestedTurnPairEv(Hs, Vs, inp.board, pot, stack, inp.betSizes, Math.max(80, Math.round(turnIters / 2)), inp.rake, FUTURE_TURN_BUCKETS, inp.villainMayStab, inp.heroMayCheckRaise);
     const np = netPot(inp.rake, pot);
     return nested.map((row, i) => row.map((v, j) => (valid[i][j] && Number.isFinite(v) ? v - eq[i][j] * np : 0)));
   };
@@ -207,7 +218,7 @@ export function solveFlop(inp: FlopInput): FlopResult {
   // approximation), else the static two-street showdown.
   const checkPair: Float64Array[] =
     inp.nestTurnForCheck !== false
-      ? nestedTurnPairEv(H, V, inp.board, P, inp.effStack, inp.betSizes, turnIters, inp.rake, Infinity, inp.villainMayStab).map((row, i) =>
+      ? nestedTurnPairEv(H, V, inp.board, P, inp.effStack, inp.betSizes, turnIters, inp.rake, Infinity, inp.villainMayStab, inp.heroMayCheckRaise).map((row, i) =>
           row.map((v, j) => (Number.isFinite(v) ? v : staticPair(i, j))),
         )
       : H.map((_, i) => Float64Array.from(V, (_, j) => staticPair(i, j)));
@@ -219,6 +230,24 @@ export function solveFlop(inp: FlopInput): FlopResult {
   const villStabFoldWin = P - rakeOn(inp.rake, P + stab);
   const heroStabCall = (i: number, j: number, futStab: Float64Array[] | null) =>
     eq[i][j] * netStab - stab + (futStab ? futStab[i][j] : 0);
+  // HERO CHECK-RAISE of the stab (villain's raise formula), villain folds or calls. The called
+  // check-raise borrows the stab-called future scaled by called pot — a disclosed abstraction,
+  // the same one the bet-raise line uses — and none when the check-raise is all-in.
+  const crTo = canStab && inp.heroMayCheckRaise !== false ? villainRaiseSizes(P, inp.effStack, [stab])[0] : 0;
+  const canCR = crTo > stab;
+  const nHC = canCR ? 3 : 2;
+  const netCR = netPot(inp.rake, P + 2 * crTo);
+  const heroCRFoldWin = P + stab - rakeOn(inp.rake, P + stab + crTo);
+  const crFutScale = inp.effStack > crTo ? (P + 2 * crTo) / (P + 2 * stab) : 0;
+  const heroCRCall = (i: number, j: number, futStab: Float64Array[] | null) =>
+    eq[i][j] * netCR - crTo + (futStab ? futStab[i][j] * crFutScale : 0);
+  const heroAfterStab = (i: number, j: number, hc: number[], vcr: number[], futStab: Float64Array[] | null) =>
+    hc[1] * heroStabCall(i, j, futStab) +
+    (canCR ? hc[2] * (vcr[0] * heroCRFoldWin + vcr[1] * heroCRCall(i, j, futStab)) : 0);
+  const villAfterStab = (i: number, j: number, hc: number[], vcr: number[], futStab: Float64Array[] | null) =>
+    hc[0] * villStabFoldWin +
+    hc[1] * (netStab - 2 * stab - heroStabCall(i, j, futStab)) +
+    (canCR ? hc[2] * (-vcr[0] * stab + vcr[1] * (netCR - 2 * crTo - heroCRCall(i, j, futStab))) : 0);
 
   // VILLAIN MAY RAISE hero's bet (see riverSolver): one raise size, hero then folds his bet
   // or calls for a showdown at that total. Without it a flop bluff is priced risk-free.
@@ -250,8 +279,10 @@ export function solveFlop(inp: FlopInput): FlopResult {
     const stratSumH2 = bets.map(() => Array.from({ length: nH }, () => [0, 0]));
     const regretVC = Array.from({ length: nV }, () => [0, 0]);
     const stratSumVC = Array.from({ length: nV }, () => [0, 0]);
-    const regretHC = Array.from({ length: nH }, () => [0, 0]);
-    const stratSumHC = Array.from({ length: nH }, () => [0, 0]);
+    const regretHC = Array.from({ length: nH }, () => new Array(nHC).fill(0));
+    const stratSumHC = Array.from({ length: nH }, () => new Array(nHC).fill(0));
+    const regretVCR = Array.from({ length: nV }, () => [0, 0]);
+    const stratSumVCR = Array.from({ length: nV }, () => [0, 0]);
 
     // hero showdown EV given equity e and both invested inv (uses the flop pot P). The
     // bet-call line is scored as a static showdown at the flop pot — turn/river betting on
@@ -263,18 +294,45 @@ export function solveFlop(inp: FlopInput): FlopResult {
       const hS2 = regretH2.map((rows) => rows.map(strat));
       const vcS = canStab ? regretVC.map(strat) : null;
       const hcS = canStab ? regretHC.map(strat) : null;
+      const vcrS = regretVCR.map(strat);
       if (vcS && hcS) {
         for (let i = 0; i < nH; i++) {
           let aCall = 0;
-          for (let j = 0; j < nV; j++) if (valid[i][j]) aCall += V[j].w * vcS[j][1] * heroStabCall(i, j, futStab);
+          let aRaise = 0;
+          for (let j = 0; j < nV; j++) {
+            if (!valid[i][j]) continue;
+            const reach = V[j].w * vcS[j][1];
+            if (reach === 0) continue;
+            aCall += reach * heroStabCall(i, j, futStab);
+            if (canCR) aRaise += reach * (vcrS[j][0] * heroCRFoldWin + vcrS[j][1] * heroCRCall(i, j, futStab));
+          }
           const st = hcS[i];
-          const node = st[1] * aCall;
+          const node = st[1] * aCall + (canCR ? st[2] * aRaise : 0);
           const cf = H[i].w;
           regretHC[i][0] += cf * -node;
           regretHC[i][1] += cf * (aCall - node);
-          stratSumHC[i][0] += cf * st[0];
-          stratSumHC[i][1] += cf * st[1];
+          if (canCR) regretHC[i][2] += cf * (aRaise - node);
+          for (let a = 0; a < nHC; a++) stratSumHC[i][a] += cf * st[a];
         }
+        if (canCR)
+          for (let j = 0; j < nV; j++) {
+            let vFold = 0;
+            let vCall = 0;
+            for (let i = 0; i < nH; i++) {
+              if (!valid[i][j]) continue;
+              const reach = H[i].w * hS[i][0] * hcS[i][2];
+              if (reach === 0) continue;
+              vFold -= reach * stab;
+              vCall += reach * (netCR - 2 * crTo - heroCRCall(i, j, futStab));
+            }
+            const st = vcrS[j];
+            const node = st[0] * vFold + st[1] * vCall;
+            const cf = V[j].w;
+            regretVCR[j][0] += cf * (vFold - node);
+            regretVCR[j][1] += cf * (vCall - node);
+            stratSumVCR[j][0] += cf * vcS[j][1] * st[0];
+            stratSumVCR[j][1] += cf * vcS[j][1] * st[1];
+          }
         for (let j = 0; j < nV; j++) {
           let vCheck = 0;
           let vBet = 0;
@@ -283,7 +341,7 @@ export function solveFlop(inp: FlopInput): FlopResult {
             const reach = H[i].w * hS[i][0];
             if (reach === 0) continue;
             vCheck += reach * (netP - checkPair[i][j]);
-            vBet += reach * (hcS[i][0] * villStabFoldWin + hcS[i][1] * (netStab - 2 * stab - heroStabCall(i, j, futStab)));
+            vBet += reach * villAfterStab(i, j, hcS[i], vcrS[j], futStab);
           }
           const st = vcS[j];
           const node = st[0] * vCheck + st[1] * vBet;
@@ -362,7 +420,7 @@ export function solveFlop(inp: FlopInput): FlopResult {
         let vCheck = 0;
         for (let j = 0; j < nV; j++) {
           if (!valid[i][j]) continue;
-          vCheck += V[j].w * (vcS && hcS ? vcS[j][0] * checkPair[i][j] + vcS[j][1] * hcS[i][1] * heroStabCall(i, j, futStab) : checkPair[i][j]);
+          vCheck += V[j].w * (vcS && hcS ? vcS[j][0] * checkPair[i][j] + vcS[j][1] * heroAfterStab(i, j, hcS[i], vcrS[j], futStab) : checkPair[i][j]);
         }
         av[0] = vCheck;
         for (let s = 0; s < nSizes; s++) {
@@ -393,7 +451,7 @@ export function solveFlop(inp: FlopInput): FlopResult {
         }
       }
     }
-    return { stratSumH, stratSumV, stratSumH2, stratSumVC, stratSumHC };
+    return { stratSumH, stratSumV, stratSumH2, stratSumVC, stratSumHC, stratSumVCR };
   };
 
   // CALLED-LINE NESTING — see turnSolver's (full-range round 0, then conditioned + damped
@@ -443,11 +501,12 @@ export function solveFlop(inp: FlopInput): FlopResult {
       }
     }
   }
-  const { stratSumH, stratSumV, stratSumH2, stratSumVC, stratSumHC } = cfrPass(iters, fut, futStab, futRaise);
+  const { stratSumH, stratSumV, stratSumH2, stratSumVC, stratSumHC, stratSumVCR } = cfrPass(iters, fut, futStab, futRaise);
   const vcFinal = stratSumVC.map(normalized);
   const hcFinal = stratSumHC.map(normalized);
+  const vcrFinal = stratSumVCR.map(normalized);
   const checkValue = (i: number, j: number) =>
-    canStab ? vcFinal[j][0] * checkPair[i][j] + vcFinal[j][1] * hcFinal[i][1] * heroStabCall(i, j, futStab) : checkPair[i][j];
+    canStab ? vcFinal[j][0] * checkPair[i][j] + vcFinal[j][1] * heroAfterStab(i, j, hcFinal[i], vcrFinal[j], futStab) : checkPair[i][j];
 
   const actions = ['check', ...bets.map((_, s) => `bet:${s}`)];
   const heroStrategy = stratSumH.map((row) => {
@@ -531,6 +590,10 @@ export function solveFlop(inp: FlopInput): FlopResult {
     heroStabResponse: canStab ? hcFinal : undefined,
     villainStabFreq: canStab ? V.reduce((a, c, j) => a + c.w * vcFinal[j][1], 0) / (V.reduce((a, c) => a + c.w, 0) || 1) : 0,
     heroFoldToStabFreq: canStab ? H.reduce((a, c, i) => a + c.w * hcFinal[i][0], 0) / (H.reduce((a, c) => a + c.w, 0) || 1) : 0,
+    checkRaiseTo: canCR ? crTo : 0,
+    villainCheckRaiseResponse: canCR ? vcrFinal : undefined,
+    heroCheckRaiseFreq: canCR ? H.reduce((a, c, i) => a + c.w * hcFinal[i][2], 0) / (H.reduce((a, c) => a + c.w, 0) || 1) : 0,
+    villainFoldToCheckRaiseFreq: canCR ? V.reduce((a, c, j) => a + c.w * vcrFinal[j][0], 0) / (V.reduce((a, c) => a + c.w, 0) || 1) : 0,
   };
 }
 
@@ -558,8 +621,18 @@ export interface FlopVsBetInput {
   villainFoldToRaise?: number;
   /** house rake in chips. Omit for rake-free EV. */
   rake?: Rake;
+  /** Chips behind after hero calls. > 0 nests the next street on the CALLED line (a call is
+   *  not the end of the hand: he can barrel, you can bet). 0 / omitted = static equity. */
+  stackAfterCall?: number;
+  /** Does hero act first on the next street (default true — out of position)? */
+  heroActsFirst?: boolean;
 }
 
+// The CALLED line of a facing-a-bet node plays the turn: a nested hero-first (or, in
+// position, villain-first with the roles swapped and the value negated) solve at the called
+// pot over hero's CALLING range vs villain's betting range, minus the static equity baseline.
+// Round 0 nests over hero's full range, then once more over the first pass's calls, damped
+// ½/½ (the hero-first lines' rule). The raise lines borrow it scaled by pot (vsBet.ts).
 export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
   const H = inp.heroRange;
   const V = inp.villainRange;
@@ -581,7 +654,7 @@ export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
     valid.push(vr);
     eq.push(er);
   }
-  return solveVsBetEquity({
+  const base = {
     eq,
     valid,
     heroW: H.map((c) => c.w),
@@ -594,5 +667,22 @@ export function solveFlopVsBet(inp: FlopVsBetInput): VsBetResult {
     villainFoldToBet: inp.villainFoldToBet,
     villainFoldToRaise: inp.villainFoldToRaise,
     rake: inp.rake,
-  });
+  };
+  const behind = inp.stackAfterCall ?? 0;
+  if (behind <= 0) return solveVsBetEquity(base);
+  const pot = inp.potBeforeBet + 2 * inp.bet;
+  const np = netPot(inp.rake, pot);
+  const turnIters = 110;
+  const futureFor = (callW: number[]): Float64Array[] => {
+    const Hs = H.map((c, i) => ({ cards: c.cards, w: c.w * (callW[i] + REACH_FLOOR) }));
+    if (inp.heroActsFirst !== false) {
+      const n = nestedTurnPairEv(Hs, V, inp.board, pot, behind, VS_BET_NEXT_SIZES, turnIters, inp.rake, FUTURE_TURN_BUCKETS);
+      return n.map((row, i) => row.map((v, j) => (valid[i][j] && Number.isFinite(v) ? v - eq[i][j] * np : 0)));
+    }
+    const n = nestedTurnPairEv(V, Hs, inp.board, pot, behind, VS_BET_NEXT_SIZES, turnIters, inp.rake, FUTURE_TURN_BUCKETS);
+    return H.map((_, i) =>
+      Float64Array.from(V, (_, j) => (valid[i][j] && Number.isFinite(n[j][i]) ? (1 - eq[i][j]) * np - n[j][i] : 0)),
+    );
+  };
+  return solveVsBetWithFuture(base, behind, futureFor);
 }

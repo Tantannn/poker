@@ -32,7 +32,7 @@ interface Spot {
   why: string;
 }
 
-export function genSpot(rng: () => number = Math.random): Spot {
+function genSpot(rng: () => number = Math.random): Spot {
   const r = rng();
   const street: Street = r < 0.4 ? 'flop' : r < 0.7 ? 'turn' : 'river';
   const len = street === 'flop' ? 3 : street === 'turn' ? 4 : 5;

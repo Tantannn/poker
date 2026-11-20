@@ -1183,6 +1183,8 @@ function postflopStrategy(
         bigBlind: state.bigBlind,
         rake,
         rangeNote: note,
+        stackAfterCall: Math.max(0, Math.min(hero.stack - b, ...oppStacks)),
+        heroActsFirst: position !== 'ip',
       };
       const solveVsBet = (a: RiverVsBetNodeParams) =>
         state.street === 'river' ? solveRiverVsBetNode(a) : state.street === 'turn' ? solveTurnVsBetNode(a) : solveFlopVsBetNode(a);

@@ -70,6 +70,55 @@ const classKind = (c: BetClass): ActionOption['kind'] =>
 // at/below Check — matching the 'marginal → check' classification. See addBet.
 const RI_REALIZE_OOP_MW = 0.7;
 
+// An OOP check is not a free showdown: villain may bet into it (one ¾-pot size, the
+// CFR solvers' STAB_FRAC) and hero then folds or calls. VALUE is the top share of his
+// range he bets for value; bluffs ride at the balanced ratio b/(P+2b) of his betting
+// range, scaled down vs a passive villain who rarely bets air when checked to.
+export const STAB_FRAC = 0.75;
+const STAB_VALUE_SHARE = 0.3;
+const STAB_VALUE_SHARE_PASSIVE = 0.2;
+const STAB_BLUFF_SCALE_PASSIVE = 0.3;
+
+export interface CheckVsStab {
+  ev: number; // chips
+  stabFreq: number;
+  betSize: number;
+  eVsBet: number; // hero equity vs his stab range
+  eVsCheck: number; // hero equity vs the range that checks back
+  callsStab: boolean;
+}
+
+/** Hero's hand sits at percentile `e` of villain's range (the eOneA slice model used
+ *  for bets): he beats the part of a slice below him. A draw keeps `drawEq` vs value
+ *  hands on flop/turn. Equity is CONSERVED — s·eBet + (1−s)·eCheck = e — so the stab
+ *  only redistributes it: air loses its share to folds, the nuts wins his bluffs. */
+export function checkVsStab(
+  e: number,
+  P: number,
+  isRiver: boolean,
+  realize: number,
+  drawEq: number,
+  passive: boolean,
+  rake?: Rake,
+): CheckVsStab {
+  const net = (pot: number) => netPot(rake, pot);
+  const b = STAB_FRAC * P;
+  const alpha = b / (P + 2 * b);
+  const v = passive ? STAB_VALUE_SHARE_PASSIVE : STAB_VALUE_SHARE;
+  const beta = ((v * alpha) / (1 - alpha)) * (passive ? STAB_BLUFF_SCALE_PASSIVE : 1);
+  const s = v + beta;
+  const eV = Math.max(Math.max(0, (e - (1 - v)) / v), isRiver ? 0 : Math.min(e, drawEq));
+  const eBl = Math.min(1, e / beta);
+  const eVsBet = Math.min(1, (v * eV + beta * eBl) / s);
+  const eVsCheck = Math.max(0, Math.min(1, (e - s * eVsBet) / (1 - s)));
+  // Later streets stay OOP: same realisation the call line applies; river closes it.
+  const r = isRiver ? 1 : realize;
+  const callEv = Math.min(1, eVsBet * r) * net(P + 2 * b) - b;
+  const callsStab = callEv > 0;
+  const ev = (1 - s) * Math.min(1, eVsCheck * r) * net(P) + s * Math.max(0, callEv);
+  return { ev, stabFreq: s, betSize: b, eVsBet, eVsCheck, callsStab };
+}
+
 /** Flush-domination LEVEL: the count (0, 3, 4 or 5) of a single suit on the board
  *  that hero holds NONE of. It matters how many, because the threat is very
  *  different by count:
@@ -540,6 +589,12 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     // applies (there are no more cards to realise anything with). The OOP
     // discount stays: checking OOP still lets villain bet you off your share.
     const checkEq = isRiver && !oop ? e : eReal;
+    // Multiway keeps the flat realisation: the field's stabs are not modelled per seat.
+    const stab =
+      oop && nOpp === 1
+        ? checkVsStab(e, P, isRiver, realize, outs >= 4 ? exactOutsEquity(outs, cardsToCome) / 100 : 0, villainPassive, rake)
+        : null;
+    const checkEvChips = stab ? stab.ev : checkEq * net(P);
     const posClause = inp.position
       ? ` (${ip ? 'in position you realise it well — you can check back and take a free card' : 'out of position you realise less — villain can barrel you off it'})`
       : '';
@@ -567,10 +622,14 @@ export function solvePostflop(inp: PostflopInput): NodeStrategy {
     cands.push({
       id: 'check',
       label: 'Check',
-      ev: (checkEq * net(P)) / bb,
+      ev: checkEvChips / bb,
       kind: 'passive',
-      why: checkWhy,
-      math: `EV = equity × pot${rake ? ' (after rake)' : ''}${checkEq !== e ? ` × realise(${realize})` : ''} = ${pct1(checkEq)} × ${potStr(P)} = ${(checkEq * net(P)).toFixed(1)} chips ≈ ${((checkEq * net(P)) / bb).toFixed(2)} bb`,
+      why: stab
+        ? `${checkWhy} Checking isn't a free showdown out of position: he bets ~¾ pot into it about ${pct(stab.stabFreq)} of the time, and with ~${pct(stab.eVsBet)} vs that betting range you ${stab.callsStab ? 'check-CALL' : 'check-FOLD'}.`
+        : checkWhy,
+      math: stab
+        ? `EV = P(he checks back) × equity-vs-checking-range × pot + P(he bets ${Math.round(stab.betSize)}) × max(0, call EV)\n   = ${pct(1 - stab.stabFreq)} × ${pct1(stab.eVsCheck)}${isRiver ? '' : ` × realise(${realize})`} × ${potStr(P)} + ${pct(stab.stabFreq)} × max(0, ${pct1(stab.eVsBet)}${isRiver ? '' : ` × realise(${realize})`} × ${potStr(P + 2 * stab.betSize)} − ${Math.round(stab.betSize)})\n   = ${checkEvChips.toFixed(1)} chips ≈ ${(checkEvChips / bb).toFixed(2)} bb`
+        : `EV = equity × pot${rake ? ' (after rake)' : ''}${checkEq !== e ? ` × realise(${realize})` : ''} = ${pct1(checkEq)} × ${potStr(P)} = ${(checkEq * net(P)).toFixed(1)} chips ≈ ${((checkEq * net(P)) / bb).toFixed(2)} bb`,
     });
   }
   if (C > 0) {

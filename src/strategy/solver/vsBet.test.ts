@@ -72,3 +72,22 @@ describe('flop solver — facing a bet (fold / call / raise), equity over turn+r
     }
   });
 });
+
+describe('the called line plays the next street', () => {
+  // Static K-K-K-8: no river changes who wins, so a call's extra value is betting alone.
+  // Hero's quads face a bet from bluff-catchers + air: calling keeps the river, where the
+  // nuts value-bet and get paid, so with chips behind the call is worth more than the pot.
+  const b = board('Kh Kd Ks 8c');
+  const hero = [w1('Kc 2d'), w1('7h 6h'), w1('7d 6d')];
+  const vill = [w1('9d 9h'), w1('9s 9c'), w1('Qs Jd'), w1('Qd Js')];
+  const solve = (stackAfterCall: number) =>
+    solveTurnVsBet({ heroRange: hero, villainRange: vill, board: b, potBeforeBet: 100, bet: 50, raiseSizes: [], iterations: 1500, stackAfterCall });
+
+  it('all-in (nothing behind) stays the static equity showdown', () => {
+    expect(solve(0).heroEv[0].call).toBeCloseTo(150, 0);
+  });
+
+  it('with chips behind the nuts earn river value on top of the pot', () => {
+    expect(solve(1000).heroEv[0].call).toBeGreaterThan(165);
+  }, 30000);
+});

@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { solveRiver, type Combo } from './riverSolver';
 import { solveTurn } from './turnSolver';
 import { solveFlop } from './flopSolver';
+import { riverExploitability } from './exploitability';
 import { parseCard, type Card } from '../../engine/cards';
 
 const C = (s: string): [Card, Card] => {
@@ -46,6 +47,23 @@ describe('river — polar game', () => {
     expect(1 - r.heroFoldToStabFreq!).toBeCloseTo(1 / 1.75, 1);
     // hero's catcher wins exactly the pots villain's air checks back: (9 − 1.286) / 12 of 100
     expect(r.heroActionEv[0][0]).toBeCloseTo((100 * (9 - 3 * (0.75 / 1.75))) / 12, 0);
+  }, 30000);
+});
+
+describe('river — hero check-raises the stab', () => {
+  const B = board('Kh 8d 3c 7s 2h');
+  const HERO = combos(['Ks Kd', 'Ks Kc', 'Kd Kc', '9s 9c', '9s 9d', '9s 9h', '9c 9d', '9c 9h', '9d 9h']);
+  const VILL = combos(['8s 8c', '8s 8h', '8c 8h', 'Qs Jd', 'Qs Jc', 'Qd Js', 'Qd Jc', 'Qc Js', 'Qc Jd', 'Th 9h']);
+  const inp = (heroMayCheckRaise: boolean) => ({
+    heroRange: HERO, villainRange: VILL, board: B, pot: 100, effStack: 1000, betSizes: [0.5, 1.0], iterations: 5000, heroMayCheckRaise,
+  });
+
+  it('the nuts check-raise, the tree stays near-Nash, and the trap is worth chips to the checking range', () => {
+    const r = solveRiver(inp(true));
+    expect(r.checkRaiseTo).toBeGreaterThan(r.stabSize!);
+    expect(r.heroStabResponse![0][2]).toBeGreaterThan(0.9); // KK facing the stab
+    expect(riverExploitability(inp(true)).potFrac).toBeLessThan(0.01);
+    expect(r.actionEv.check).toBeGreaterThan(solveRiver(inp(false)).actionEv.check);
   }, 30000);
 });
 

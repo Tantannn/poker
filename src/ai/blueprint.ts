@@ -26,7 +26,7 @@ const ALL_CODES: string[] = (() => {
  *  range lands near 70% rather than past 100%. */
 export function openRangeExponent(openLooseness: number): number {
   const L = clamp01(openLooseness);
-  return L < 0.5 ? 0.45 + 1.1 * L : 1 + 2.8 * (L - 0.5);
+  return L < 0.5 ? 0.2 + 1.6 * L : 1 + 2.8 * (L - 0.5);
 }
 
 /** Ramp width (share of all hands) over which the boundary hands mix. */
@@ -165,7 +165,7 @@ export function vsOpenPlan(
   const refReq = seat === 'BB' ? 0.3 : 0.4;
   const priceMult = Math.max(0.15, Math.min(1.3, refReq / Math.max(0.05, requiredEquity)));
   const flat =
-    seat === 'BB' ? 0.27 + cr * 0.35 : seat === 'SB' ? Math.max(0, cr - 0.7) * 0.5 : 0.03 + cr * 0.2;
+    seat === 'BB' ? 0.14 + cr * 0.55 : seat === 'SB' ? Math.max(0, cr - 0.7) * 0.5 : Math.max(0, cr * 0.24 - 0.015);
   const cont = clamp01(Math.max(threeBet, (threeBet + flat * Math.sqrt(widthMult)) * priceMult));
   return { threeBet: Math.min(threeBet, cont), cont };
 }

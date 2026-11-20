@@ -24,7 +24,7 @@
 import type { Card } from '../../engine/cards';
 import { evaluate7 } from '../../engine/evaluator';
 import { mdf } from '../../engine/potOdds';
-import { lockedContinueBySize, type Combo, type RiverResult } from './riverSolver';
+import { lockedContinueBySize, STAB_FRAC, type Combo, type RiverResult } from './riverSolver';
 import { netPot, type Rake } from '../../engine/rake';
 import { textureBuckets } from './cardTexture';
 
@@ -47,7 +47,19 @@ export interface Multiway3Input {
   fieldFoldToBet?: (number | undefined)[];
   /** house rake in chips; rides into the nested river subgames too. Omit for rake-free EV. */
   rake?: Rake;
+  /** May the SOLVED villain bet ¾ pot when hero checks (default true)? The field answers it
+   *  with its fixed MDF policy, hero folds or calls. Off = a check is a free checkdown. */
+  villainMayStab?: boolean;
 }
+
+/** The stab size in chips (0 = none) and the size list the field's MDF policy is built over:
+ *  hero's bet sizes plus the stab, so the field answers villain's stab like any bet. */
+const stabChips = (pot: number, effStack: number, may?: boolean) =>
+  may === false ? 0 : Math.min(effStack, Math.round(STAB_FRAC * pot));
+const withStab = (bets: number[], pot: number, effStack: number, may?: boolean) => {
+  const st = stabChips(pot, effStack, may);
+  return st > 0 ? [...bets, st] : bets;
+};
 
 const id = (c: Card) => c.rank * 4 + c.suit;
 const same = (a: Card, b: Card) => a.rank === b.rank && a.suit === b.suit;
@@ -225,6 +237,8 @@ function multiwayCfr(p: {
    *  betting value a static showdown payoff omits. Only the flop supplies it; see
    *  `calledLineFutureValue` for why leaving it at zero biases the solve against betting. */
   calledBonus?: number[][];
+  /** villain's bet when checked to (chips, 0 = none). The aggs must carry it as their last size. */
+  stab?: number;
 }): RiverResult {
   const { H, V, bets, valid, hvWin, aggsH, aggsV } = p;
   const P = p.pot;
@@ -240,11 +254,28 @@ function multiwayCfr(p: {
   // Checked pot: hero must beat the whole field, so the scoop chance is the product over
   // every fixed player's FULL range (nobody folded — there was no bet to fold to).
   const fullWinH = H.map((_, i) => aggsH.reduce((acc, a) => acc * a.wVsTfull[i], 1));
+  const fullWinV = V.map((_, j) => aggsV.reduce((acc, a) => acc * a.wVsTfull[j], 1));
+
+  // VILLAIN STAB after hero checks: the solved villain checks back or bets `stab`; the field
+  // answers by its MDF policy (aggs' last size), then hero folds or calls. A caller set wins
+  // only if it beats every player still in, exactly as on hero's own bet lines. Disclosed:
+  // only the solved villain stabs, hero answers after the field, and the stab-called line is a
+  // static showdown (no later street, no check-raise).
+  const stab = p.stab ?? 0;
+  const canStab = stab > 0;
+  const stabCoefH = canStab ? fieldCoef(aggsH, nSizes + 1, nH)[nSizes] : null;
+  const stabCoefV = canStab ? fieldCoef(aggsV, nSizes + 1, nV)[nSizes] : null;
+  const netByStab = canStab ? netPotByBets(P, stab, p.nField + 2, p.rake) : [];
+  const heroStabCall = (i: number, j: number) => callEvVsField(stabCoefH![i], hvWin[i][j], stab, netByStab);
+  const villStab = (i: number, j: number, hc: number[]) =>
+    betEvVsField(stabCoefV![j], 1 - hvWin[i][j], hc[0], hc[1], stab, netByStab);
+  const villCheck = (i: number, j: number) => netP * (1 - hvWin[i][j]) * fullWinV[j];
 
   // Per-combo check EV (chips) + the villain weight it averages over. The CFR scores actions
   // as villain-weight SUMS, so the per-combo average is rescaled by vwSum in the loop.
   const vwSum = new Array(nH).fill(0);
   const checkAvg = new Array(nH).fill(0);
+  const staticAvg = new Array(nH).fill(0);
   for (let i = 0; i < nH; i++) {
     let w = 0;
     let sd = 0;
@@ -256,16 +287,66 @@ function multiwayCfr(p: {
     vwSum[i] = w;
     const nested = p.checkEv?.[i];
     checkAvg[i] = nested != null && Number.isFinite(nested) ? nested : w > 0 ? sd / w : 0;
+    staticAvg[i] = w > 0 ? sd / w : 0;
   }
+  // per-pair hero checkdown: the static scoop plus the combo's nested-check bonus
+  const heroCheck = (i: number, j: number) => netP * hvWin[i][j] * fullWinH[i] + checkAvg[i] - staticAvg[i];
+  const heroCheckValue = (i: number, vc: number[][], hc: number[][]) => {
+    if (!canStab) return checkAvg[i] * vwSum[i];
+    let v = 0;
+    for (let j = 0; j < nV; j++) {
+      if (!valid[i][j]) continue;
+      v += V[j].w * (vc[j][0] * heroCheck(i, j) + vc[j][1] * hc[i][1] * heroStabCall(i, j));
+    }
+    return v;
+  };
 
   const regretH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
   const stratSumH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
   const regretV = Array.from({ length: nSizes }, () => Array.from({ length: nV }, () => [0, 0]));
   const stratSumV = Array.from({ length: nSizes }, () => Array.from({ length: nV }, () => [0, 0]));
+  const regretVC = Array.from({ length: nV }, () => [0, 0]);
+  const stratSumVC = Array.from({ length: nV }, () => [0, 0]);
+  const regretHC = Array.from({ length: nH }, () => [0, 0]);
+  const stratSumHC = Array.from({ length: nH }, () => [0, 0]);
 
   for (let t = 0; t < iters; t++) {
     const hS = regretH.map(strat);
     const vS = regretV.map((row) => row.map(strat));
+    const vcS = regretVC.map(strat);
+    const hcS = regretHC.map(strat);
+
+    if (canStab) {
+      for (let i = 0; i < nH; i++) {
+        let aCall = 0;
+        for (let j = 0; j < nV; j++) if (valid[i][j]) aCall += V[j].w * vcS[j][1] * heroStabCall(i, j);
+        const st = hcS[i];
+        const node = st[1] * aCall;
+        const cf = H[i].w;
+        regretHC[i][0] += cf * -node;
+        regretHC[i][1] += cf * (aCall - node);
+        stratSumHC[i][0] += cf * st[0];
+        stratSumHC[i][1] += cf * st[1];
+      }
+      for (let j = 0; j < nV; j++) {
+        let vCheck = 0;
+        let vBet = 0;
+        for (let i = 0; i < nH; i++) {
+          if (!valid[i][j]) continue;
+          const reach = H[i].w * hS[i][0];
+          if (reach === 0) continue;
+          vCheck += reach * villCheck(i, j);
+          vBet += reach * villStab(i, j, hcS[i]);
+        }
+        const st = vcS[j];
+        const node = st[0] * vCheck + st[1] * vBet;
+        const cf = V[j].w;
+        regretVC[j][0] += cf * (vCheck - node);
+        regretVC[j][1] += cf * (vBet - node);
+        stratSumVC[j][0] += cf * st[0];
+        stratSumVC[j][1] += cf * st[1];
+      }
+    }
 
     // villain regret (faces each bet size). Villain wins iff it beats hero AND the field.
     for (let s = 0; s < nSizes; s++) {
@@ -293,7 +374,7 @@ function multiwayCfr(p: {
     // hero regret.
     for (let i = 0; i < nH; i++) {
       const av = new Array(nHeroActions).fill(0);
-      av[0] = checkAvg[i] * vwSum[i];
+      av[0] = heroCheckValue(i, vcS, hcS);
       for (let s = 0; s < nSizes; s++) {
         const b = bets[s];
         const fh = fieldH[s][i];
@@ -329,11 +410,17 @@ function multiwayCfr(p: {
     }),
   );
 
+  const avg2 = (c: number[]) => {
+    const t = c[0] + c[1];
+    return t > 0 ? [c[0] / t, c[1] / t] : [1, 0];
+  };
+  const vcFinal = stratSumVC.map(avg2);
+  const hcFinal = stratSumHC.map(avg2);
   const heroActionEv: number[][] = [];
   for (let i = 0; i < nH; i++) {
     const av = new Array(nHeroActions).fill(0);
     const inv = vwSum[i] > 0 ? 1 / vwSum[i] : 0;
-    av[0] = checkAvg[i];
+    av[0] = heroCheckValue(i, vcFinal, hcFinal) * inv;
     for (let s = 0; s < nSizes; s++) {
       const b = bets[s];
       const fh = fieldH[s][i];
@@ -368,7 +455,19 @@ function multiwayCfr(p: {
     actionEv[actions[a]] = hw > 0 ? ev / hw : 0;
   }
 
-  return { heroStrategy, actions, actionEv, heroActionEv, villainCallFreq };
+  const wTot = (cs: Combo[]) => cs.reduce((a, c) => a + c.w, 0) || 1;
+  return {
+    heroStrategy,
+    actions,
+    actionEv,
+    heroActionEv,
+    villainCallFreq,
+    stabSize: stab,
+    villainStabStrategy: canStab ? vcFinal : undefined,
+    heroStabResponse: canStab ? hcFinal : undefined,
+    villainStabFreq: canStab ? V.reduce((a, c, j) => a + c.w * vcFinal[j][1], 0) / wTot(V) : 0,
+    heroFoldToStabFreq: canStab ? H.reduce((a, c, i) => a + c.w * hcFinal[i][0], 0) / wTot(H) : 0,
+  };
 }
 
 /** Bet sizes in chips for a multiway node, capped at the effective stack. */
@@ -382,7 +481,6 @@ export function solveRiver3way(inp: Multiway3Input): RiverResult {
   const F = inp.fieldRanges;
   const P = inp.pot;
   const bets = betChips(inp);
-  const nSizes = bets.length;
   const nH = H.length;
   const nV = V.length;
 
@@ -405,14 +503,15 @@ export function solveRiver3way(inp: Multiway3Input): RiverResult {
     hvWin.push(hw);
   }
 
+  const aggBets = withStab(bets, P, inp.effStack, inp.villainMayStab);
   const aggsH: ThirdAgg[] = [];
   const aggsV: ThirdAgg[] = [];
   F.forEach((T, f) => {
     const read = inp.fieldFoldToBet?.[f];
-    const cont = read != null ? lockedContinueBySize(read, bets.map((b) => b / P)) : undefined;
-    const callProb = mdfCallProbs(fieldScore[f], T.map((c) => c.w), bets, P, cont);
-    aggsH.push(buildThirdAgg(H, T, callProb, (i, m) => wr(heroScore[i], fieldScore[f][m]), nSizes));
-    aggsV.push(buildThirdAgg(V, T, callProb, (j, m) => wr(villScore[j], fieldScore[f][m]), nSizes));
+    const cont = read != null ? lockedContinueBySize(read, aggBets.map((b) => b / P)) : undefined;
+    const callProb = mdfCallProbs(fieldScore[f], T.map((c) => c.w), aggBets, P, cont);
+    aggsH.push(buildThirdAgg(H, T, callProb, (i, m) => wr(heroScore[i], fieldScore[f][m]), aggBets.length));
+    aggsV.push(buildThirdAgg(V, T, callProb, (j, m) => wr(villScore[j], fieldScore[f][m]), aggBets.length));
   });
 
   return multiwayCfr({
@@ -427,6 +526,7 @@ export function solveRiver3way(inp: Multiway3Input): RiverResult {
     aggsH,
     aggsV,
     rake: inp.rake,
+    stab: aggBets.length > bets.length ? aggBets[aggBets.length - 1] : 0,
   });
 }
 
@@ -533,7 +633,6 @@ export function solveTurn3way(inp: Turn3Input): RiverResult {
   const P = inp.pot;
   const iters = inp.iterations ?? 1000;
   const bets = betChips(inp);
-  const nSizes = bets.length;
   const nH = H.length;
   const nV = V.length;
 
@@ -576,6 +675,7 @@ export function solveTurn3way(inp: Turn3Input): RiverResult {
   // Each fixed player's policy ranks by EQUITY vs hero's range (a draw with the price
   // continues), not raw made strength — computed from eqHF (his equity = 1 − hero's).
   const hwTotal = H.reduce((s, c) => s + c.w, 0) || 1;
+  const aggBets = withStab(bets, P, inp.effStack, inp.villainMayStab);
   const aggsH: ThirdAgg[] = [];
   const aggsV: ThirdAgg[] = [];
   F.forEach((T, f) => {
@@ -585,10 +685,10 @@ export function solveTurn3way(inp: Turn3Input): RiverResult {
       return acc / hwTotal;
     });
     const read = inp.fieldFoldToBet?.[f];
-    const cont = read != null ? lockedContinueBySize(read, bets.map((b) => b / P)) : undefined;
-    const callProb = mdfCallProbs(strength, T.map((c) => c.w), bets, P, cont);
-    aggsH.push(buildThirdAgg(H, T, callProb, (i, m) => eqHF[f][i][m], nSizes));
-    aggsV.push(buildThirdAgg(V, T, callProb, (j, m) => eqVF[f][j][m], nSizes));
+    const cont = read != null ? lockedContinueBySize(read, aggBets.map((b) => b / P)) : undefined;
+    const callProb = mdfCallProbs(strength, T.map((c) => c.w), aggBets, P, cont);
+    aggsH.push(buildThirdAgg(H, T, callProb, (i, m) => eqHF[f][i][m], aggBets.length));
+    aggsV.push(buildThirdAgg(V, T, callProb, (j, m) => eqVF[f][j][m], aggBets.length));
   });
   const nested =
     inp.nestRiverForCheck === false
@@ -607,7 +707,22 @@ export function solveTurn3way(inp: Turn3Input): RiverResult {
     aggsH,
     aggsV,
     rake: inp.rake,
+    stab: aggBets.length > bets.length ? aggBets[aggBets.length - 1] : 0,
     checkEv: nested,
+    // the turn has the flop's asymmetry too: a checked turn plays the river, a called bet must as well
+    calledBonus: nested
+      ? calledLineFutureValue(
+          H,
+          staticCheckdown(H, V, valid, eqHV, aggsH, P, inp.rake),
+          aggsH,
+          P,
+          bets,
+          inp.effStack,
+          (pot, behind) =>
+            checkLineRiver3wayEv(H, V, F, inp.board, pot, behind, inp.betSizes, Math.max(60, Math.round((inp.riverNestIterations ?? 120) * 0.6)), inp.fieldFoldToBet, inp.rake),
+          inp.rake,
+        )
+      : undefined,
   });
 }
 
@@ -737,7 +852,6 @@ export function solveFlop3way(inp: Flop3Input): RiverResult {
   const F = inp.fieldRanges;
   const P = inp.pot;
   const bets = betChips(inp);
-  const nSizes = bets.length;
   const nH = H.length;
   const nV = V.length;
 
@@ -779,6 +893,7 @@ export function solveFlop3way(inp: Flop3Input): RiverResult {
   // draw is the most common legitimate continue, and ranking by current pair strength would
   // fold the field's draws and hand hero free equity.
   const hwTotal = H.reduce((s, c) => s + c.w, 0) || 1;
+  const aggBets = withStab(bets, P, inp.effStack, inp.villainMayStab);
   const aggsH: ThirdAgg[] = [];
   const aggsV: ThirdAgg[] = [];
   F.forEach((T, f) => {
@@ -788,10 +903,10 @@ export function solveFlop3way(inp: Flop3Input): RiverResult {
       return acc / hwTotal;
     });
     const read = inp.fieldFoldToBet?.[f];
-    const cont = read != null ? lockedContinueBySize(read, bets.map((b) => b / P)) : undefined;
-    const callProb = mdfCallProbs(strength, T.map((c) => c.w), bets, P, cont);
-    aggsH.push(buildThirdAgg(H, T, callProb, (i, m) => eqHF[f][i][m], nSizes));
-    aggsV.push(buildThirdAgg(V, T, callProb, (j, m) => eqVF[f][j][m], nSizes));
+    const cont = read != null ? lockedContinueBySize(read, aggBets.map((b) => b / P)) : undefined;
+    const callProb = mdfCallProbs(strength, T.map((c) => c.w), aggBets, P, cont);
+    aggsH.push(buildThirdAgg(H, T, callProb, (i, m) => eqHF[f][i][m], aggBets.length));
+    aggsV.push(buildThirdAgg(V, T, callProb, (j, m) => eqVF[f][j][m], aggBets.length));
   });
 
   const nested =
@@ -811,21 +926,19 @@ export function solveFlop3way(inp: Flop3Input): RiverResult {
     aggsH,
     aggsV,
     rake: inp.rake,
+    stab: aggBets.length > bets.length ? aggBets[aggBets.length - 1] : 0,
     checkEv: nested,
     calledBonus: nested
       ? calledLineFutureValue(
           H,
-          V,
-          F,
-          inp.board,
           staticCheckdown(H, V, valid, eqHV, aggsH, P, inp.rake),
           aggsH,
           P,
           bets,
           inp.effStack,
-          inp.betSizes,
-          Math.max(40, Math.round((inp.turnNestIterations ?? 150) * 0.6)), // cheaper: 4 sweeps, one per size
-          inp.fieldFoldToBet,
+          // cheaper: one sweep per reference size
+          (pot, behind) =>
+            checkLineTurn3wayEv(H, V, F, inp.board, pot, behind, inp.betSizes, Math.max(40, Math.round((inp.turnNestIterations ?? 150) * 0.6)), inp.fieldFoldToBet, inp.rake),
           inp.rake,
         )
       : undefined,
@@ -861,17 +974,13 @@ export function solveFlop3way(inp: Flop3Input): RiverResult {
  *  almost none. */
 function calledLineFutureValue(
   H: Combo[],
-  V: Combo[],
-  F: Combo[][],
-  board3: Card[],
   staticCheck: number[],
   aggsH: ThirdAgg[],
   P: number,
   bets: number[],
   effStack: number,
-  betSizes: number[],
-  turnIters: number,
-  fieldFoldToBet?: (number | undefined)[],
+  /** hero's per-combo value of the next street's subgame at (called pot, chips behind) */
+  nest: (pot: number, behind: number) => number[],
   rake?: Rake,
 ): number[][] {
   const netP = netPot(rake, P) || 1;
@@ -890,10 +999,7 @@ function calledLineFutureValue(
   for (const s of refs) {
     const behind = Math.max(0, effStack - bets[s]);
     if (behind <= 0) continue; // a shove has no later street to play
-    solved.set(
-      s,
-      checkLineTurn3wayEv(H, V, F, board3, potCalled[s], behind, betSizes, turnIters, fieldFoldToBet, rake),
-    );
+    solved.set(s, nest(potCalled[s], behind));
   }
   if (solved.size === 0) return bonus;
   const lo = refs[0];

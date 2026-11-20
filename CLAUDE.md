@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev            # vite dev server (http://localhost:5173)
 npm run build          # tsc -b && vite build  → dist/
-npm test               # vitest run (34 test files, jsdom)
+npm test               # vitest run (~85 test files, jsdom)
 npm run test:watch
 npm run lint           # eslint .
 npm run preview
@@ -68,8 +68,13 @@ multiway), a fold pays nothing and absorbs the slack. The live lesson falls stra
 under rake, marginal hands are raise-or-fold.
 
 Disclosed gap: the chart *data* is still ~100bb rake-free (this shades what it teaches).
-The bots do see rake (`decide.ts`: `reqEqRaked` lifts a call's break-even, `rakeMarginal`
-lifts the thin-value bar), but they don't run `shadeForRake` on their preflop charts.
+The bots play the same shade: preflop, `decide.ts` applies `preflopRake.ts: multFor` per action
+(`callKeep` on limps/flats, `raiseKeep` on opens/3-bets/light 4-bets, fold absorbs, a shaded-out
+flat turns into a raise at `raiseKeep − callKeep` where the hand already raises), premiums
+exempt. So `vsOpenPlan` gets the **rake-free** price — rake reaches that node once, not twice.
+The shade draws RNG only when a multiplier is < 1, which keeps rake `none` byte-identical
+(`botRake.test.ts`). Postflop, `reqEqRaked` lifts a call's break-even and `rakeMarginal` the
+thin-value bar. Easy bots, push/fold and the 4-bet node stay unshaded.
 
 ### Straddle — `table.ts: straddleSeats` / `effectiveBigBlind`
 `GameState.straddle` is `off | utg | double | button` (Mississippi); `startHand` posts it
@@ -105,7 +110,9 @@ There are **two** postflop engines behind that seam:
 
 1. **`postflopModel.ts`** — per-hand heuristic: equity-vs-range + a fold-equity
    model → EV per action → softmax mix (`mixFromEv`). Fast, transparent, handles
-   every node including multiway. Not a Nash solve.
+   every node including multiway. Not a Nash solve. Its heads-up OOP check is priced by
+   `checkVsStab` (villain bets ¾ pot into it, hero check-calls or check-folds) instead of a
+   flat realisation haircut; multiway / IP keep the old formula.
 2. **`solver/`** — real range-vs-range CFR. `riverSolver.ts` (vector CFR, exact
    showdown), `turnSolver.ts` (nests the river solver as leaf evaluator),
    `flopSolver.ts` (nests the turn solver, bucketing turn cards by texture — the two
@@ -171,10 +178,12 @@ need the field's response modelled too.
 ### Villain bets into a check, and the called line plays on — `STAB_FRAC`, `CALLED_NEST_ROUNDS`
 Two gaps made every hero-first street favour hero. **A check went straight to showdown**: the
 villain could never bet into it, so OOP hero kept every checked pot for free. All three HU
-streets now give villain a ¾-pot bet when checked to (`STAB_FRAC`, one size, hero folds or calls
-— no check-raise); `villainMayStab` (default true) turns it off for an A/B and rides into the
-nested subgames. `heroStabResponse` / `villainStabFreq` carry the check-call / check-fold plan to
-the coach. **A called bet ended the hand** on the turn/flop while the check line nested the next
+streets now give villain a ¾-pot bet when checked to (`STAB_FRAC`, one size) and hero answers
+fold / call / **check-raise** (villain's raise formula; villain then folds or calls, no re-raise).
+`villainMayStab` / `heroMayCheckRaise` (default true) turn them off for an A/B and ride into the
+nested subgames. Without the check-raise villain's stabs could never be punished. `heroStabResponse`
+(`[fold, call, check-raise]`) / `villainStabFreq` carry the check-call / check-fold / check-raise
+plan to the coach. The called check-raise borrows the stab-called future scaled by called pot. **A called bet ended the hand** on the turn/flop while the check line nested the next
 street, so a bet earned one street of value: on a static K-K-K toy the turn nuts earned 152 vs
 the exact 225 and checked a third of the time. The called, raise-called and stab-called lines now
 carry a per-MATCHUP future value (`pairEv` from a nested solve over the betting/calling ranges
@@ -195,6 +204,29 @@ Cost at live caps: turn ~3.8s (was ~2.0s), flop ~2.6s (was ~1.2s); the levers ar
 `FUTURE_NEST_BUCKETS`, the half-iteration future nests and `CALLED_NEST_ROUNDS`. Disclosed
 abstractions: future nests use the heaviest river/turn textures; the raise-called future is one
 reference raise scaled by pot; the flop's nested turn keeps static turn lines (cost bound).
+Averaging trap: hero's stab answer is averaged by range weight, NOT own reach — a set that never
+checks would otherwise report an unconverged (½ call) answer and a junk check EV. Villain's answer
+to the check-raise IS reach-weighted (it drives exploitability; range weight measured 4% pot).
+
+**Facing a bet, the call plays the next street too** (`solveVsBetWithFuture`, turnSolver.ts). The
+turn/flop facing-a-bet call used to be a static equity showdown, so a draw had no implied odds and a
+bluff-catcher OOP got to see the river free of a second barrel. `vsBet.ts` now takes `callFuture`
+(per matchup, from a nested next-street solve at the called pot over hero's CALLING range vs his
+betting range; round 0 full range, one conditioned round, damped ½/½) and `stackAfterCall`; the
+raise-called and re-raise-called lines borrow it scaled by pot (none when all-in). When hero is in
+position the nest runs with roles swapped and the value negated (`heroActsFirst`, from
+`index.ts`'s position). Effect: a nut flush draw IP calls instead of jamming; QQ under a K realises
+less. Cost: facing-bet turn ~0.6s (was 0.1s), flop ~0.9s (was 0.35s).
+
+**Multiway**: the solved villain may stab ¾ pot into hero's check, the field answers by the same
+MDF policy (its aggs carry the stab as one extra size), hero folds or calls — no multiway
+check-raise, only the solved villain bets, stab-called line static. With the stab, the turn's
+asymmetry bit: a set checked 97% (check line nests the river, called bet didn't), so
+`calledLineFutureValue` now takes a nest function and the 3-way TURN uses it too (river nests).
+
+**Solve cache** (`riverAdapter.ts: cachedSolve`, LRU 8): one turn/flop solve answers every hero
+combo, so a repeat of the same spot — chiefly the unlocked baseline re-solved whenever a read
+changes — is served from memory. Keyed on both combo lists, board, pot, stack, lock and rake.
 
 ### Multiway flop — `multiwaySolver.ts: solveFlop3way`
 All three multiway streets share one street-agnostic CFR (`multiwayCfr`): hero picks
@@ -592,6 +624,20 @@ flatted half the deck and the BB defended ~97%. 3-bets are polar (⅔ value from
 ⅓ `BLUFF_THREEBET_RANGE` then `BLUFF_THREEBET_WIDE`), and the flat cut sits below the
 bluffs' share so the SB stays 3-bet-or-fold. `archetypePreflop.test.ts` pins widths,
 fold-to-3-bet (25–70%), vs-open 3-bet/defend rates, limping and iso sizing.
+
+Postflop, a bot's equity is read against a range narrowed by **this street's** bet only
+(`villainActionWeight`), so a flop bet, a turn barrel and a raise of its own bet never made it
+fold — every archetype played like a station (≈25% fold to c-bet, ≈50% to showdown). `decide.ts`
+now discounts the call margin by `respect × lineStrength`: `lineStrength` grows with each earlier
+street the bettor fired and with a raise of the bot's own bet; `respect = (1−callStation)^1.5 ×
+(1.3 − 0.6·aggression)` (nit ≈0.83, TAG ≈0.63, maniac ≈0.42, station ≈0.07); the raised-bet part
+shrinks with aggression (a maniac reads a raise as a bluff). Aggressive archetypes also **float**
+in position, **bluff-raise** heads-up (a maniac re-bluffs ~19% when raised), and barrel the
+turn/river in proportion to `aggression`. Preflop tightness by looseness: `openRangeExponent`
+(nit ≈27% button) and `vsOpenPlan` flats (BB `0.14 + 0.55·cr`, cold `0.24·cr − 0.015`) put a nit
+at ~16% VPIP on hard. `botSim.ts` measures HUD stats per archetype on a bots-only table;
+`archetypePostflop.test.ts` pins the station/maniac vs solid-pool bands, and
+`SIM=1 npx vitest run src/ai/_sim.test.ts --silent=false --reporter=verbose` prints the full table.
 
 `DifficultyParams.jam` is the same knob for the **all-in**, and it exists because the
 commitment guard in `sizeTo` only ever upgrades a bet *already worth stacking off*

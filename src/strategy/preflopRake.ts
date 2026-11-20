@@ -17,8 +17,8 @@
 //   pushes you toward raise-or-fold and away from flatting.
 //
 // This is a teaching-standard approximation of that axis, not rake-solved charts.
-// Disclosed gap: the bots don't see it — `ai/decide.ts` plays its charts rake-free, so
-// this shades what hero is TAUGHT, not how the table plays.
+// The bots play the same shading: `ai/decide.ts` applies `multFor` to its own preflop
+// opens, limps, flats and light raises, so the table plays the game hero is taught.
 
 import { rakeInChips, rakeOn, type RakeProfileId } from '../engine/rake';
 import { marginality } from './preflopModel';
@@ -41,7 +41,7 @@ export function rakeTaxRate(rakeId: RakeProfileId | undefined, potBB: number): n
 
 /** Per-action multiplier on a charted preflop frequency. Aggressive actions keep the
  *  fold-equity relief; calls pay the full rate; fold is the residual (never scaled). */
-function multFor(id: string, tax: number, m: number, multiway: boolean): number {
+export function multFor(id: string, tax: number, m: number, multiway: boolean): number {
   if (id === 'fold' || id === 'check') return 1;
   const share = id === 'call' ? 1 : multiway ? RAISE_TAX_SHARE_MULTIWAY : RAISE_TAX_SHARE;
   return Math.max(MIN_MULT, 1 - tax * m * share);

@@ -2,7 +2,7 @@
 // it just guards the quiz bank so a malformed scenario (out-of-range answer,
 // missing explanation, duplicate id) can never ship.
 import { describe, it, expect } from 'vitest';
-import { TELL_SCENARIOS } from './TellsTrainer';
+import { TELL_SCENARIOS } from './tellScenarios';
 
 describe('TELL_SCENARIOS', () => {
   it('has a healthy number of scenarios', () => {

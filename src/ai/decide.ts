@@ -11,6 +11,8 @@ import { boardWetScore } from '../engine/board';
 import { buildVillainRange, primaryVillainIdx, roleBaseRange } from '../strategy';
 import { rangeFromSet } from '../engine/range';
 import { depthValueMult } from '../strategy/depth';
+import { multFor, rakeTaxRate } from '../strategy/preflopRake';
+import { marginality } from '../strategy/preflopModel';
 import { rakeInChips, netPot, rakeMarginal } from '../engine/rake';
 import {
   handCode, handCombos, preflopStrength, RFI_RANGES, BLUFF_THREEBET_RANGE, BLUFF_THREEBET_WIDE, looksPremium, isSpeculative,
@@ -54,6 +56,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   const rake = rakeInChips(state.rake ?? 'none', state.bigBlind);
   const reqEqRaked = (potBefore: number, toCall: number) =>
     toCall > 0 ? toCall / Math.max(1, netPot(rake, potBefore + toCall)) : 0;
+  const reqEqRaw = (potBefore: number, toCall: number) => (toCall > 0 ? toCall / Math.max(1, potBefore + toCall) : 0);
   // Deterministic per-decision RNG. Seeded from the hand's seed + how many
   // actions have happened this hand + the acting seat, so replaying the SAME
   // hand (same hero line) reproduces the bots' EXACT decisions instead of
@@ -187,6 +190,16 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     // A straddle is a blind, not a raise: measure against the effective blind or every
     // straddled pot reads as "facing a raise" and the bots play 3-bet ranges into it.
     const facingRaise = state.currentBet > effectiveBigBlind(state);
+    // Rake: the trainer's own per-action shade (preflopRake.ts) — a call is raked in full, a
+    // raise only on its called branch, a fold never. Premiums are exempt, as in the charts' taper.
+    const rakeTax = PREMIUMS.has(code) ? 0 : rakeTaxRate(state.rake, (pot + la.callAmount) / state.bigBlind);
+    const rakeMultiway = facingRaise && liveOpponents >= 2;
+    const callKeep = multFor('call', rakeTax, marginality(code), rakeMultiway);
+    const raiseKeep = multFor('raise', rakeTax, marginality(code), rakeMultiway);
+    // Draws only when shaded, so rake 'none' consumes the identical RNG stream.
+    const survives = (keep: number) => keep >= 1 || r() < keep;
+    // A shaded-out flat turns into a raise at the raise's fold-equity relief over the call.
+    const flatToRaise = () => r() < raiseKeep - callKeep;
 
     // ---- easy = raw beginner preflop ----
     // A real fish limps in with everything, raises only when the cards "look
@@ -245,7 +258,10 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         // A limper archetype limps whatever it doesn't "see" as premium; behind limpers,
         // speculative hands over-limp for a cheap multiway flop instead of isolating.
         const overLimp = limpers > 0 && isSpeculative(code) ? 0.5 * (1 - profile.aggression) : 0;
-        if (!looksPremium(code) && r() < Math.max(profile.limp ?? 0, overLimp)) return { type: 'call' };
+        if (!looksPremium(code) && r() < Math.max(profile.limp ?? 0, overLimp)) {
+          if (survives(callKeep)) return { type: 'call' };
+          if (!flatToRaise()) return { type: 'fold' };
+        } else if (!survives(raiseKeep)) return { type: 'fold' };
         // Open SIZE scales with DEPTH, not just the board (openSizing.ts). Deep
         // stacks build the pot (~2.5–3bb), but as the tournament clock lifts the
         // blinds the effective stack shrinks and a fat 3–4bb open over-commits — so
@@ -338,7 +354,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       // 4-bet BLUFF: suited wheel aces block AA/AK — a thin, blocker-only bluff so the
       // 4-bet range isn't pure value (was AA/KK/AK only, trivially read).
       if ((code === 'A5s' || code === 'A4s' || code === 'A3s') && la.canRaise && r() < profile.bluffFreq * 0.35 * fourBetBluffTilt)
-        return fourBetSize();
+        return survives(raiseKeep) ? fourBetSize() : { type: 'fold' };
       // Continue the top share of the bot's OWN entering range (see vs3BetContinueShare).
       // A 3-bet jam is called only by the top of that; small pairs set-mine only with depth.
       const ownChart = rfiChart.size ? rfiChart : RFI_RANGES.SB;
@@ -349,8 +365,12 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       if (continues) {
         // light 4-bets: a maniac's 4-bet range is not AA/KK
         const fourBetLight = profile.aggression > 0.8 ? (profile.aggression - 0.7) * 0.8 : profile.bluffFreq * 0.12;
-        if (la.canRaise && !la.isAllInCall && r() < fourBetLight * fourBetBluffTilt) return fourBetSize();
-        if (la.callAmount > 0) return { type: 'call' };
+        const canFourBetLight = la.canRaise && !la.isAllInCall;
+        if (canFourBetLight && r() < fourBetLight * fourBetBluffTilt) return survives(raiseKeep) ? fourBetSize() : { type: 'fold' };
+        if (la.callAmount > 0) {
+          if (survives(callKeep)) return { type: 'call' };
+          return canFourBetLight && fourBetLight > 0 && flatToRaise() ? fourBetSize() : { type: 'fold' };
+        }
       }
       return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
     }
@@ -375,7 +395,8 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     const openerPos = raiser >= 0 ? sixMaxRfiEquivalent(positionLabel(raiser, state.buttonIndex, nP), nP) : null;
     const openerChart = RFI_RANGES[openerPos && openerPos !== 'BB' ? openerPos : 'CO'];
     const openerShare = [...openerChart].reduce((n, c) => n + handCombos(c), 0) / 1326;
-    const plan = vsOpenPlan(profile, defendSeat, openerShare, reqEqRaked(pot, la.callAmount));
+    // Rake-free price: the rake reaches this node through callKeep/raiseKeep, not twice.
+    const plan = vsOpenPlan(profile, defendSeat, openerShare, reqEqRaw(pot, la.callAmount));
     const threeBetShare = plan.threeBet * threeBetTilt;
     // Polar 3-bet: ~⅔ value from the top (10% trap-flat), ~⅓ bluffs — 60% of the bluff
     // mass from the blocker rung (~2.4% of hands), the rest from the wide rung (~6%).
@@ -387,9 +408,14 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       : BLUFF_THREEBET_WIDE.has(code)
         ? Math.min(1, (bluffShare - blockerFreq * 0.024) / 0.06)
         : 0;
-    if (la.canRaise && r() < Math.max(soft(valueShare) * 0.9, bluffFreq)) return threeBetSize();
+    const threeBetFreq = Math.max(soft(valueShare) * 0.9, bluffFreq);
+    if (la.canRaise && r() < threeBetFreq) return survives(raiseKeep) ? threeBetSize() : { type: 'fold' };
     // Bluffs take their share of `cont` from below the flat range, so the flat cut is lower.
-    if (r() < soft(plan.cont - bluffShare)) return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
+    if (r() < soft(plan.cont - bluffShare)) {
+      if (la.callAmount === 0) return { type: 'check' };
+      if (survives(callKeep)) return { type: 'call' };
+      return la.canRaise && threeBetFreq > 0 && flatToRaise() ? threeBetSize() : { type: 'fold' };
+    }
     return { type: 'fold' };
   }
 
@@ -493,6 +519,32 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   }
   const isRiver = state.street === 'river';
 
+  // RANGE RESPECT. The equity read above narrows villain's range by THIS street's bet only,
+  // so a hand that faced a flop bet, a turn barrel and a river bet still measured itself
+  // against something close to his preflop range — every bot read as a calling station
+  // (folded ~25% to c-bets, reached showdown ~50% of flops). Each earlier street he bet and a
+  // raise of our own bet make his range far stronger than modelled; `respect` is how much an
+  // archetype believes that line — a nit nearly fully, a station almost not at all, and a
+  // maniac (who assumes everyone bluffs like him) less than a TAG.
+  const respect = Math.pow(1 - profile.callStation, 1.5) * (1.3 - 0.6 * profile.aggression);
+  const streetIdx = ['flop', 'turn', 'river'].indexOf(state.street);
+  const bettorId = state.lastAggressor >= 0 ? state.players[state.lastAggressor].id : -1;
+  const priorBarrels = new Set(
+    state.log
+      .filter(
+        (l) =>
+          l.handNumber === state.handNumber &&
+          l.playerId === bettorId &&
+          (l.type === 'bet' || l.type === 'raise') &&
+          ['flop', 'turn', 'river'].indexOf(l.street) >= 0 &&
+          ['flop', 'turn', 'river'].indexOf(l.street) < streetIdx,
+      )
+      .map((l) => l.street),
+  ).size;
+  const myBetRaised = la.callAmount > 0 && p.committed > 0;
+  // a raise of our own bet scares a nit off far more than a maniac, who assumes it's a bluff
+  const lineStrength = 0.14 + 0.06 * priorBarrels + (myBetRaised ? 0.22 * (2 - 1.6 * profile.aggression) : 0);
+
   // Board-texture sizing (realism): bet small on dry/static boards, big on
   // wet/draw-heavy ones, instead of one fixed fraction regardless of board.
   // `textureMult` scales the role fraction (value / c-bet / bluff), so intent is
@@ -562,7 +614,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         ? Math.min(0.12, (behindBB / Math.max(1, potBB)) * 0.05) * drawNutMult(p.holeCards, state.board)
         : 0;
     // decide on REALISED equity (+ implied odds) vs the price, not raw equity
-    const margin = eqR - reqEqRaked(pot, la.callAmount) + impliedCredit;
+    const margin = eqR - reqEqRaked(pot, la.callAmount) + impliedCredit - respect * lineStrength;
 
     // value raise with strong hands — but sometimes just flat to trap (slowplay)
     if (equity > 0.72 && la.canRaise && r() < profile.aggression * 0.7 * mood) {
@@ -583,6 +635,33 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       // commit only on a strong draw (decent equity when called); weak draws size down
       return sizeTo(tFrac(0.8), false, { willCommit: equity > 0.5 });
     }
+    // pure bluff-RAISE — the aggressive archetypes' weapon (a nit almost never; a maniac often).
+    // Air with blockers, heads-up, not into a big bet. Re-raising a raise of our own bet is a
+    // separate, rarer move that only the most aggressive archetypes make (a maniac ~19%).
+    const bluffRaiseP = myBetRaised
+      ? Math.max(0, profile.aggression - 0.75) * profile.bluffFreq * 1.2
+      : profile.bluffFreq * Math.max(0, profile.aggression - 0.5) * 0.35;
+    if (
+      !bigBet &&
+      heads &&
+      equity < 0.3 &&
+      la.canRaise &&
+      r() < bluffRaiseP * mood * bluffTilt * blockerMult * (isRiver ? riverBluffTilt : 1)
+    ) {
+      return sizeTo(tFrac(0.8), false);
+    }
+    // FLOAT: an aggressive player calls a flop/turn bet in position with little, planning to
+    // take the pot away later (the barrel/bluff branches above fire when it checks to him).
+    if (
+      !bigBet &&
+      heads &&
+      inPosition &&
+      cardsToCome &&
+      !myBetRaised &&
+      r() < Math.max(0, profile.aggression - 0.55) * profile.bluffFreq * 1.4 * mood
+    ) {
+      return { type: 'call' };
+    }
     // vs a shove / overbet: only continue with a clear edge. Marginal made hands
     // and draws fold — so a hero who jams has fold equity and isn't auto-called.
     if (bigBet) {
@@ -598,7 +677,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     const callProb = 1 / (1 + Math.exp(-(margin + callWiden + 0.02) / diff.temp));
     if (r() < callProb) return { type: 'call' };
     // calling stations call light even below the line
-    if (r() < profile.callStation * 0.5 && reqEqRaked(pot, la.callAmount) < 0.4) return { type: 'call' };
+    if (r() < Math.max(0, profile.callStation - 0.3) * 0.6 && eqR > 0.15 && reqEqRaked(pot, la.callAmount) < 0.4) return { type: 'call' };
     return { type: 'fold' };
   }
 
@@ -658,7 +737,8 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // who over/under-folds flop c-bets. Size mirrors the value bet (no size tell), or
   // sizes up when the hero overfolds big bets (preferBigBluff).
   if (wasAggressor) {
-    const streetMult = state.street === 'flop' ? 1 : state.street === 'turn' ? 0.55 : 0.4;
+    // turn/river barrels scale with aggression: a maniac keeps firing, a nit gives up
+    const streetMult = state.street === 'flop' ? 1 : state.street === 'turn' ? 0.25 + 0.55 * profile.aggression : 0.15 + 0.45 * profile.aggression;
     const canBarrel = state.street === 'flop' || eqR > 0.32;
     if (canBarrel && r() < profile.cbetFreq * streetMult * mood * bluffTilt * blockerMult * fieldFold * cbetTilt) {
       return sizeTo(tFrac(preferBigBluff ? Math.min(1.1, polarBase + 0.25) : polarBase), true, { willCommit: equity > 0.78 });
@@ -697,6 +777,8 @@ export function inPositionPostflop(state: GameState, seat: number): boolean {
   const heroOrder = orderIdx(seat);
   return state.players.every((q) => q.folded || q.id === seat || orderIdx(q.id) < heroOrder);
 }
+
+const PREMIUMS = new Set(['AA', 'KK', 'QQ', 'AKs', 'AKo']);
 
 /** Preflop raises made so far this hand (the open counts as the 1st raise), so a
  *  re-raise facing 2+ is a 4-bet. */

@@ -188,11 +188,14 @@ export interface RiverInput {
   /** May villain BET when hero checks (default true)? Off = a check goes straight to
    *  showdown, which hands hero every checked pot for free (see STAB_FRAC). */
   villainMayStab?: boolean;
+  /** May hero CHECK-RAISE villain's bet into his check (default true)? Off = hero only folds
+   *  or calls it, so villain's bluffs into a check can never be punished. */
+  heroMayCheckRaise?: boolean;
 }
 
 /** Villain's bet size when checked to, as a pot fraction. One size (the ¾-pot reference the
- *  node lock is quoted at); hero answers fold or call — no check-raise, the same one-decision
- *  depth as the raise branch. Without it the hero-first tree had no villain bet after a check,
+ *  node lock is quoted at); hero answers fold, call or check-raise (villain's raise formula),
+ *  and villain then folds or calls — no re-raise, the same depth as the bet-raise branch. Without it the hero-first tree had no villain bet after a check,
  *  so OOP hero kept every checked pot to showdown and every nested street skewed hero-ward. */
 export const STAB_FRAC = 0.75;
 
@@ -233,8 +236,15 @@ export interface RiverResult {
   stabSize?: number;
   /** villain's [check, bet] after hero checks, per villain combo */
   villainStabStrategy?: number[][];
-  /** hero's [fold, call] facing that bet, per hero combo — the check-call / check-fold call */
+  /** hero's [fold, call] — or [fold, call, check-raise] — facing that bet, per hero combo */
   heroStabResponse?: number[][];
+  /** hero's check-raise total in chips (0 = no check-raise branch) */
+  checkRaiseTo?: number;
+  /** villain's [fold, call] facing hero's check-raise, per villain combo */
+  villainCheckRaiseResponse?: number[][];
+  /** range-averaged: hero's check-raise freq facing the stab, villain's fold-to-it freq */
+  heroCheckRaiseFreq?: number;
+  villainFoldToCheckRaiseFreq?: number;
   /** range-averaged: villain's bet-when-checked-to freq, hero's fold-to-it freq */
   villainStabFreq?: number;
   heroFoldToStabFreq?: number;
@@ -298,6 +308,9 @@ export function solveRiver(inp: RiverInput): RiverResult {
   const nVillActions = canRaise.map((r) => (r ? 3 : 2));
   const stab = inp.villainMayStab !== false ? Math.min(inp.effStack, Math.round(STAB_FRAC * P)) : 0;
   const canStab = stab > 0;
+  const crTo = canStab && inp.heroMayCheckRaise !== false ? villainRaiseSizes(P, inp.effStack, [stab])[0] : 0;
+  const canCR = crTo > stab;
+  const nHC = canCR ? 3 : 2;
 
   // Regret + strategy-sum tables.
   const regretH = Array.from({ length: nH }, () => new Array(nHeroActions).fill(0));
@@ -311,8 +324,11 @@ export function solveRiver(inp: RiverInput): RiverResult {
   // after hero checks: villain [check, bet] per villain combo, hero [fold, call] per hero combo
   const regretVC = Array.from({ length: nV }, () => [0, 0]);
   const stratSumVC = Array.from({ length: nV }, () => [0, 0]);
-  const regretHC = Array.from({ length: nH }, () => [0, 0]);
-  const stratSumHC = Array.from({ length: nH }, () => [0, 0]);
+  const regretHC = Array.from({ length: nH }, () => new Array(nHC).fill(0));
+  const stratSumHC = Array.from({ length: nH }, () => new Array(nHC).fill(0));
+  // villain faces hero's check-raise: [fold, call] per villain combo
+  const regretVCR = Array.from({ length: nV }, () => [0, 0]);
+  const stratSumVCR = Array.from({ length: nV }, () => [0, 0]);
 
   // Payoff tables indexed by showdown sign + 1 (0 = villain wins, 1 = tie, 2 = hero wins),
   // one row per bet size, so the innermost CFR lines index instead of calling. Rake comes
@@ -338,9 +354,20 @@ export function solveRiver(inp: RiverInput): RiverResult {
   const villPayStab = villPayAt(stab);
   const villPayCheck = villPayAt(0);
   const villStabFoldWin = P - rakeOn(rake, P + stab);
+  // ...and the check-raise: villain folding forfeits his stab, calling is a showdown at crTo.
+  const heroPayCR = heroPayAt(crTo);
+  const villPayCR = villPayAt(crTo);
+  const heroCRFoldWin = P + stab - rakeOn(rake, P + stab + crTo);
+  const heroCRValue = (sgn: number, vcr: number[]) => vcr[0] * heroCRFoldWin + vcr[1] * heroPayCR[sgn];
+  const villCRValue = (sgn: number, vcr: number[]) => -vcr[0] * stab + vcr[1] * villPayCR[sgn];
+  // hero's value once villain has stabbed, given hero's [fold, call(, raise)] answer
+  const heroStabValue = (sgn: number, hc: number[], vcr: number[]) =>
+    hc[1] * heroPayStab[sgn] + (canCR ? hc[2] * heroCRValue(sgn, vcr) : 0);
+  const villStabValue = (sgn: number, hc: number[], vcr: number[]) =>
+    hc[0] * villStabFoldWin + hc[1] * villPayStab[sgn] + (canCR ? hc[2] * villCRValue(sgn, vcr) : 0);
   // hero's check value vs villain j, given villain's after-check mix and hero's stab answer
-  const checkValue = (sgn: number, vc: number[], hc: number[]) =>
-    vc[0] * heroPayCheck[sgn] + (canStab ? vc[1] * hc[1] * heroPayStab[sgn] : 0);
+  const checkValue = (sgn: number, vc: number[], hc: number[], vcr: number[]) =>
+    vc[0] * heroPayCheck[sgn] + (canStab ? vc[1] * heroStabValue(sgn, hc, vcr) : 0);
 
   // NODE LOCK: villain's strategy is fixed up front and never updated, so hero's
   // regret update below converges to a BEST RESPONSE to the read rather than to an
@@ -370,24 +397,50 @@ export function solveRiver(inp: RiverInput): RiverResult {
     const hStrat2 = regretH2.map((rows) => rows.map(strategyFromRegret));
     const vcStrat = canStab ? regretVC.map(strategyFromRegret) : null;
     const hcStrat = canStab ? regretHC.map(strategyFromRegret) : null;
+    const vcrStrat = regretVCR.map(strategyFromRegret);
 
-    // --- The check line: villain bets or checks back, hero folds or calls the bet. Solved
-    // even under a node lock — the lock pins his answer to hero's BET, not his own betting.
+    // --- The check line: villain bets or checks back, hero folds, calls or check-raises, and
+    // villain folds or calls the check-raise. Solved even under a node lock — the lock pins his
+    // answer to hero's BET, not his own betting.
     if (vcStrat && hcStrat) {
       for (let i = 0; i < nH; i++) {
         let aCall = 0;
+        let aRaise = 0;
         for (let j = 0; j < nV; j++) {
           if (!valid[i][j]) continue;
-          aCall += V[j].w * vcStrat[j][1] * heroPayStab[cmp[i][j] + 1];
+          const reach = V[j].w * vcStrat[j][1];
+          if (reach === 0) continue;
+          const sgn = cmp[i][j] + 1;
+          aCall += reach * heroPayStab[sgn];
+          if (canCR) aRaise += reach * heroCRValue(sgn, vcrStrat[j]);
         }
         const st = hcStrat[i];
-        const node = st[1] * aCall; // folding a bet costs nothing more: value 0
+        const node = st[1] * aCall + (canCR ? st[2] * aRaise : 0); // folding costs nothing more
         const cf = H[i].w;
         regretHC[i][0] += cf * (0 - node);
         regretHC[i][1] += cf * (aCall - node);
-        stratSumHC[i][0] += cf * st[0];
-        stratSumHC[i][1] += cf * st[1];
+        if (canCR) regretHC[i][2] += cf * (aRaise - node);
+        for (let a = 0; a < nHC; a++) stratSumHC[i][a] += cf * st[a];
       }
+      if (canCR)
+        for (let j = 0; j < nV; j++) {
+          let vFold = 0;
+          let vCall = 0;
+          for (let i = 0; i < nH; i++) {
+            if (!valid[i][j]) continue;
+            const reach = H[i].w * hStrat[i][0] * hcStrat[i][2];
+            if (reach === 0) continue;
+            vFold -= reach * stab;
+            vCall += reach * villPayCR[cmp[i][j] + 1];
+          }
+          const st = vcrStrat[j];
+          const node = st[0] * vFold + st[1] * vCall;
+          const cf = V[j].w;
+          regretVCR[j][0] += cf * (vFold - node);
+          regretVCR[j][1] += cf * (vCall - node);
+          stratSumVCR[j][0] += cf * vcStrat[j][1] * st[0];
+          stratSumVCR[j][1] += cf * vcStrat[j][1] * st[1];
+        }
       for (let j = 0; j < nV; j++) {
         let vCheck = 0;
         let vBet = 0;
@@ -397,7 +450,7 @@ export function solveRiver(inp: RiverInput): RiverResult {
           if (reach === 0) continue;
           const sgn = cmp[i][j] + 1;
           vCheck += reach * villPayCheck[sgn];
-          vBet += reach * (hcStrat[i][0] * villStabFoldWin + hcStrat[i][1] * villPayStab[sgn]);
+          vBet += reach * villStabValue(sgn, hcStrat[i], vcrStrat[j]);
         }
         const st = vcStrat[j];
         const node = st[0] * vCheck + st[1] * vBet;
@@ -480,7 +533,7 @@ export function solveRiver(inp: RiverInput): RiverResult {
       let vCheck = 0;
       for (let j = 0; j < nV; j++) {
         if (!valid[i][j]) continue;
-        vCheck += V[j].w * (vcStrat && hcStrat ? checkValue(cmp[i][j] + 1, vcStrat[j], hcStrat[i]) : heroPayCheck[cmp[i][j] + 1]);
+        vCheck += V[j].w * (vcStrat && hcStrat ? checkValue(cmp[i][j] + 1, vcStrat[j], hcStrat[i], vcrStrat[j]) : heroPayCheck[cmp[i][j] + 1]);
       }
       av[0] = vCheck;
       // bet_s → villain folds (hero wins P), calls (showdown at b), or RAISES (hero then
@@ -564,12 +617,13 @@ export function solveRiver(inp: RiverInput): RiverResult {
     }),
   );
   const avg2 = (c: number[]) => {
-    const t = c[0] + c[1];
-    return t > 0 ? [c[0] / t, c[1] / t] : [0.5, 0.5];
+    const t = c.reduce((a, v) => a + v, 0);
+    return t > 0 ? c.map((v) => v / t) : c.map(() => 1 / c.length);
   };
   const vcFinal = stratSumVC.map(avg2);
   const hcFinal = stratSumHC.map(avg2);
-  const NO_STAB = [1, 0];
+  const vcrFinal = stratSumVCR.map(avg2);
+  const NO_STAB = [1, 0, 0];
   const vcAt = (j: number) => (canStab ? vcFinal[j] : NO_STAB);
   const hcAt = (i: number) => (canStab ? hcFinal[i] : NO_STAB);
 
@@ -583,7 +637,7 @@ export function solveRiver(inp: RiverInput): RiverResult {
     for (let j = 0; j < nV; j++) if (valid[i][j]) vw += V[j].w;
     const inv = vw > 0 ? 1 / vw : 0;
     let vCheck = 0;
-    for (let j = 0; j < nV; j++) if (valid[i][j]) vCheck += V[j].w * checkValue(cmp[i][j] + 1, vcAt(j), hcAt(i));
+    for (let j = 0; j < nV; j++) if (valid[i][j]) vCheck += V[j].w * checkValue(cmp[i][j] + 1, vcAt(j), hcAt(i), vcrFinal[j]);
     av[0] = vCheck * inv;
     for (let s = 0; s < nSizes; s++) {
       const hpay = heroPayBet[s];
@@ -612,7 +666,7 @@ export function solveRiver(inp: RiverInput): RiverResult {
       for (let j = 0; j < nV; j++) {
         if (!valid[i][j]) continue;
         const sgn = cmp[i][j] + 1;
-        let v = hs[0].freq * checkValue(sgn, vcAt(j), hcAt(i));
+        let v = hs[0].freq * checkValue(sgn, vcAt(j), hcAt(i), vcrFinal[j]);
         for (let s = 0; s < nSizes; s++) {
           const vs = vStratFinal[s][j];
           const h2 = hStrat2Final[s][i];
@@ -666,6 +720,10 @@ export function solveRiver(inp: RiverInput): RiverResult {
     heroStabResponse: canStab ? hcFinal : undefined,
     villainStabFreq: canStab ? V.reduce((a, c, j) => a + c.w * vcFinal[j][1], 0) / wSum(vWeights) : 0,
     heroFoldToStabFreq: canStab ? H.reduce((a, c, i) => a + c.w * hcFinal[i][0], 0) / wSum(H.map((c) => c.w)) : 0,
+    checkRaiseTo: canCR ? crTo : 0,
+    villainCheckRaiseResponse: canCR ? vcrFinal : undefined,
+    heroCheckRaiseFreq: canCR ? H.reduce((a, c, i) => a + c.w * hcFinal[i][2], 0) / wSum(H.map((c) => c.w)) : 0,
+    villainFoldToCheckRaiseFreq: canCR ? V.reduce((a, c, j) => a + c.w * vcrFinal[j][0], 0) / wSum(vWeights) : 0,
   };
 }
 

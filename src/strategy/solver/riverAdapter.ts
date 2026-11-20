@@ -6,7 +6,8 @@
 
 import type { Card } from '../../engine/cards';
 import { sameCard, SUIT_SYMBOLS } from '../../engine/cards';
-import { evaluate7 } from '../../engine/evaluator';
+import { evaluate7, HAND_CATEGORIES } from '../../engine/evaluator';
+import { countOuts } from '../../engine/equity';
 import type { WeightedRange } from '../../engine/range';
 import { codeToCombos } from '../../engine/range';
 import type { NodeStrategy, ActionOption } from '../types';
@@ -171,6 +172,124 @@ function riverReasons(
   return { notes, why, sizeNote };
 }
 
+/** Plain-English reasons for a hero-first TURN or FLOP CFR node. Cards are still to come, so
+ *  the frame is not the river's value-or-bluff: equity is live. A made hand bets to charge the
+ *  draws a free card would help, a draw semi-bluffs (it wins now by folds or later by
+ *  improving), a medium hand controls the pot, and air gives up or bluffs on fold equity.
+ *  Built only from what the solve knows: hero's equity over the runouts, villain's continue
+ *  frequency per size, and his bet-into-a-check frequency. */
+function streetReasons(
+  street: 'turn' | 'flop',
+  grid: BetSizeGrid,
+  equity: number,
+  villainContinueFreq: number[],
+  pot: number,
+  bb: number,
+  bestIsCheck: boolean,
+  stabFreq = 0,
+  drawOuts = 0,
+): { notes: string[]; why: Record<string, string> } {
+  const eqPct = Math.round(Math.max(0, Math.min(1, equity)) * 100);
+  // A real draw (straight/flush outs) is a semi-bluff even at a coin-flip equity; without
+  // outs the same equity is a medium or weak made hand, which plays for pot control.
+  const isDraw = (drawOuts >= 8 && equity < 0.65) || (drawOuts >= 4 && equity >= 0.2 && equity < 0.45);
+  const tier = isDraw ? 'draw' : equity >= 0.6 ? 'value' : equity >= 0.45 ? 'medium' : equity >= 0.25 ? 'weak' : 'air';
+  const outsTxt = drawOuts > 0 ? ` with ${drawOuts} outs` : '';
+  const stabPct = Math.round(stabFreq * 100);
+  const trap = tier === 'value' && bestIsCheck && stabFreq >= 0.2;
+  const next = street === 'flop' ? 'the turn' : 'the river';
+  const foldOf = (s: number) => Math.round((1 - Math.max(0, Math.min(1, villainContinueFreq[s] ?? 0))) * 100);
+  const potBB = pot / bb;
+  const why: Record<string, string> = {};
+
+  why.check = trap
+    ? `Trap: checking your ~${eqPct}% induces — he bets ~${stabPct}% when checked to, and calling (or check-raising) those bets earns more than betting into the hands that would call.`
+    : tier === 'value'
+      ? `Checking your ~${eqPct}% gives his draws a free look at ${next} and leaves value behind — you only get paid now if he bets into you.`
+      : tier === 'medium'
+        ? `A medium hand (~${eqPct}%): checking keeps the pot small and his bluffs in. If he bets (~${stabPct}% of the time), it's a price decision, not an auto-call.`
+        : tier === 'draw'
+          ? bestIsCheck
+            ? `Your ~${eqPct}%${outsTxt} is live: checking sees ${next} free when he checks back (~${100 - stabPct}%), and if he bets you continue only at a price your outs justify.`
+            : `Checking keeps your ~${eqPct}%${outsTxt}, but it gives up fold equity — a draw that bets wins now by folds or later by improving.`
+          : tier === 'weak'
+            ? bestIsCheck
+              ? `Some showdown value (~${eqPct}%), no real draw: check and see ${next}; against a bet it is a price call at best.`
+              : `Checking keeps a little showdown value (~${eqPct}%), but the solver bets because he folds often enough.`
+          : bestIsCheck
+            ? `Gives up — ~${eqPct}% has too little equity to call a bet and not enough fold equity to bluff here.`
+            : `Checking ~${eqPct}% concedes the pot unless ${next} helps; the solver prefers to bluff because he folds enough.`;
+
+  grid.fracs.forEach((frac, s) => {
+    const id = grid.ids[s];
+    const be = Math.round((frac / (1 + frac)) * 100);
+    const betBB = (frac * pot) / bb;
+    why[id] =
+      tier === 'value'
+        ? `Value + protection (${grid.fracLabels[s]}): you're ~${eqPct}% and he continues ~${100 - foldOf(s)}% — charge his draws now instead of handing them a free card.`
+        : tier === 'medium'
+          ? `Betting a medium hand (${grid.fracLabels[s]}) folds out the worse hands you beat and gets called mostly by better — a thin line; it needs him to continue with worse often.`
+          : tier === 'draw'
+            ? `Semi-bluff (${grid.fracLabels[s]}): he folds ~${foldOf(s)}%, and when he calls your ~${eqPct}%${outsTxt} still wins often enough on ${next} — two ways to win.`
+            : tier === 'weak'
+              ? `Betting ~${eqPct}% (${grid.fracLabels[s]}) gets called mostly by better and folds out worse — only worth it as a bluff, and he folds ~${foldOf(s)}% here.`
+              : `Bluff (${grid.fracLabels[s]}): risk ${betBB.toFixed(1)}bb to win ${potBB.toFixed(1)}bb, so he must fold >${be}%; here he folds ~${foldOf(s)}%, and with ~${eqPct}% you have little to fall back on when called.`;
+  });
+
+  const tierNote =
+    tier === 'value'
+      ? trap
+        ? `Your ~${eqPct}% is strong enough to trap: he bets into a check often, so checking lets him do the betting.`
+        : `Your ~${eqPct}% is well ahead of his range — bet to get value and deny equity to draws.`
+      : tier === 'medium'
+        ? `Your ~${eqPct}% is a medium hand — ahead of his bluffs, behind his value. Pot control beats building a pot you can't stand a raise in.`
+        : tier === 'draw'
+          ? `Your ~${eqPct}%${outsTxt} is a drawing hand — it can semi-bluff (fold equity + outs) or take a cheap card. Betting is best with good outs and fold equity.`
+          : tier === 'weak'
+            ? `Your ~${eqPct}% is a weak made hand or overcards — some showdown value but no strong draw, so it is check-heavy.`
+          : `Your ~${eqPct}% is near the bottom of your range — bluff only where he folds enough, otherwise give up.`;
+  const notes = [
+    `${street === 'flop' ? 'Flop' : 'Turn'}, range vs range — cards still to come, so equity is live: made hands charge draws, draws semi-bluff, medium hands control the pot.`,
+    tierNote,
+    stabFreq >= 0.05 ? `If you check he bets ~${stabPct}% of the time — the check line includes that decision.` : '',
+  ].filter(Boolean);
+  return { notes, why };
+}
+
+/** Outs to a straight or better — the draws that justify a semi-bluff. */
+function drawOuts(hero: [Card, Card], board: Card[]): number {
+  return countOuts(hero, board).byCategory.filter((g) => HAND_CATEGORIES.indexOf(g.category) >= 4).reduce((n, g) => n + g.cards.length, 0);
+}
+
+/** Hero's equity (win + ½ tie) vs villain's weighted combos over every remaining runout. */
+function runoutEquity(hero: [Card, Card], villain: Combo[], board: Card[]): number {
+  const dead = [...hero, ...board];
+  const deck: Card[] = [];
+  for (let rank = 2; rank <= 14; rank++)
+    for (let suit = 0; suit < 4; suit++) if (!dead.some((c) => c.rank === rank && c.suit === suit)) deck.push({ rank, suit } as Card);
+  const runouts: Card[][] =
+    board.length === 4 ? deck.map((c) => [c]) : deck.flatMap((a, i) => deck.slice(i + 1).map((b) => [a, b]));
+  let won = 0;
+  let w = 0;
+  for (const v of villain) {
+    if (v.cards.some((c) => sameCard(c, hero[0]) || sameCard(c, hero[1]))) continue;
+    let vw = 0;
+    let vn = 0;
+    for (const r of runouts) {
+      if (r.some((c) => sameCard(c, v.cards[0]) || sameCard(c, v.cards[1]))) continue;
+      const full = [...board, ...r];
+      const a = evaluate7([...hero, ...full]).score;
+      const b = evaluate7([...v.cards, ...full]).score;
+      vw += a > b ? 1 : a === b ? 0.5 : 0;
+      vn++;
+    }
+    if (vn === 0) continue;
+    won += v.w * (vw / vn);
+    w += v.w;
+  }
+  return w > 0 ? won / w : 0.5;
+}
+
 /** Hero's exact river showdown equity (win + ½ tie) vs villain's weighted combos. */
 function riverShowdownEquity(hero: [Card, Card], villain: Combo[], board: Card[]): number {
   const mine = evaluate7([...hero, ...board]).score;
@@ -328,7 +447,13 @@ function stabNote(
   const resp = res.heroStabResponse?.[heroIdx];
   if (bet < 0.02 || !resp) return undefined;
   const fold = Math.round(resp[0] * 100);
-  const plan = fold >= 65 ? 'plan to fold' : fold <= 35 ? 'plan to call' : `a fold/call mix (~${fold}% fold)`;
+  const raise = Math.round((resp[2] ?? 0) * 100);
+  const plan =
+    raise >= 65 ? 'plan to check-raise'
+    : fold >= 65 ? 'plan to fold'
+    : raise >= 20 ? `mostly continue, check-raising ~${raise}%`
+    : fold <= 35 ? 'plan to call'
+    : `a fold/call mix (~${fold}% fold)`;
   return `If you check he bets ~${Math.round(bet * 100)}% of the time — ${plan} with this hand.`;
 }
 
@@ -351,6 +476,7 @@ function heroFirstNodeStrategy(
   bigBlind: number,
   noteText: string,
   riverEquity?: number,
+  street?: { name: 'turn' | 'flop'; equity: number },
 ): NodeStrategy | null {
   const idx = heroCombos.findIndex(
     (c) => sameCard(c.cards[0], heroActual[0]) && sameCard(c.cards[1], heroActual[1]),
@@ -387,8 +513,7 @@ function heroFirstNodeStrategy(
   // River-only: attach solve-grounded per-line reasons + a bulleted overview so the
   // Explain panel has something to show (the CFR path sets no `why`/`notes` itself).
   // The equity is computed exactly by the caller — the check EV no longer equals pot ×
-  // equity once villain may bet into a check. Skipped on the turn: turn reasons would need
-  // protection/runout wording this doesn't have.
+  // equity once villain may bet into a check. Turn/flop get their own runout-aware wording.
   let notes: string[] | undefined;
   const continueFreq = res.villainContinueFreq ?? res.villainCallFreq;
   if (riverEquity != null && continueFreq) {
@@ -398,6 +523,10 @@ function heroFirstNodeStrategy(
       // keep the bet-fold plan already attached above — append, never overwrite
       if (r.sizeNote[o.id]) o.sizeNote = [r.sizeNote[o.id], o.sizeNote].filter(Boolean).join(' ');
     }
+    notes = [...r.notes, noteText];
+  } else if (street && continueFreq) {
+    const r = streetReasons(street.name, grid, street.equity, continueFreq, pot, bigBlind, best.id === 'check', res.villainStabFreq, drawOuts(heroActual, board));
+    for (const o of options) if (r.why[o.id]) o.why = r.why[o.id];
     notes = [...r.notes, noteText];
   }
 
@@ -412,6 +541,28 @@ function heroFirstNodeStrategy(
   };
 }
 
+/** One solve answers every hero combo, so a recompute of the same spot — above all the
+ *  unlocked baseline re-solved each time a read changes — is served from here. Small LRU:
+ *  a turn/flop solve costs seconds, a stale entry only memory. */
+const SOLVE_CACHE_MAX = 8;
+const solveCache = new Map<string, unknown>();
+function cachedSolve<T>(key: string, solve: () => T): T {
+  const hit = solveCache.get(key);
+  if (hit !== undefined) {
+    solveCache.delete(key);
+    solveCache.set(key, hit);
+    return hit as T;
+  }
+  const res = solve();
+  solveCache.set(key, res);
+  if (solveCache.size > SOLVE_CACHE_MAX) solveCache.delete(solveCache.keys().next().value!);
+  return res;
+}
+const comboKey = (cs: Combo[]) => cs.map((c) => `${c.cards[0].rank}${c.cards[0].suit}${c.cards[1].rank}${c.cards[1].suit}:${c.w.toFixed(4)}`).join(',');
+const spotKey = (street: string, h: Combo[], v: Combo[], p: RiverSolveParams) =>
+  [street, comboKey(h), comboKey(v), p.board.map((c) => `${c.rank}${c.suit}`).join(''), p.pot, p.effStack,
+    p.villainFoldToBet ?? '-', JSON.stringify(p.rake ?? null)].join('|');
+
 /** Solve a hero-first heads-up TURN node range-vs-range (river runouts enumerated
  *  for the showdown equity) and adapt to NodeStrategy. Smaller caps than the river
  *  because the equity matrix costs O(hero × villain × 44 rivers). */
@@ -424,7 +575,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
 
   const locked = p.villainFoldToBet != null;
   const grid = betSizeGrid(p.pot, p.effStack, true);
-  const result = solveTurn({
+  const result = cachedSolve(spotKey('turn', heroCombos, villainCombos, p), () => solveTurn({
     heroRange: heroCombos,
     villainRange: villainCombos,
     board: p.board,
@@ -446,7 +597,7 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
     riverNestIterations: 140,
     villainLock: locked ? { foldToBet: p.villainFoldToBet as number } : undefined,
     rake: p.rake,
-  });
+  }));
 
   return heroFirstNodeStrategy(
     result,
@@ -466,6 +617,8 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
         `and calling ranges — a disclosed abstraction). Frequencies are the solved mix.`) +
       HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+    undefined,
+    { name: 'turn', equity: runoutEquity(heroActual, villainCombos, p.board) },
   );
 }
 
@@ -481,7 +634,7 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
   if (villainCombos.length === 0 || heroCombos.length === 0) return null;
 
   const grid = betSizeGrid(p.pot, p.effStack);
-  const result = solveFlop({
+  const result = cachedSolve(spotKey('flop', heroCombos, villainCombos, p), () => solveFlop({
     heroRange: heroCombos,
     villainRange: villainCombos,
     board: p.board,
@@ -491,7 +644,7 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
     iterations: 700,
     turnNestIterations: 220,
     rake: p.rake,
-  });
+  }));
 
   return heroFirstNodeStrategy(
     result,
@@ -506,6 +659,8 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
       `disclosed abstractions, not a solver-exact flop solve. Frequencies are the solved mix.` +
       HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
+    undefined,
+    { name: 'flop', equity: runoutEquity(heroActual, villainCombos, p.board) },
   );
 }
 
@@ -564,7 +719,7 @@ export function solveRiver3wayNode(p: Multiway3NodeParams): NodeStrategy | null 
     `${nF + 2}-way river solver — hero + one villain solved range-vs-range (CFR); the other ` +
       `${nF === 1 ? 'opponent follows' : `${nF} opponents each follow`} a fixed MDF policy ` +
       `(defends the top of its range, folds the rest). Bluffs earn less than heads-up because ` +
-      `a bet must get through ${nF + 1} players.` +
+      `a bet must get through ${nF + 1} players.` + MULTIWAY_STAB_NOTE +
       fieldReadNote(p.fieldFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
@@ -619,7 +774,7 @@ export function solveTurn3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
     `${nF + 2}-way turn solver — hero + one villain range-vs-range (CFR, river runouts ` +
       `enumerated); the other ${nF === 1 ? 'opponent follows' : `${nF} opponents each follow`} a ` +
       `fixed MDF policy and the check line nests a multiway river subgame (bucketed by texture). ` +
-      `A disclosed approximation, not full multiway CFR.` +
+      `A called bet plays the river too. A disclosed approximation, not full multiway CFR.` + MULTIWAY_STAB_NOTE +
       fieldReadNote(p.fieldFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
@@ -668,11 +823,16 @@ export function solveFlop3wayNode(p: Multiway3NodeParams): NodeStrategy | null {
       `MDF policy, and the check line nests a multiway turn subgame. A bet has to get through ` +
       `${nF + 1} players, so bluffs earn far less than heads-up and thin value bets are worse. ` +
       `Two disclosed abstractions: runouts are bucketed by texture on both streets, and the ` +
-      `nested turn does not nest its own river.` +
+      `nested turn does not nest its own river.` + MULTIWAY_STAB_NOTE +
       fieldReadNote(p.fieldFoldToBet) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
 }
+
+/** Disclosed shape of the multiway check line. */
+const MULTIWAY_STAB_NOTE =
+  ` If you check, the solved villain may bet ¾ pot (the field answers by the same MDF policy) and ` +
+  `you fold or call — no check-raise multiway, and only he bets into you.`;
 
 export interface RiverVsBetNodeParams {
   heroCards: Card[];
@@ -698,6 +858,10 @@ export interface RiverVsBetNodeParams {
   villainFoldToRaise?: number;
   /** house rake in chips. Omit for rake-free (solver-style) EV. */
   rake?: Rake;
+  /** chips behind after hero calls — > 0 nests the next street on the turn/flop call line */
+  stackAfterCall?: number;
+  /** hero is out of position on the next street (default true) */
+  heroActsFirst?: boolean;
 }
 
 /** Disclosed shape of the facing-a-bet tree: hero picks a raise size and villain can
@@ -707,7 +871,7 @@ export interface RiverVsBetNodeParams {
 const HERO_FIRST_TREE_NOTE =
   ` Villain may fold, call, or RAISE your bet (one raise size), and you answer by folding or ` +
   `calling — so a bluff is priced against being raised, not as risk-free. If you check, he may ` +
-  `bet ¾ pot and you fold or call (no check-raise) — a check is not a free showdown.`;
+  `bet ¾ pot and you fold, call or check-raise (he folds or calls) — a check is not a free showdown.`;
 
 const VS_BET_TREE_NOTE =
   ` Hero chooses between two raise sizes and a jam, and villain can re-raise any of them ` +
@@ -848,6 +1012,8 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     villainFoldToBet: p.villainFoldToBet,
     villainFoldToRaise: p.villainFoldToRaise,
     rake: p.rake,
+    stackAfterCall: p.stackAfterCall,
+    heroActsFirst: p.heroActsFirst,
   });
 
   return vsBetNodeStrategy(
@@ -859,7 +1025,8 @@ export function solveTurnVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     p.potBeforeBet,
     p.bigBlind,
     `Turn solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
-      `lines are scored on hero's equity over every river runout.` +
+      `lines are scored on hero's equity over every river runout, and a call plays out a river ` +
+      `subgame (heaviest river textures, over your calling range — a disclosed abstraction).` +
       VS_BET_TREE_NOTE +
       vsBetLockNote(p.villainFoldToBet, p.villainFoldToRaise) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
@@ -889,6 +1056,8 @@ export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     villainFoldToBet: p.villainFoldToBet,
     villainFoldToRaise: p.villainFoldToRaise,
     rake: p.rake,
+    stackAfterCall: p.stackAfterCall,
+    heroActsFirst: p.heroActsFirst,
   });
 
   return vsBetNodeStrategy(
@@ -900,8 +1069,8 @@ export function solveFlopVsBetNode(p: RiverVsBetNodeParams): NodeStrategy | null
     p.potBeforeBet,
     p.bigBlind,
     `Flop solver — range-vs-range facing a bet (fold / call / raise); the call and raise ` +
-      `lines are scored on hero's equity over every turn+river runout (a static two-street ` +
-      `showdown, no future betting on the call line).` +
+      `lines are scored on hero's equity over every turn+river runout, and a call plays out a ` +
+      `turn subgame (heaviest turn textures; the river after it is a static showdown).` +
       VS_BET_TREE_NOTE +
       vsBetLockNote(p.villainFoldToBet, p.villainFoldToRaise) +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),

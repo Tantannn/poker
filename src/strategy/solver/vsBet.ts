@@ -38,6 +38,12 @@ export interface VsBetEquityInput {
   villainFoldToRaise?: number;
   /** house rake in chips, taken off every pot a player collects. Omit for rake-free EV. */
   rake?: Rake;
+  /** Later-street value of the CALLED line per (hero, villain) matchup, on top of the static
+   *  equity showdown — from a nested next-street solve at the called pot. The raise-called and
+   *  re-raise-called lines borrow it scaled by called pot (none when all-in). Omit = static. */
+  callFuture?: Float64Array[];
+  /** chips each player still has behind after calling `bet` — decides which raise lines are all-in */
+  stackAfterCall?: number;
 }
 
 export interface VsBetResult {
@@ -107,6 +113,13 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
   // villain folds to the raise: pot is Q + b + r_k and hero's own raise comes back.
   const heroRaiseFold = R.map((rk) => Q + b - rakeOn(rake, Q + b + rk));
   const villFold = -b; // villain forfeits his bet
+  // Later streets on the called lines. Added to hero's payoff and taken off villain's (zero-sum).
+  const F = inp.callFuture;
+  const behind = inp.stackAfterCall ?? 0;
+  const futScale = (x: number) => (F && x < b + behind ? (Q + 2 * x) / (Q + 2 * b) : 0);
+  const scaleR = R.map(futScale);
+  const scaleX = X.map(futScale);
+  const fut = (i: number, j: number) => (F ? F[i][j] : 0);
 
   // hero root actions: 0 fold, 1 call, 2 + k raise at size k
   const nHeroActions = 2 + nR;
@@ -148,7 +161,7 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
             const reach = villW[j] * vS[k][j][2];
             if (reach === 0) continue;
             aFold += reach * -rk;
-            aCall += reach * (eq[i][j] * netX[k] - X[k]);
+            aCall += reach * (eq[i][j] * netX[k] - X[k] + fut(i, j) * scaleX[k]);
           }
           const st = hS3[k][i];
           const node = st[0] * aFold + st[1] * aCall;
@@ -172,9 +185,9 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
             const reach = heroW[i] * hS[i][2 + k];
             if (reach === 0) continue;
             vF += reach * villFold;
-            vC += reach * ((1 - eq[i][j]) * netR[k] - rk);
+            vC += reach * ((1 - eq[i][j]) * netR[k] - rk - fut(i, j) * scaleR[k]);
             if (has3Bet[k]) {
-              v3 += reach * (hS3[k][i][0] * VILL_3BET_FOLD + hS3[k][i][1] * ((1 - eq[i][j]) * netX[k] - X[k]));
+              v3 += reach * (hS3[k][i][0] * VILL_3BET_FOLD + hS3[k][i][1] * ((1 - eq[i][j]) * netX[k] - X[k] - fut(i, j) * scaleX[k]));
             }
           }
           const st = vS[k][j];
@@ -197,12 +210,12 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
         if (!valid[i][j]) continue;
         const w = villW[j];
         const e = eq[i][j];
-        av[1] += w * (e * netB - b);
+        av[1] += w * (e * netB - b + fut(i, j));
         for (let k = 0; k < nR; k++) {
           const vs = vS[k][j];
-          const afterRaise = vs[0] * heroRaiseFold[k] + vs[1] * (e * netR[k] - R[k]);
+          const afterRaise = vs[0] * heroRaiseFold[k] + vs[1] * (e * netR[k] - R[k] + fut(i, j) * scaleR[k]);
           const after3Bet = has3Bet[k]
-            ? vs[2] * (hS3[k][i][0] * -R[k] + hS3[k][i][1] * (e * netX[k] - X[k]))
+            ? vs[2] * (hS3[k][i][0] * -R[k] + hS3[k][i][1] * (e * netX[k] - X[k] + fut(i, j) * scaleX[k]))
             : 0;
           av[2 + k] += w * (afterRaise + after3Bet);
         }
@@ -242,13 +255,13 @@ export function solveVsBetEquity(inp: VsBetEquityInput): VsBetResult {
       const w = villW[j];
       const e = eq[i][j];
       vw += w;
-      call += w * (e * netB - b);
+      call += w * (e * netB - b + fut(i, j));
       for (let k = 0; k < nR; k++) {
         const vs = vFinal[k][j];
         const after3Bet = has3Bet[k]
-          ? vs[2] * (hFinal3[k][i][0] * -R[k] + hFinal3[k][i][1] * (e * netX[k] - X[k]))
+          ? vs[2] * (hFinal3[k][i][0] * -R[k] + hFinal3[k][i][1] * (e * netX[k] - X[k] + fut(i, j) * scaleX[k]))
           : 0;
-        raises[k] += w * (vs[0] * heroRaiseFold[k] + vs[1] * (e * netR[k] - R[k]) + after3Bet);
+        raises[k] += w * (vs[0] * heroRaiseFold[k] + vs[1] * (e * netR[k] - R[k] + fut(i, j) * scaleR[k]) + after3Bet);
       }
     }
     const inv = vw > 0 ? 1 / vw : 0;

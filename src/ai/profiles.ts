@@ -54,7 +54,7 @@ export const PROFILES: Record<string, AIProfile> = {
     callRaiseLooseness: 0.5,
     aggression: 0.85,
     bluffFreq: 0.45,
-    callStation: 0.25,
+    callStation: 0.32,
     cbetFreq: 0.8,
     tag: 'LAG',
     exploit:
