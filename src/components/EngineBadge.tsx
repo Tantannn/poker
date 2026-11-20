@@ -5,6 +5,12 @@
 import type { NodeStrategy } from '../strategy/types';
 
 export function EngineBadge({ strategy }: { strategy: NodeStrategy }) {
+  if (strategy.provisional)
+    return (
+      <span className="engine-badge heur refining" title="A fast per-hand estimate shown while the range-vs-range solve runs — it is replaced in a few seconds.">
+        ⏳ refining…
+      </span>
+    );
   if (strategy.source === 'preflop-chart')
     return <span className="engine-badge chart" title="Preflop chart — a ~100bb teaching baseline, not a per-node solve.">chart</span>;
   if (strategy.engine === 'cfr')

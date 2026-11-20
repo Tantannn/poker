@@ -26,11 +26,19 @@ export interface AIProfile {
   limp?: number;
   /** one-line guidance on how to exploit this archetype. */
   exploit: string;
+  /** What a HUD actually MEASURES on this bot (hard tier, bots-only table via ai/botSim.ts):
+   *  VPIP, postflop AF and postflop fold-to-bet, in observed.ts's definitions. The dials above
+   *  are causes, not stats — a nit's callStation 0.1 does not mean it folds 62%. The coach's
+   *  prior and the archetype guide read these, and archetypeCalibration.test.ts fails when a
+   *  retune moves the bots off them: re-measure with
+   *  SIM=1 npx vitest run src/analysis/archetypeCalibration.test.ts --silent=false --reporter=verbose */
+  hud: { vpip: number; af: number; foldToBet: number };
 }
 
 export const PROFILES: Record<string, AIProfile> = {
   tag: {
     id: 'tag',
+    hud: { vpip: 0.22, af: 2.18, foldToBet: 0.47 },
     name: 'Tight-Aggressive',
     blurb: 'Plays few hands but bets/raises them hard. The classic solid reg.',
     openLooseness: 0.4,
@@ -47,6 +55,7 @@ export const PROFILES: Record<string, AIProfile> = {
   },
   lag: {
     id: 'lag',
+    hud: { vpip: 0.37, af: 2.55, foldToBet: 0.41 },
     name: 'Loose-Aggressive',
     blurb: 'Wide ranges, relentless pressure. Hard to read, lots of bluffs.',
     openLooseness: 0.8,
@@ -63,6 +72,7 @@ export const PROFILES: Record<string, AIProfile> = {
   },
   lp: {
     id: 'lp',
+    hud: { vpip: 0.34, af: 0.59, foldToBet: 0.26 },
     name: 'Loose-Passive (Calling Station)',
     blurb: 'Limps and calls with many hands, rarely raises. Punish by isolating and value betting.',
     openLooseness: 0.7,
@@ -80,6 +90,7 @@ export const PROFILES: Record<string, AIProfile> = {
   },
   maniac: {
     id: 'maniac',
+    hud: { vpip: 0.4, af: 2.92, foldToBet: 0.36 },
     name: 'Maniac',
     blurb: 'Raises and bluffs constantly. High variance — let them hang themselves.',
     openLooseness: 0.95,
@@ -96,6 +107,7 @@ export const PROFILES: Record<string, AIProfile> = {
   },
   nit: {
     id: 'nit',
+    hud: { vpip: 0.16, af: 1.54, foldToBet: 0.5 },
     name: 'Nit',
     blurb: 'Extremely tight. If they put money in, believe them.',
     openLooseness: 0.2,
@@ -112,6 +124,7 @@ export const PROFILES: Record<string, AIProfile> = {
   },
   gto: {
     id: 'gto',
+    hud: { vpip: 0.26, af: 1.82, foldToBet: 0.44 },
     name: 'GTO-ish',
     blurb: 'Balanced ranges, mixes value and bluffs near game-theory-optimal frequencies.',
     openLooseness: 0.5,
@@ -130,6 +143,7 @@ export const PROFILES: Record<string, AIProfile> = {
   },
   reg: {
     id: 'reg',
+    hud: { vpip: 0.24, af: 1.8, foldToBet: 0.45 },
     name: 'Reg (thinking regular)',
     blurb: 'Solid, near-balanced, few static leaks — but he ADJUSTS to you. The low-pro you actually have to beat.',
     // near-GTO with small, findable leaks: over-c-bets the flop and gives up the turn.

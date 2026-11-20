@@ -57,3 +57,22 @@ describe('engineNote: which engine answered, and why not the other one', () => {
     }
   });
 });
+
+describe('fast mode — the provisional HUD answer', () => {
+  it('a postflop node answers from the per-hand model, marked provisional', () => {
+    const c = (s: string) => s.split(' ').map(parseCard);
+    const st = {
+      handNumber: 1, buttonIndex: 1, board: c('Ah 7d 2c 9h'), street: 'turn', currentBet: 0, toAct: 0, lastAggressor: -1, bigBlind: 2, log: [],
+      players: [
+        { id: 0, name: 'You', isHero: true, holeCards: c('Ks Kc'), stack: 300, committed: 0, totalCommitted: 15, folded: false },
+        { id: 1, name: 'V', isHero: false, holeCards: [], stack: 300, committed: 0, totalCommitted: 15, folded: false },
+      ],
+    } as unknown as GameState;
+    const fast = getNodeStrategy(st, 0, undefined, undefined, undefined, { fast: true });
+    expect(fast.provisional).toBe(true);
+    expect(fast.engine).toBe('heuristic');
+    const full = getNodeStrategy(st, 0);
+    expect(full.provisional).toBeUndefined();
+    expect(full.engine).toBe('cfr');
+  }, 60000);
+});

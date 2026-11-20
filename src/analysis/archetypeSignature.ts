@@ -1,7 +1,9 @@
-// Recognising an ANONYMOUS seat. The archetype dials in ai/profiles.ts are not VPIP/PFR/AF,
-// so nothing here predicts a stat value — it ranks archetypes by SIMILARITY on the three
-// axes the profiling guide actually teaches, normalising both sides into their own span
-// first. Everything is derived from PROFILE_LIST, so retuning a dial retunes the guide.
+// Recognising an ANONYMOUS seat. Each archetype carries what a HUD actually MEASURES on it
+// (profiles.ts `hud`, from the bots-only simulator), and observed stats are compared against
+// those in the same units, both normalised over the field's measured span. Comparing against
+// the behavioural DIALS with authored live bands instead picked the right bot ~40% of the time
+// at 200 hands (a maniac read as a station). Nothing is authored per archetype here; a retune
+// that moves the bots fails archetypeCalibration.test.ts until `hud` is re-measured.
 //
 // Never reads the seat's hidden profileId: the ranking is built from observed stats and the
 // public dial table only, which is what keeps anonymous mode honest.
@@ -12,18 +14,18 @@ import type { ObservedStats } from './observed';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** Two archetypes whose normalised dials sit this close are indistinguishable from static
- *  play — the honest verdict for TAG vs reg, which differ only by `adapt`. */
-export const STATIC_TIE = 0.12;
+/** Two archetypes whose normalised stats sit this close are indistinguishable from static
+ *  play — the honest verdict for TAG vs reg, which differ only by `adapt`. 0.2 of a span is
+ *  ~0.45 AF or ~5 points of fold-to-bet: what two measurement runs of the SAME bots disagree
+ *  by (TAG's AF read 1.9 and 2.2), so anything closer is not a separator. */
+export const STATIC_TIE = 0.2;
 
-/** One comparable axis: the countable observation, the stat that measures it, and the dial
- *  that drives it. `band` is the plausible LIVE span of the stat — an authored normalisation
- *  range (the dial span beside it is derived), and the UI labels it as one. */
+/** One comparable axis: the countable observation, the stat that measures it, and that same
+ *  stat as measured on each archetype. */
 export interface SignatureAxis {
   id: 'looseness' | 'aggression' | 'stickiness';
   label: string;
   watch: string;
-  band: [number, number];
   /** sample at which this axis carries full weight */
   firmAt: number;
   statOf: (o: ObservedStats) => number | null;
@@ -38,11 +40,10 @@ export const SIGNATURE_AXES: SignatureAxis[] = [
     id: 'looseness',
     label: 'How many hands he plays',
     watch: 'Count the pots he voluntarily puts money into over one orbit (VPIP). Half his hands = loose; one an orbit = nit.',
-    band: [0.12, 0.65],
     firmAt: 12,
     statOf: (o) => (o.hands > 0 ? o.vpip : null),
     sampleOf: (o) => o.hands,
-    dialOf: (p) => p.openLooseness,
+    dialOf: (p) => p.hud.vpip,
     loLabel: 'tight',
     hiLabel: 'loose',
   },
@@ -50,11 +51,10 @@ export const SIGNATURE_AXES: SignatureAxis[] = [
     id: 'aggression',
     label: 'Does he raise or call',
     watch: 'Count his bets and raises against his calls (AF). Limping and flat-calling = passive; raising and 3-betting = aggressive.',
-    band: [0.3, 3.5],
     firmAt: 10,
     statOf: (o) => o.af,
     sampleOf: (o) => o.hands,
-    dialOf: (p) => (p.aggression + p.cbetFreq + p.bluffFreq) / 3,
+    dialOf: (p) => p.hud.af,
     loLabel: 'passive',
     hiLabel: 'aggressive',
   },
@@ -62,13 +62,12 @@ export const SIGNATURE_AXES: SignatureAxis[] = [
     id: 'stickiness',
     label: 'Does he fold to a bet',
     watch: 'Of the bets he faced, how many did he fold to? "I have to see it" with any pair = a station.',
-    band: [0.15, 0.7],
     firmAt: 6,
     // A station is defined by NOT folding, so the axis is inverted fold-to-bet — that keeps
     // it pointing the same way as `callStation` and lets one distance formula serve all three.
     statOf: (o) => (o.foldToBet == null ? null : 1 - o.foldToBet),
     sampleOf: (o) => o.facedBetSample,
-    dialOf: (p) => p.callStation,
+    dialOf: (p) => 1 - p.hud.foldToBet,
     loLabel: 'folds correctly',
     hiLabel: 'calls too much',
   },
@@ -86,9 +85,10 @@ export function normDial(axis: SignatureAxis, p: AIProfile, profiles: AIProfile[
   return hi === lo ? 0.5 : clamp01((axis.dialOf(p) - lo) / (hi - lo));
 }
 
-export function normStat(axis: SignatureAxis, v: number): number {
-  const [lo, hi] = axis.band;
-  return clamp01((v - lo) / (hi - lo));
+/** An observed stat on the same scale as normDial: its position in the field's measured span. */
+export function normStat(axis: SignatureAxis, v: number, profiles: AIProfile[] = PROFILE_LIST): number {
+  const [lo, hi] = dialSpan(axis, profiles);
+  return hi === lo ? 0.5 : clamp01((v - lo) / (hi - lo));
 }
 
 export interface ArchetypeMatch {
@@ -110,7 +110,7 @@ export function rankArchetypes(o: ObservedStats | null, profiles: AIProfile[] = 
     .map((a) => {
       const v = a.statOf(o!);
       const w = Math.min(1, a.sampleOf(o!) / a.firmAt);
-      return v == null || w <= 0 ? null : { a, target: normStat(a, v), w };
+      return v == null || w <= 0 ? null : { a, target: normStat(a, v, profiles), w };
     })
     .filter((x): x is { a: SignatureAxis; target: number; w: number } => x !== null);
   const wTotal = usable.reduce((s, u) => s + u.w, 0);

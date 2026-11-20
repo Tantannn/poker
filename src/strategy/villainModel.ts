@@ -25,6 +25,7 @@
 // The PREFLOP half of the same read lives in preflopModel.ts and is carried on
 // `VillainModel.preflop`, resolved from the same observed stats and the same lock.
 
+import type { AIProfile } from '../ai/profiles';
 import type { ObservedStats } from '../analysis/observed';
 import type { PreflopLock, PreflopRead } from './preflopModel';
 import { balancedPreflopRead, resolvePreflopRead } from './preflopModel';
@@ -182,8 +183,15 @@ function describe(m: { bluffFreq: number; callStation: number }, locked: boolean
  * @param archetypeVisible whether the player can see the bot's tag — true exactly
  *                  when `prior` is the archetype. Carried so explain text can name it.
  */
+/** The prior for a bot whose archetype is visible: its bluff dial, and the fold-to-bet a HUD
+ *  actually measures on it (profiles.ts `hud`) — not the rate its callStation dial implies,
+ *  which over-stated every fold (a nit 62% vs a measured 48%) and called a station's 26% zero. */
+export function archetypePrior(p: Pick<AIProfile, 'bluffFreq' | 'hud'>): { bluffFreq: number; callStation: number; foldToBet: number } {
+  return { bluffFreq: p.bluffFreq, callStation: callStationFromFoldToBet(p.hud.foldToBet), foldToBet: p.hud.foldToBet };
+}
+
 export function resolveVillainModel(
-  prior: { bluffFreq: number; callStation: number } = BALANCED,
+  prior: { bluffFreq: number; callStation: number; foldToBet?: number } = BALANCED,
   obs?: ObservedStats | null,
   lock?: VillainLock | null,
   archetypeVisible = false,
@@ -192,7 +200,7 @@ export function resolveVillainModel(
   // way), so recover the fold frequency it implies — every path below shrinks and
   // locks in FOLD-FREQUENCY space and derives callStation from the result, so the two
   // can never drift apart.
-  const priorFold = foldToBetFromCallStation(prior.callStation);
+  const priorFold = prior.foldToBet ?? foldToBetFromCallStation(prior.callStation);
   // The preflop side resolves independently: it reads different counters, shrinks on
   // different sample sizes, and a lock may set only postflop knobs or only preflop ones.
   const preflop = resolvePreflopRead(obs, lock, !!lock?.enabled);
@@ -223,7 +231,7 @@ export function resolveVillainModel(
   const raise = resolveFoldToRaise(obs, priorFold);
   if (!obs || (!hasFold && !hasBet)) {
     const label = describe(prior, false, 0);
-    return { ...prior, foldToBet: priorFold, foldToRaise: raise, source: 'prior', archetypeVisible, confidence: 0, label, preflop };
+    return { bluffFreq: prior.bluffFreq, callStation: prior.callStation, foldToBet: priorFold, foldToRaise: raise, source: 'prior', archetypeVisible, confidence: 0, label, preflop };
   }
 
   const fold = hasFold

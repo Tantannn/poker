@@ -13,6 +13,9 @@ import { computeHudNode } from '../strategy/hudCompute';
 // so it structured-clones like the state does.
 self.onmessage = (e: MessageEvent<{ seq: number; state: GameState; models?: VillainModels }>) => {
   const { seq, state, models } = e.data;
+  // Postflop solves take seconds, so answer twice: the per-hand model at once (marked
+  // provisional), then the solved node. Preflop is a chart lookup — one reply.
+  if (state.street !== 'preflop') self.postMessage({ seq, result: computeHudNode(state, models, true), provisional: true });
   // NodeStrategy contains a Map (villainRange) — fine: Maps structured-clone.
   self.postMessage({ seq, result: computeHudNode(state, models) });
 };

@@ -42,6 +42,9 @@ export function simulateBots(
   seed: number,
   /** e.g. `{ iters: 120 }` — a cheaper equity read for a fast pinned test */
   overrides: Partial<DifficultyParams> = {},
+  /** called after every hand with the finished state and the table id (seats are re-dealt per
+   *  table) — lets analysis/ run its own counters over the same hands */
+  onHand?: (state: GameState, table: number) => void,
 ): Record<string, ArchStats> {
   const tally: Record<string, Tally> = Object.fromEntries(SIM_ARCHETYPES.map((a) => [a, blank()]));
   const r = makeRng(seed);
@@ -114,6 +117,7 @@ export function simulateBots(
         }
       }
       st.players.forEach((p, i) => (tally[prof(i)].net += (p.stack - start[i]) / st.bigBlind));
+      onHand?.(st, table);
     }
   }
   const pct = (a: number, b: number) => (b ? (100 * a) / b : NaN);

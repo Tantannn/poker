@@ -115,6 +115,9 @@ export interface NodeStrategy {
    *  multiway, a read carve-out). The UI badges the two differently so a teaching estimate is
    *  never presented as solver output (README). Undefined for `preflop-chart`. */
   engine?: 'cfr' | 'heuristic';
+  /** A fast per-hand answer shown while the real solve runs (getNodeStrategy `fast`); the
+   *  solved strategy replaces it. Never grade or record against it when the solve can land. */
+  provisional?: boolean;
   /** Why THIS node got THIS engine, in plain language. The two engines can prefer
    *  different lines at the same node, so replaying one spot and getting the opposite
    *  answer reads as the app contradicting itself unless the switch is named. Set on the

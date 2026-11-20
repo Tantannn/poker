@@ -9,16 +9,16 @@ function obs(p: Partial<ObservedStats>): ObservedStats {
   return { hands: 0, vpip: 0, pfr: 0, af: null, foldToBet: null, facedBetSample: 0, ...p } as ObservedStats;
 }
 
-describe('archetype recognition: ranked from observed stats, derived from the dial table', () => {
+describe('archetype recognition: ranked from observed stats against measured bot stats', () => {
   it('loose + passive + never folds ranks the calling station first', () => {
     const r = rankArchetypes(obs({ hands: 30, vpip: 0.6, af: 0.5, foldToBet: 0.18, facedBetSample: 12 }));
     expect(r[0].tag).toBe('LP');
   });
 
-  it('loose + hyper-aggressive ranks the maniac first, and the nit last', () => {
+  it('loose + hyper-aggressive ranks the maniac first, and the passive extremes last', () => {
     const r = rankArchetypes(obs({ hands: 30, vpip: 0.62, af: 3.4, foldToBet: 0.45, facedBetSample: 12 }));
     expect(r[0].tag).toBe('MANIAC');
-    expect(r[r.length - 1].tag).toBe('NIT');
+    expect(r.slice(-2).map((m) => m.tag).sort()).toEqual(['LP', 'NIT']);
   });
 
   it('very tight ranks the nit first', () => {
@@ -80,9 +80,9 @@ describe('signatures are derived, not authored', () => {
     }
   });
 
-  it('retuning a dial retunes the signature — nothing is hard-coded per archetype', () => {
+  it('re-measuring a bot retunes the signature — nothing is hard-coded per archetype', () => {
     const field: AIProfile[] = PROFILE_LIST.map((p) =>
-      p.id === 'nit' ? { ...p, openLooseness: 1, aggression: 1, cbetFreq: 1, bluffFreq: 1 } : p,
+      p.id === 'nit' ? { ...p, hud: { vpip: 0.45, af: 3.2, foldToBet: 0.3 } } : p,
     );
     const nit = field.find((p) => p.id === 'nit')!;
     expect(signatureFor(nit, field).quadrant).toBe('Loose-aggressive');

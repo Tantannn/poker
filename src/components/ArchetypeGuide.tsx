@@ -1,7 +1,6 @@
 // Anonymous-mode recognition aid: rank the archetypes against what you've actually observed,
 // name what would separate the top two, and list every archetype's signature. All of it is
-// derived from the dial table (analysis/archetypeSignature.ts) — no authored signatures, so
-// retuning a bot retunes this guide with it.
+// derived from each bot's MEASURED HUD stats (profiles.ts `hud`, analysis/archetypeSignature.ts).
 
 import { useState } from 'react';
 import type { ObservedStats } from '../analysis/observed';
@@ -102,9 +101,9 @@ export function ArchetypeGuide({ observed }: { observed: ObservedStats | null })
       )}
 
       <div className="arch-disclose gp-muted">
-        A similarity <b>rank</b>, not a stat prediction — the bots' dials aren't VPIP/PFR/AF, so both sides are
-        normalised into their own span before comparing. The live stat ranges used for that normalisation are
-        authored live-poker bands; the archetype side is read straight off the dial table.
+        A similarity <b>rank</b> against what a HUD measures on each bot type (VPIP, AF, fold-to-bet from a
+        bots-only simulation on Hard). Both sides are placed within the field's measured range, so the rank says
+        which bot this looks like — live players sit outside that range and should be read with the checklist.
       </div>
     </div>
   );

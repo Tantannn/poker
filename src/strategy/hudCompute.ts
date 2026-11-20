@@ -66,7 +66,7 @@ export interface HudNodeResult {
 
 /** Full hero-node read: seeded shared equity, solver strategy, villain info and
  *  every HUD number — the body of useGame's hero-turn effect, minus setState. */
-export function computeHudNode(game: GameState, models?: VillainModels): HudNodeResult {
+export function computeHudNode(game: GameState, models?: VillainModels, fast = false): HudNodeResult {
   const hero = game.players[0];
   const legal = legalActions(game);
   // The villain models (observed reads / manual node locks) shape the CONDITIONED
@@ -101,7 +101,7 @@ export function computeHudNode(game: GameState, models?: VillainModels): HudNode
   // decomposition shown in the HUD tooltip matches this exactly
   const eq = { equity: win + tie / 2, win, tie };
   // solver reads the SAME equity number — no second, independent MC run.
-  const strategy = getNodeStrategy(game, 0, 1100, eq.equity, models);
+  const strategy = getNodeStrategy(game, 0, 1100, eq.equity, models, { fast });
   // Raw equity vs his UNconditioned opening range — for the side-by-side
   // "vs opening range → vs betting range" read. Same seed → the gap is the
   // conditioning (he bet this board), not Monte-Carlo noise.

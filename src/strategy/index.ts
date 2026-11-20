@@ -15,7 +15,7 @@ import { countOuts } from '../engine/equity';
 import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, LIMP_RANGE, BB_OPTION_RANGE, handCode, preflopStrength } from '../ai/preflop';
 import { getProfile } from '../ai/profiles';
 import type { VillainModel } from './villainModel';
-import { BALANCED, balancedModel, foldToBetFromCallStation, isExploitable } from './villainModel';
+import { BALANCED, archetypePrior, balancedModel, isExploitable } from './villainModel';
 import type { PreflopLevel, PreflopRead } from './preflopModel';
 import {
   NO_PREFLOP_ADJUST,
@@ -96,9 +96,13 @@ export function getNodeStrategy(
    *  Omitted → the engine derives a model from the bot's archetype, which is what it
    *  always did. Preflop ignores this: the charts already model the population. */
   models?: VillainModels,
+  /** `fast`: skip every CFR gate and answer from the per-hand model in milliseconds. The
+   *  HUD shows it first, marked `provisional`, while the worker runs the real solve. */
+  opts?: { fast?: boolean },
 ): NodeStrategy {
   if (state.street === 'preflop') return preflopStrategy(state, heroIdx, models);
-  return postflopStrategy(state, heroIdx, iterations, equityOverride, models);
+  const s = postflopStrategy(state, heroIdx, iterations, equityOverride, models, opts?.fast ?? false);
+  return opts?.fast ? { ...s, provisional: true } : s;
 }
 
 /** The model to solve this villain against. A caller-supplied model (observed read
@@ -111,11 +115,8 @@ function modelFor(state: GameState, seatIdx: number, models?: VillainModels): Vi
   if (seatIdx < 0) return balancedModel();
   const p = state.players[seatIdx];
   if (!p || p.isHero) return balancedModel();
-  const prof = getProfile(p.profileId);
   return {
-    bluffFreq: prof.bluffFreq,
-    callStation: prof.callStation,
-    foldToBet: foldToBetFromCallStation(prof.callStation),
+    ...archetypePrior(getProfile(p.profileId)),
     // …and none carries a fold-to-raise either, so the node lock re-derives it
     foldToRaise: null,
     // No archetype carries preflop frequencies, so an un-modelled seat is balanced
@@ -879,7 +880,9 @@ function postflopStrategy(
   iterations?: number,
   equityOverride?: number,
   models?: VillainModels,
+  fast = false,
 ): NodeStrategy {
+  const solversOn = !fast;
   const hero = state.players[heroIdx];
   const la = legalActions(state);
   const pot = potTotal(state);
@@ -942,6 +945,7 @@ function postflopStrategy(
   // facing a bet) goes through the range-vs-range CFR solver. Everything else —
   // facing a bet, multiway, earlier streets — stays on the per-hand model below.
   if (
+    solversOn &&
     RIVER_SOLVER_ENABLED &&
     state.street === 'river' &&
     la.callAmount === 0 &&
@@ -988,6 +992,7 @@ function postflopStrategy(
   // SOLVED villain falls to per-hand. 3- through 9-way (fieldCoef made the field O(field²), so
   // the cap reaches the app's max table); a 10+-handed table would fall back.
   if (
+    solversOn &&
     MULTIWAY_SOLVER_ENABLED &&
     !primaryHasRead &&
     state.street === 'river' &&
@@ -1022,6 +1027,7 @@ function postflopStrategy(
   // are pinned to the read and hero best-responds, then a second unlocked solve gives
   // the exploit delta. This is the street where a barrel-fold read pays second-most.
   if (
+    solversOn &&
     RIVER_SOLVER_ENABLED &&
     state.street === 'turn' &&
     la.callAmount === 0 &&
@@ -1055,6 +1061,7 @@ function postflopStrategy(
   // enumerated for equity, the second opponent on a fixed MDF policy (its call range set
   // once on the turn). No read → CFR; a read falls to the per-hand model.
   if (
+    solversOn &&
     MULTIWAY_SOLVER_ENABLED &&
     !primaryHasRead &&
     state.street === 'turn' &&
@@ -1088,6 +1095,7 @@ function postflopStrategy(
   // node-lock carve-out (primaryHasRead) keeps the exploit tool alive on this street —
   // nodeLock.test.ts relies on exactly this.
   if (
+    solversOn &&
     FLOP_SOLVER_ENABLED &&
     !primaryHasRead &&
     state.street === 'flop' &&
@@ -1120,6 +1128,7 @@ function postflopStrategy(
   // read carve-out as the other multiway gates: a read on the solved villain falls through to
   // the per-hand model, which is where the exploit delta comes from.
   if (
+    solversOn &&
     MULTIWAY_SOLVER_ENABLED &&
     !primaryHasRead &&
     state.street === 'flop' &&
@@ -1160,6 +1169,7 @@ function postflopStrategy(
   // unexploitable by construction, so "he gives up when raised" would change nothing —
   // the same reason the hero-first river/turn gates pin him.
   if (
+    solversOn &&
     RIVER_SOLVER_ENABLED &&
     (state.street === 'river' || state.street === 'turn' || state.street === 'flop') &&
     la.callAmount > 0 &&

@@ -30,7 +30,7 @@ import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
 import type { NodeStrategy, VillainModels } from '../strategy';
 import { getNodeStrategy, primaryVillainIdx } from '../strategy';
 import type { VillainLock } from '../strategy/villainModel';
-import { BALANCED, resolveVillainModel } from '../strategy/villainModel';
+import { BALANCED, archetypePrior, resolveVillainModel } from '../strategy/villainModel';
 import { getProfile } from '../ai/profiles';
 import { computeHudNode } from '../strategy/hudCompute';
 import type { HudInfo, VillainInfo, HudNodeResult } from '../strategy/hudCompute';
@@ -244,7 +244,7 @@ export function useGame(initialProfiles: string[]) {
       if (p.isHero) continue;
       const prof = getProfile(p.profileId);
       const archetypeVisible = !(readDrivenModel && anonymousVillains);
-      const prior = archetypeVisible ? { bluffFreq: prof.bluffFreq, callStation: prof.callStation } : BALANCED;
+      const prior = archetypeVisible ? archetypePrior(prof) : BALANCED;
       const obs = readDrivenModel ? toStats(obsCounters[p.id]) : null;
       out[p.id] = resolveVillainModel(prior, obs, villainLocks[p.id], archetypeVisible);
     }
@@ -502,7 +502,12 @@ export function useGame(initialProfiles: string[]) {
     const la = legalActions(prev);
     // Same villain models the live HUD used, so the grade can't disagree with the
     // advice the player was just shown.
-    const strat = strategyRef.current ?? getNodeStrategy(prev, 0, 900, undefined, villainModelsRef.current);
+    // Acting before the solve lands grades against the fast per-hand answer the player saw —
+    // the same advice, now labelled as the estimate it is rather than "refining".
+    const shown = strategyRef.current ?? getNodeStrategy(prev, 0, 900, undefined, villainModelsRef.current);
+    const strat = shown.provisional
+      ? { ...shown, provisional: false, engineNote: 'Graded against the fast per-hand estimate — you acted before the range-vs-range solve finished.' }
+      : shown;
     const roll = rollRef.current;
     const fb = gradeNode(strat, action, la.callAmount, roll, { state: prev, heroIdx: 0 });
     // immediate (drill): reveal the answer now. deferred (exam): withhold it —
@@ -707,9 +712,10 @@ export function useGame(initialProfiles: string[]) {
       };
       const w = getHudWorker();
       if (w) {
-        const onMsg = (ev: MessageEvent<{ seq: number; result: HudNodeResult }>) => {
+        const onMsg = (ev: MessageEvent<{ seq: number; result: HudNodeResult; provisional?: boolean }>) => {
           if (ev.data?.seq !== seq) return;
-          w.removeEventListener('message', onMsg);
+          // the fast provisional answer shows at once; keep listening for the solved one
+          if (!ev.data.provisional) w.removeEventListener('message', onMsg);
           apply(ev.data.result);
         };
         w.addEventListener('message', onMsg);

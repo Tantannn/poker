@@ -1519,6 +1519,8 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .engine-badge { font-size: 9px; font-weight: 800; border-radius: 999px; padding: 1px 7px; margin-left: 8px; margin-right: auto; text-transform: uppercase; letter-spacing: 0.3px; border: 1px solid transparent; cursor: help; }
 .engine-badge.cfr { background: rgba(46,194,126,0.16); color: var(--raise); border-color: #2ec27e55; }
 .engine-badge.heur { background: rgba(224,132,58,0.14); color: #e0843a; border-color: #e0843a55; }
+.engine-badge.refining { animation: engine-pulse 1.2s ease-in-out infinite; }
+@keyframes engine-pulse { 50% { opacity: 0.45; } }
 .engine-badge.chart { background: rgba(120,140,200,0.14); color: #9fb0d8; border-color: #9fb0d855; }
 /* the badge's tooltip is invisible on touch, so the same provenance rides in a readable
    block whenever a node fell to the per-hand engine. */
