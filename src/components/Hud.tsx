@@ -316,7 +316,7 @@ function deriveVerdict(hud: HudInfo, street: string): Verdict {
 
   // no bet to face — check or bet
   if (e >= 0.62) return { action: 'BET (value)', cls: 'good', why: `You're ahead (${pct(e)}). Bet to grow the pot and charge their draws — checking lets them catch up free.` };
-  if (drawHeavy && e >= 0.35) return { action: 'BET (semi-bluff) or CHECK', cls: 'okv', why: `${hud.outs} outs (${pct(e)}). Betting gives two ways to win (fold now, or hit later); checking takes a free card.` };
+  if (drawHeavy && e >= 0.35) return { action: 'BET (semi-bluff) or CHECK', cls: 'okv', why: `${hud.outs} outs (${pct(e)}). Betting gives two ways to win (fold now, or hit later); checking gets a free card only if he checks back — out of position he can bet you off it.` };
   if (e >= 0.45) return { action: 'CHECK', cls: 'okv', why: `Marginal (${pct(e)}) — not strong enough to bet for value. Check to control the pot and see a cheap showdown.` };
   return { action: 'CHECK / give up', cls: 'bad', why: `Weak (${pct(e)}). Nothing to bet for value and little to draw to — check and fold to pressure.` };
 }

@@ -67,8 +67,9 @@ pays in full, a raise pays only on the called branch (`RAISE_TAX_SHARE`, mostly 
 multiway), a fold pays nothing and absorbs the slack. The live lesson falls straight out —
 under rake, marginal hands are raise-or-fold.
 
-Disclosed gaps: the chart *data* is still ~100bb rake-free (this shades what it teaches),
-and `ai/decide.ts` doesn't see it, so rake changes hero's graded line, not how the bots play.
+Disclosed gap: the chart *data* is still ~100bb rake-free (this shades what it teaches).
+The bots do see rake (`decide.ts`: `reqEqRaked` lifts a call's break-even, `rakeMarginal`
+lifts the thin-value bar), but they don't run `shadeForRake` on their preflop charts.
 
 ### Straddle — `table.ts: straddleSeats` / `effectiveBigBlind`
 `GameState.straddle` is `off | utg | double | button` (Mississippi); `startHand` posts it
@@ -166,6 +167,34 @@ Three traps this created, all guarded by `betRaiseTree.test.ts`:
 still reports < 1% of pot on a converged solve — that is the audit that the branch's payoffs
 and signs are right. The multiway solvers keep the two-action tree; villain's raise there would
 need the field's response modelled too.
+
+### Villain bets into a check, and the called line plays on — `STAB_FRAC`, `CALLED_NEST_ROUNDS`
+Two gaps made every hero-first street favour hero. **A check went straight to showdown**: the
+villain could never bet into it, so OOP hero kept every checked pot for free. All three HU
+streets now give villain a ¾-pot bet when checked to (`STAB_FRAC`, one size, hero folds or calls
+— no check-raise); `villainMayStab` (default true) turns it off for an A/B and rides into the
+nested subgames. `heroStabResponse` / `villainStabFreq` carry the check-call / check-fold plan to
+the coach. **A called bet ended the hand** on the turn/flop while the check line nested the next
+street, so a bet earned one street of value: on a static K-K-K toy the turn nuts earned 152 vs
+the exact 225 and checked a third of the time. The called, raise-called and stab-called lines now
+carry a per-MATCHUP future value (`pairEv` from a nested solve over the betting/calling ranges
+minus the static showdown), added to hero's payoff and taken off villain's so it stays zero-sum.
+
+Three invariants. The future is **per (hero, villain) pair**, never per hero combo: air's later
+steals come out of villain's weak calls, and charging them to his strong ones made him fold
+~80%. **Round 0 nests over the full ranges** and later rounds condition on the previous pass and
+**damp ½/½** — conditioning on a static first pass handed air phantom value, and undamped rounds
+oscillate (the answer flipped with round parity). And every line that can be called needs the
+future: with the raise-called line left static, villain raised ~30% to deny hero the river.
+
+`closedForm.test.ts` is the audit: polar river (bluff ratio B/(P+B), MDF P/(P+B)), the reversed
+stab game, and the static K-K-K turn/flop (nuts ≈ 2.25·P). Tests that pin the OLD tree's
+claims ("nesting raises the check EV", "air never helped by the raise") now pass
+`villainMayStab: false` / `nestRiverForCall: false` explicitly — those are theorems only there.
+Cost at live caps: turn ~3.8s (was ~2.0s), flop ~2.6s (was ~1.2s); the levers are
+`FUTURE_NEST_BUCKETS`, the half-iteration future nests and `CALLED_NEST_ROUNDS`. Disclosed
+abstractions: future nests use the heaviest river/turn textures; the raise-called future is one
+reference raise scaled by pot; the flop's nested turn keeps static turn lines (cost bound).
 
 ### Multiway flop — `multiwaySolver.ts: solveFlop3way`
 All three multiway streets share one street-agnostic CFR (`multiwayCfr`): hero picks
@@ -482,8 +511,7 @@ hero preflop — it reads the hero's fold-to-3-bet and blind-fold rates off `Her
 3-bets / 4-bet-bluffs / steals wider vs an over-folder (hard/extreme only, sample-gated, same
 confidence ramp as the postflop `HeroReads` block — see `decide.ts` preflop adaptation and
 `adaptPreflop.test.ts`). But that is the bot's OWN parallel read, not `preflopModel.ts`'s chart
-adjustments or projected ranges — those still feed only the hero's coach. And the bots still
-play rake-free (`ai/decide.ts` never sees `state.rake`).
+adjustments or projected ranges — those still feed only the hero's coach.
 
 ### Limped pots — `index.ts: roleBaseRange`
 Every postflop engine inherits its villain range from `roleBaseRange`, which reads a seat's
@@ -548,6 +576,22 @@ tier overbets its nut end; only tiers with `adapt > 0` balance the bluff side at
 same size, so on easy/normal an overbet *is* a value tell the hero can read. Bots and the
 grader read the same preflop charts, so keeping them in sync is a hard requirement,
 not a nicety.
+
+The chart is the **looseness-0.5 baseline**, not every bot's range. `blueprint.ts:
+rfiOpenFreq` widens or trims it per archetype (`1 − (1 − chart%)^m`, `m` from
+`openLooseness`), so a nit opens ~11% UTG and a maniac ~31%. Without it every archetype
+opened the same chart and the VPIP axis of `archetypeSignature` read nothing. `limp` (only
+`lp` sets it) open-limps non-`looksPremium` hands; speculative hands over-limp behind
+limpers; iso-raises add `1 + limpers` bb. Facing a 3-bet, a bot continues the top
+`vs3BetContinueShare` of its **own** entering range (`entryPercentile`) — a fixed continue
+list folded wide openers ~90%, making any-two 3-bets profitable vs every bot.
+Facing an open, `vsOpenPlan` sets a 3-bet share and a continue share **of the deck** (by
+archetype, seat, opener width, price) and `strengthPercentile` maps a hand onto them — never
+a raw `preflopStrength` cut: the score is compressed (K7o ≈ 0.55), so a ~0.5 threshold
+flatted half the deck and the BB defended ~97%. 3-bets are polar (⅔ value from the top,
+⅓ `BLUFF_THREEBET_RANGE` then `BLUFF_THREEBET_WIDE`), and the flat cut sits below the
+bluffs' share so the SB stays 3-bet-or-fold. `archetypePreflop.test.ts` pins widths,
+fold-to-3-bet (25–70%), vs-open 3-bet/defend rates, limping and iso sizing.
 
 `DifficultyParams.jam` is the same knob for the **all-in**, and it exists because the
 commitment guard in `sizeTo` only ever upgrades a bet *already worth stacking off*

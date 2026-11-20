@@ -245,7 +245,7 @@ export function BetSizingDrill() {
       // don't tell the user they have "no edge / are a bluff-catcher" when they're not.
       if (eq >= 0.55)
         return `You bet, but the solver checks — even though you're ahead (~${Math.round(eq * 100)}%). On a board this dangerous, betting a hand with no redraw folds out the worse hands you beat and gets called or raised by what beats or outdraws you. Check to pot-control and keep his bluffs in — you don't need to bet to win this pot. ${posTip} 💡 Strong but vulnerable & no redraw → check, don't bloat the pot.`;
-      return `You bet a spot with no edge. Worse hands won't call and better hands won't fold — the bet just bloats the pot while you're a bluff-catcher. Check, control the pot, realise your equity for free. ${posTip} 💡 No edge → check.`;
+      return `You bet a spot with no edge. Worse hands won't call and better hands won't fold — the bet just bloats the pot while you're a bluff-catcher. Check and control the pot — a free card if he checks back, a cheap decision if he bets. ${posTip} 💡 No edge → check.`;
     }
 
     if (chosen && SIZE_RANK[chosen] != null && SIZE_RANK[bestId] != null) {
@@ -408,7 +408,7 @@ export function BetSizingDrill() {
           <div><span className="bsd-pill small">½ Medium</span> Semi-wet / medium boards, or thin value that still wants a call. The middle gear — more than a range bet, less than a polar charge.</div>
           <div><span className="bsd-pill big">¾ Big</span> Wet/dynamic boards (T98ss, 654), value + draws. Charge their equity, build the pot, polarize.</div>
           <div><span className="bsd-pill polar">Pot</span> You have the nut advantage — strong, polar range. Max value / max fold equity. Also low SPR / commitment spots.</div>
-          <div><span className="bsd-pill check">Check</span> Neither edge — marginal made hands and air with no value/fold-equity case. Pot control, realize equity for free. Drilled in <b>Bet or check</b> mode.</div>
+          <div><span className="bsd-pill check">Check</span> Neither edge — marginal made hands and air with no value/fold-equity case. Pot control — a free card if he checks back, a cheap decision if he bets. Drilled in <b>Bet or check</b> mode.</div>
           <div><span className="bsd-pill pos">Position</span> <b>In position</b> you realise equity well → bet smaller, bet more often, check back marginal hands. <b>Out of position</b> you realise less → check more, and go bigger / more polar when you do bet.</div>
           <div><span className="bsd-pill polar">Don't over-bet value</span> A one-pair overpair is <i>not</i> a jam. Size to the <b>worst hand that still calls</b> — over-bet/shove and you fold out everything you beat and get called only by what beats you. Get the stack in across streets, not all at once. <b>Overbet/jam = polar nuts &amp; air, or low SPR — never a one-pair hand that needs calls from worse.</b></div>
           <div><span className="bsd-pill polar">vs Opponent type</span> Texture sets the baseline; the read shifts it. <b>Station</b> → size UP value, never bluff (they don't fold). <b>Nit</b> → bet/bluff bigger for fold equity, but give up when called. <b>Maniac</b> → check strong hands and induce their bluffs. <b>Balanced</b> → size purely off the board. Switch the <i>Betting into</i> chip and watch the best size move.</div>

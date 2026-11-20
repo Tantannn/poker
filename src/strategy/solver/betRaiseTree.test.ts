@@ -33,7 +33,7 @@ const AIR = 2;
 const RIVER = board('Kh 8d 3c 2s 7c');
 
 const bestBet = (ev: number[]) => Math.max(...ev.slice(1));
-const river = (villainMayRaise: boolean, foldToBet?: number) =>
+const river = (villainMayRaise: boolean, foldToBet?: number, villainMayStab = true) =>
   solveRiver({
     heroRange: HERO,
     villainRange: VILL,
@@ -43,6 +43,7 @@ const river = (villainMayRaise: boolean, foldToBet?: number) =>
     betSizes: SIZES,
     iterations: 1200,
     villainMayRaise,
+    villainMayStab,
     villainLock: foldToBet == null ? undefined : { foldToBet },
   });
 
@@ -97,7 +98,9 @@ describe('river — the bet-fold decision the old tree could not express', () =>
   });
 
   it('leaves the check line untouched — only the bet branches gained a decision', () => {
-    expect(r.heroActionEv[AIR][0]).toBeCloseTo(river(false).heroActionEv[AIR][0], 6);
+    // Without villain's bet-when-checked-to: his stab answers hero's CHECKING range, which the
+    // raise branch reshapes, so with it on the check EV legitimately moves too.
+    expect(river(true, undefined, false).heroActionEv[AIR][0]).toBeCloseTo(river(false, undefined, false).heroActionEv[AIR][0], 6);
   });
 
   it('stays near-Nash with the extra decision node — payoffs and signs check out', () => {
@@ -135,6 +138,8 @@ describe('the bet-fold plan reaches the hero', () => {
 });
 
 describe('turn and flop carry the same tree', () => {
+  // The raise branch's mechanics, pinned on the STATIC tree. Called-line nesting re-solves
+  // villain's later streets, so "villain held fixed by the lock" would no longer hold.
   const turn = (villainMayRaise: boolean, foldToBet?: number) =>
     solveTurn({
       heroRange: HERO,
@@ -145,6 +150,8 @@ describe('turn and flop carry the same tree', () => {
       betSizes: SIZES,
       iterations: 800,
       nestRiverForCheck: false,
+      nestRiverForCall: false,
+      villainMayStab: false,
       villainMayRaise,
       villainLock: foldToBet == null ? undefined : { foldToBet },
     });
@@ -158,6 +165,8 @@ describe('turn and flop carry the same tree', () => {
       betSizes: SIZES,
       iterations: 500,
       nestTurnForCheck: false,
+      nestTurnForCall: false,
+      villainMayStab: false,
       villainMayRaise,
     });
 

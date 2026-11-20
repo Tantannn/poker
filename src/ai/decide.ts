@@ -8,12 +8,15 @@ import { makeRng } from '../engine/cards';
 import type { Card } from '../engine/cards';
 import { equityVsRange, equityVsField, countOuts } from '../engine/equity';
 import { boardWetScore } from '../engine/board';
-import { buildVillainRange } from '../strategy';
+import { buildVillainRange, primaryVillainIdx, roleBaseRange } from '../strategy';
+import { rangeFromSet } from '../engine/range';
 import { depthValueMult } from '../strategy/depth';
 import { rakeInChips, netPot, rakeMarginal } from '../engine/rake';
-import { handCode, preflopStrength, RFI_RANGES, THREEBET_RANGE, BLUFF_THREEBET_RANGE } from './preflop';
+import {
+  handCode, handCombos, preflopStrength, RFI_RANGES, BLUFF_THREEBET_RANGE, BLUFF_THREEBET_WIDE, looksPremium, isSpeculative,
+} from './preflop';
 import { getProfile } from './profiles';
-import { rfiOpenFreq, limpedRaiseFreq, valueThreeBetFreq } from './blueprint';
+import { rfiOpenFreq, limpedRaiseFreq, entryPercentile, vs3BetContinueShare, strengthPercentile, vsOpenPlan } from './blueprint';
 import { DIFFICULTIES, type DifficultyParams, type HeroReads } from './difficulty';
 
 export interface DecideOpts {
@@ -190,7 +193,8 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     // good" (a premium), and every so often spazzes a random bluff-raise. It
     // never open-raises a normal hand and hates folding, so it just calls.
     if (isNoob) {
-      const goodHand = strength > 0.8; // ~TT+/AK/AQs — "ooh, good cards, raise!"
+      const goodHand = looksPremium(code); // TT+/AQ+/AJs/KQs — "ooh, good cards, raise!"
+      const monster = code === 'AA' || code === 'KK' || code === 'QQ' || code === 'AKs' || code === 'AKo';
       const bluffRaise = r() < 0.08; // rare spaz raise with air
       if (!facingRaise) {
         if (la.callAmount === 0) {
@@ -204,14 +208,14 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       }
       // facing a raise: raise the nuts, occasional bluff-raise, dump only the true
       // trash, otherwise call it off (station — calls way too much preflop)
-      if ((goodHand || bluffRaise) && la.canRaise) return sizeTo(1.0, false);
+      if ((monster || bluffRaise) && la.canRaise) return sizeTo(1.0, false);
       if (strength < 0.3 && r() < 0.5) return { type: 'fold' };
       return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
     }
 
     // charts are keyed by the 6-max seats-behind equivalent, the same mapping the
     // grader uses — otherwise a 9-max UTG+1 has no chart and the bot folds everything.
-    const inRFI = RFI_RANGES[sixMaxRfiEquivalent(pos, state.players.length) ?? 'BB'].has(code);
+    const rfiChart = RFI_RANGES[sixMaxRfiEquivalent(pos, state.players.length) ?? 'BB'];
 
     // ---- short stack: push/fold (≤15bb) ----
     // Too shallow to play postflop or realise implied odds. Open-jam or 3-bet-jam a
@@ -234,10 +238,14 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         if (r() < limpedRaiseFreq(code, profile.aggression)) return sizeTo(strength > 0.78 ? 1.0 : 0.9, true);
         return { type: 'check' };
       }
-      // it's folded to us (or limps in front) — RFI by blueprint open frequency:
-      // strong hands open ~always, borderline hands mix, a thin off-chart band steals.
+      // it's folded to us (or limps in front) — enter by the archetype's blueprint width.
       // openWiden steals wider from late position vs a hero who over-folds his blinds.
-      if (r() < rfiOpenFreq(inRFI, code, profile.openLooseness) + (stealSeat ? openWiden : 0)) {
+      const limpers = preflopLimpers(state);
+      if (r() < rfiOpenFreq(rfiChart, code, profile.openLooseness) + (stealSeat ? openWiden : 0)) {
+        // A limper archetype limps whatever it doesn't "see" as premium; behind limpers,
+        // speculative hands over-limp for a cheap multiway flop instead of isolating.
+        const overLimp = limpers > 0 && isSpeculative(code) ? 0.5 * (1 - profile.aggression) : 0;
+        if (!looksPremium(code) && r() < Math.max(profile.limp ?? 0, overLimp)) return { type: 'call' };
         // Open SIZE scales with DEPTH, not just the board (openSizing.ts). Deep
         // stacks build the pot (~2.5–3bb), but as the tournament clock lifts the
         // blinds the effective stack shrinks and a fat 3–4bb open over-commits — so
@@ -249,7 +257,10 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         const chartPos = chartPosition(pos); // 9-max UTG+1/+2/LJ all bump as early seats
         const posBump = chartPos === 'SB' ? 0.5 : chartPos === 'UTG' || chartPos === 'MP' ? 0.3 : 0;
         const anteShave = state.ante > 0 ? 0.2 : 0;
-        const openToBB = Math.max(2, depthBB + posBump - anteShave);
+        // Isolating limpers: +1bb for the iso plus 1bb per limper, or the limpers get the
+        // right price to call and the raise buys neither fold equity nor a heads-up pot.
+        const isoBump = limpers > 0 ? 1 + limpers : 0;
+        const openToBB = Math.max(2, depthBB + posBump - anteShave + isoBump);
         // × the EFFECTIVE blind: over a straddle the standard open is ~2.5× the STRADDLE.
         // Sizing off the big blind would make every open a min-raise and hand the field
         // an irresistible price — the classic mistake in a straddled game.
@@ -298,15 +309,23 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
         if (la.callAmount > 0 && r() < 0.55) return { type: 'call' }; // mostly stack off vs a 5-bet
         return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
       }
-      if (ipPre && (code === 'JJ' || code === 'AKs' || code === 'AKo') && la.callAmount > 0 && r() < 0.3)
-        return { type: 'call' };
+      // JJ/TT/AQs vs a 4-bet: an aggressive 3-bettor (maniac/lag) was 3-betting light and
+      // won't fold its good hands; a station just calls. A tag/nit lets these go.
+      if (code === 'JJ' || code === 'TT' || code === 'AQs') {
+        const stickiness =
+          Math.max(0, profile.aggression - 0.6) * 1.2 + (profile.callStation > 0.7 ? 0.3 : 0) + (ipPre ? 0.1 : 0);
+        if (r() < stickiness) {
+          if (la.canRaise && profile.aggression >= 0.85) return jamAllIn();
+          if (la.callAmount > 0) return { type: 'call' };
+        }
+      }
       return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
     }
 
     if (raiseCount === 2) {
-      // facing a 3-bet → 4-bet (value/bluff), flat in position, or fold. Premiums
-      // MIX 4-bet with a trap-flat but NEVER fold; QQ mixes 4-bet/flat; blockers
-      // bluff-4-bet; playable hands flat IP; the rest fold.
+      // facing a 3-bet → 4-bet (value/bluff), flat, or fold. Premiums MIX 4-bet with a
+      // trap-flat but NEVER fold; QQ mixes 4-bet/flat; blockers bluff-4-bet; the top of
+      // the bot's own range continues by archetype; the rest fold.
       const premium = code === 'AA' || code === 'KK' || code === 'AKs' || code === 'AKo';
       if (premium) {
         if (la.canRaise && r() < 0.9) return fourBetSize();
@@ -320,47 +339,57 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
       // 4-bet range isn't pure value (was AA/KK/AK only, trivially read).
       if ((code === 'A5s' || code === 'A4s' || code === 'A3s') && la.canRaise && r() < profile.bluffFreq * 0.35 * fourBetBluffTilt)
         return fourBetSize();
-      // FLAT the 3-bet in position with hands that play a flop well but don't want to
-      // 4-bet-and-fold (the "no flat vs 3-bet" gap).
-      if (
-        ipPre &&
-        (code === 'JJ' || code === 'TT' || code === 'AQs' || code === 'AJs' || code === 'KQs') &&
-        la.callAmount > 0 &&
-        r() < 0.6
-      )
-        return { type: 'call' };
+      // Continue the top share of the bot's OWN entering range (see vs3BetContinueShare).
+      // A 3-bet jam is called only by the top of that; small pairs set-mine only with depth.
+      const ownChart = rfiChart.size ? rfiChart : RFI_RANGES.SB;
+      const pct = entryPercentile(ownChart, code, profile.openLooseness);
+      const share = vs3BetContinueShare(profile, ipPre) * (la.isAllInCall ? 0.4 : 1);
+      const setMineNeedsDepth = code.length === 2 && strength < 0.9 && effStackBB < 60;
+      const continues = !setMineNeedsDepth && r() < Math.max(0, Math.min(1, 0.5 + (share - pct) / 0.08));
+      if (continues) {
+        // light 4-bets: a maniac's 4-bet range is not AA/KK
+        const fourBetLight = profile.aggression > 0.8 ? (profile.aggression - 0.7) * 0.8 : profile.bluffFreq * 0.12;
+        if (la.canRaise && !la.isAllInCall && r() < fourBetLight * fourBetBluffTilt) return fourBetSize();
+        if (la.callAmount > 0) return { type: 'call' };
+      }
       return la.callAmount > 0 ? { type: 'fold' } : { type: 'check' };
     }
 
-    // facing an OPEN → 3-bet (value / bluff), flat, or fold.
-    const valueThreeBet = THREEBET_RANGE.has(code) || strength > 0.9;
-    if (valueThreeBet && la.canRaise && r() < valueThreeBetFreq(code, profile.threeBetFreq) * threeBetTilt) return threeBetSize();
-    // 3-bet BLUFF: blocker family (suited wheel aces + suited Broadway gappers), a
-    // touch more often IP (more fold equity, better realisation). threeBetTilt widens
-    // the bluff end vs a hero who over-folds to 3-bets.
-    if (BLUFF_THREEBET_RANGE.has(code) && la.canRaise && r() < profile.bluffFreq * (ipPre ? 0.55 : 0.4) * threeBetTilt)
-      return threeBetSize();
-
-    // ---- flat (cold-call) / fold vs an open ----
-    let callThreshold = 0.58 - profile.callRaiseLooseness * 0.18;
-    // Facing a shove / big overbet, tighten HARD — nobody stacks off 100bb light, so
-    // a hero jam has real fold equity instead of always being snapped by a better hand.
+    // facing an OPEN → 3-bet (value / bluff), flat, or fold, by target SHARES of the deck
+    // (vsOpenPlan). A strength threshold can't do this: preflopStrength is compressed
+    // (K7o ≈ 0.55), so any cut near 0.5 flatted half the deck and the BB defended ~97%.
     const callBB = la.callAmount / bb;
     const bigShove = la.isAllInCall || callBB >= 12;
+    const pct = strengthPercentile(code);
+    const soft = (share: number, band = 0.02) => Math.max(0, Math.min(1, 0.5 + (share - pct) / band));
     if (bigShove) {
-      const pressure = Math.min(1, callBB / 50); // ~50bb+ to call ⇒ max tightness
-      callThreshold = Math.max(callThreshold, 0.62 + pressure * 0.2); // up to ~{66+, AK}
+      // Nobody stacks off 100bb light: continue the top ~6% vs 12bb, ~3% at 50bb+.
+      const share = 0.06 - Math.min(1, callBB / 50) * 0.03 + Math.max(0, profile.callStation - 0.7) * 0.05;
+      if (r() < soft(share, 0.01)) {
+        const jam = la.canRaise && !la.isAllInCall && pct < share / 2;
+        return jam ? jamAllIn() : { type: 'call' };
+      }
+      return { type: 'fold' };
     }
-    // SB plays 3-bet-or-fold vs an open (flatting OOP into the BB bleeds) — it already
-    // took its 3-bet shot above, so here it continues only to a premium / great price.
-    const sbNoFlat = pos === 'SB' && !bigShove;
-    if (sbNoFlat) callThreshold += 0.14;
-    const priceOk = !bigShove && !sbNoFlat && reqEqRaked(pot, la.callAmount) < strength * 0.6 + 0.1;
-    if (strength > callThreshold || priceOk) {
-      return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
-    }
-    // calling stations peel light vs normal raises, but even they fold to a jam
-    if (!bigShove && profile.callStation > 0.7 && r() < profile.callStation - 0.4) return { type: 'call' };
+    const defendSeat = pos === 'BB' ? 'BB' : pos === 'SB' ? 'SB' : 'cold';
+    const openerPos = raiser >= 0 ? sixMaxRfiEquivalent(positionLabel(raiser, state.buttonIndex, nP), nP) : null;
+    const openerChart = RFI_RANGES[openerPos && openerPos !== 'BB' ? openerPos : 'CO'];
+    const openerShare = [...openerChart].reduce((n, c) => n + handCombos(c), 0) / 1326;
+    const plan = vsOpenPlan(profile, defendSeat, openerShare, reqEqRaked(pot, la.callAmount));
+    const threeBetShare = plan.threeBet * threeBetTilt;
+    // Polar 3-bet: ~⅔ value from the top (10% trap-flat), ~⅓ bluffs — 60% of the bluff
+    // mass from the blocker rung (~2.4% of hands), the rest from the wide rung (~6%).
+    const valueShare = threeBetShare * 0.65;
+    const bluffShare = threeBetShare - valueShare;
+    const blockerFreq = Math.min(1, (bluffShare * 0.6) / 0.024);
+    const bluffFreq = BLUFF_THREEBET_RANGE.has(code)
+      ? blockerFreq
+      : BLUFF_THREEBET_WIDE.has(code)
+        ? Math.min(1, (bluffShare - blockerFreq * 0.024) / 0.06)
+        : 0;
+    if (la.canRaise && r() < Math.max(soft(valueShare) * 0.9, bluffFreq)) return threeBetSize();
+    // Bluffs take their share of `cont` from below the flat range, so the flat cut is lower.
+    if (r() < soft(plan.cont - bluffShare)) return la.callAmount > 0 ? { type: 'call' } : { type: 'check' };
     return { type: 'fold' };
   }
 
@@ -370,15 +399,20 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
   // smartness upgrade — bots now fold weak hands to strong ranges and value-bet
   // correctly, instead of treating every opponent as a random hand.
   const { range: villainRange, comboWeight } = buildVillainRange(state, i);
+  // Multiway: each opponent gets his OWN preflop role range (a limper is not a 3-bettor),
+  // and only the primary villain's range is conditioned on this street's action.
+  const fieldSeats = state.players.flatMap((q, k) => (!q.folded && k !== i ? [k] : []));
+  const primary = primaryVillainIdx(state, i);
   const eqRes =
     liveOpponents > 1
       ? equityVsField(
           p.holeCards,
           state.board,
-          Array.from({ length: liveOpponents }, () => villainRange),
+          fieldSeats.map((s) => (s === primary ? villainRange : rangeFromSet(roleBaseRange(state, s).baseSet))),
           diff.iters,
           r,
-          comboWeight,
+          undefined,
+          fieldSeats.map((s) => (s === primary ? comboWeight : undefined)),
         )
       : equityVsRange(p.holeCards, state.board, villainRange, diff.iters, r, comboWeight);
   // difficulty: weaker bots misread their equity (noise); strong bots read true.
@@ -669,6 +703,15 @@ export function inPositionPostflop(state: GameState, seat: number): boolean {
 function preflopRaiseCount(state: GameState): number {
   return state.log.reduce(
     (acc, l) => acc + (l.handNumber === state.handNumber && l.street === 'preflop' && l.type === 'raise' ? 1 : 0),
+    0,
+  );
+}
+
+/** Players who limped in this hand. Only meaningful while the pot is unraised, where
+ *  every preflop call is a limp (a straddle posts as a blind, so calling one is a limp). */
+function preflopLimpers(state: GameState): number {
+  return state.log.reduce(
+    (acc, l) => acc + (l.handNumber === state.handNumber && l.street === 'preflop' && l.type === 'call' ? 1 : 0),
     0,
   );
 }

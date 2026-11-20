@@ -54,7 +54,7 @@ function usualPlay(
   if (strength >= 4) return { action: `Bet for value${mw ? ' (size up)' : ''} — ${size}.`, why: mw ? `${opponents + 1}-way: size up, need more equity to value-bet, protect vs the field.` : ip ? 'In position — you may also check back to trap.' : 'Out of position — bet now, you realize less equity.' };
   if (strength === 3)
     return {
-      action: wet === 'wet' ? `Semi-bluff (${size}) or check-call.` : `Bet ${size} or take a free card.`,
+      action: wet === 'wet' ? `Semi-bluff (${size}) or check-call.` : ip ? `Bet ${size} or check back for a free card.` : `Bet ${size} or check-call.`,
       why:
         `Strong draw — bet as a SEMI-BLUFF, not for showdown:` +
         ` • Two ways to win — fold equity now (worse hands / air give up), plus real equity when called (your outs; rarely drawing dead).` +

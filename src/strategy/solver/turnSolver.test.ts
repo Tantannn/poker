@@ -70,6 +70,9 @@ describe('turn solver — a CHECK is valued as a river subgame, not an instant s
   const args = {
     heroRange: hero, villainRange: villain, board: b, pot: 28, effStack: 372,
     betSizes: [0.33, 0.5, 0.75, 1.0], iterations: 1200,
+    // Hero-only nesting: with villain able to bet when checked to, OOP hero realises LESS than
+    // his raw equity, so "nesting raises the check EV" is only a theorem without the stab.
+    villainMayStab: false,
   };
   const flat = solveTurn({ ...args, nestRiverForCheck: false });
   const nested = solveTurn({ ...args, nestRiverForCheck: true, riverNestIterations: 120 });
@@ -101,8 +104,11 @@ describe('turn solver — a CHECK is valued as a river subgame, not an instant s
   });
 
   it('value hands are unaffected — the set still bets big', () => {
-    expect(betFreq(nested, 1)).toBeGreaterThan(0.6);
-  });
+    // On the FULL tree: without the stab a turn check is a free pass to a river where only
+    // hero may bet, and the set slow-plays into it — an artifact of that tree, not advice.
+    const full = solveTurn({ ...args, villainMayStab: true, riverNestIterations: 120 });
+    expect(betFreq(full, 1)).toBeGreaterThan(0.6);
+  }, 30000);
 });
 
 describe('turn node lock — villain is pinned to a fold read, hero best-responds', () => {
@@ -149,7 +155,7 @@ describe('turn node lock — villain is pinned to a fold read, hero best-respond
     const flatLocked = (f: number) =>
       solveTurn({
         heroRange: hero, villainRange: villain, board: b, pot: 30, effStack: 300,
-        betSizes: SIZES, iterations: 1500, nestRiverForCheck: false,
+        betSizes: SIZES, iterations: 1500, nestRiverForCheck: false, nestRiverForCall: false, villainMayStab: false,
         villainLock: { foldToBet: f },
       });
     expect(betFreqRow(flatLocked(0.85).heroStrategy[2])).toBeGreaterThan(betFreqRow(flatLocked(0.05).heroStrategy[2]));

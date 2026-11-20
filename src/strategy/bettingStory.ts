@@ -219,6 +219,6 @@ export function readHeroStory(line: StreetMove[], revealed: number): HeroStoryVe
   return {
     read: 'broken',
     why: `You ${recap}, now suddenly betting. Passive-then-big represents almost nothing — a thinking villain won't fold to a line that tells no value story.`,
-    action: "Don't bluff — nobody folds to this. Give up / take the free card. (If value, you let earlier streets go too cheap.)",
+    action: "Don't bluff — nobody folds to this. Give up — check, and fold if he bets. (If value, you let earlier streets go too cheap.)",
   };
 }

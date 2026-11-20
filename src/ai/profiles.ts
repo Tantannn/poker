@@ -21,6 +21,9 @@ export interface AIProfile {
    *  never does. decide.ts uses max(diff.adapt, profile.adapt), so a reg adapts even on Normal
    *  and the difficulty slider still makes everyone adapt. Omitted = 0 (static archetype). */
   adapt?: number;
+  /** 0..1 share of non-premium entering hands this archetype open-limps (and over-limps)
+   *  instead of raising — the modal live low-stakes leak. Omitted = 0 (raise-or-fold). */
+  limp?: number;
   /** one-line guidance on how to exploit this archetype. */
   exploit: string;
 }
@@ -61,7 +64,7 @@ export const PROFILES: Record<string, AIProfile> = {
   lp: {
     id: 'lp',
     name: 'Loose-Passive (Calling Station)',
-    blurb: 'Plays many hands, calls too much, rarely raises. Punish by value betting.',
+    blurb: 'Limps and calls with many hands, rarely raises. Punish by isolating and value betting.',
     openLooseness: 0.7,
     threeBetFreq: 0.1,
     callRaiseLooseness: 0.85,
@@ -70,8 +73,9 @@ export const PROFILES: Record<string, AIProfile> = {
     callStation: 0.85,
     cbetFreq: 0.35,
     tag: 'LP',
+    limp: 0.75,
     exploit:
-      'Value bet relentlessly and STOP bluffing — they call too much, so thin value prints and bluffs burn money. ' +
+      'Isolate their limps with a bigger raise (3bb + 1 per limper) and value bet relentlessly. STOP bluffing — they call too much, so thin value prints and bluffs burn money. ' +
       'Bet bigger with strong hands; check back air instead of firing.',
   },
   maniac: {

@@ -6,6 +6,7 @@
 
 import type { Card } from '../../engine/cards';
 import { sameCard, SUIT_SYMBOLS } from '../../engine/cards';
+import { evaluate7 } from '../../engine/evaluator';
 import type { WeightedRange } from '../../engine/range';
 import { codeToCombos } from '../../engine/range';
 import type { NodeStrategy, ActionOption } from '../types';
@@ -51,8 +52,9 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
 const dead = (c: Card, cards: Card[]) => cards.some((x) => sameCard(x, c));
 
 /** Plain-English reasons for a hero-FIRST river CFR node, built from the solved
- *  numbers (hero's showdown equity, recovered from the check EV = pot × equity; and
- *  villain's solved call frequency per size) PLUS the concrete blocker read from
+ *  numbers (hero's exact showdown equity vs villain's range, and villain's solved CONTINUE
+ *  frequency per size — call + raise, so a raise is never read as a fold) PLUS the concrete
+ *  blocker read from
  *  hero's cards vs the board. Faithful to what the solve knows — river polarization,
  *  fold equity per size, value:bluff balance, showdown value, blockers — not spot
  *  narrative ("villain is capped") it can't assert. Wording is tailored to the
@@ -62,21 +64,27 @@ const dead = (c: Card, cards: Card[]) => cards.some((x) => sameCard(x, c));
  *  gap for the CFR path, which otherwise returns bare bars with nothing to tap. */
 function riverReasons(
   grid: BetSizeGrid,
-  checkEvChips: number,
-  villainCallFreq: number[],
+  equity: number,
+  villainContinueFreq: number[],
   pot: number,
   bb: number,
   heroCards: Card[],
   board: Card[],
   bestIsCheck: boolean,
+  stabFreq = 0,
 ): { notes: string[]; why: Record<string, string>; sizeNote: Record<string, string> } {
-  const eq = Math.max(0, Math.min(1, pot > 0 ? checkEvChips / pot : 0));
+  const eq = Math.max(0, Math.min(1, equity));
   const eqPct = Math.round(eq * 100);
   const potBB = pot / bb;
   const value = eq >= 0.6;
   const bluff = eq <= 0.34;
-  const foldOf = (s: number) => Math.round((1 - Math.max(0, Math.min(1, villainCallFreq[s] ?? 0))) * 100);
-  const callOf = (s: number) => Math.round(Math.max(0, Math.min(1, villainCallFreq[s] ?? 0)) * 100);
+  // A strong hand the solver CHECKS is a trap: villain bets into the check often enough that
+  // calling his bets out-earns betting into the range that would call.
+  const trap = value && bestIsCheck && stabFreq >= 0.2;
+  const stabPct = Math.round(stabFreq * 100);
+  const keepsShowdown = eq >= 0.1;
+  const foldOf = (s: number) => Math.round((1 - Math.max(0, Math.min(1, villainContinueFreq[s] ?? 0))) * 100);
+  const callOf = (s: number) => Math.round(Math.max(0, Math.min(1, villainContinueFreq[s] ?? 0)) * 100);
   const why: Record<string, string> = {};
   const sizeNote: Record<string, string> = {};
 
@@ -89,13 +97,18 @@ function riverReasons(
   const holdsFlushCard = flushSuit >= 0 && heroCards.some((c) => c.suit === flushSuit);
   const flushSym = flushSuit >= 0 ? SUIT_SYMBOLS[flushSuit] : '';
 
-  why.check = value
-    ? `Checks down your ~${eqPct}% for showdown — with a hand this strong that leaves money behind, since worse hands would have called a bet.`
+  // A check is not a free showdown: villain may bet into it, and hero then folds or calls.
+  why.check = trap
+    ? `Trap: checking your ~${eqPct}% induces — he bets ~${stabPct}% when checked to, and calling those bets (his bluffs included) earns more than betting into the hands that would call.`
+    : value
+    ? `Checking your ~${eqPct}% leaves money behind — worse hands would have called a bet, and you only get paid now if he bets into you.`
     : bluff
       ? bestIsCheck
-        ? `Realises your ~${eqPct}% — modest, but it still beats villain's busted hands, and with weak blockers that showdown value is worth more than a bluff. You're never forced to bluff, so checking wins here.`
-        : `Shows down your ~${eqPct}% — near the bottom of your range. The check just banks that small equity; the solver prefers betting only because fold equity here is high.`
-      : `Realises your ~${eqPct}% at showdown for free — a bluff-catcher plays check/call, not bet (betting folds out the worse hands you beat and is called only by better).`;
+        ? `Keeps your ~${eqPct}% — modest, but it beats villain's busted hands, and with weak blockers that showdown value is worth more than a bluff. You're never forced to bluff, so checking wins here.`
+        : keepsShowdown
+          ? `Keeps your ~${eqPct}% — near the bottom of your range, and it folds if he bets. The solver prefers betting only because fold equity here is high.`
+          : `Gives up — at ~${eqPct}% this hand wins almost nothing at showdown, so it either bluffs or folds to any bet.`
+      : `A bluff-catcher (~${eqPct}%) plays check-and-call, not bet: betting folds out the worse hands you beat and is called only by better. Checking lets his bluffs bet into you.`;
 
   grid.fracs.forEach((frac, s) => {
     const id = grid.ids[s];
@@ -119,10 +132,14 @@ function riverReasons(
         : `Betting a bluff-catcher turns a hand that beats only worse hands (which fold) into one called only by better — no value, and nothing to bluff. Prefer check/call.`;
   });
 
-  const eqNote = value
+  const eqNote = trap
+    ? `Your ~${eqPct}% is near the top of your range, but here it traps: villain bets ~${stabPct}% into a check, so check and call — the same strong hand earns more from his bets than from his calls.`
+    : value
     ? `Your ~${eqPct}% is near the top of your range — bet for value and size up.`
     : bluff
-      ? `Your ~${eqPct}% is near the bottom — a bluff-or-give-up hand. It keeps a little showdown value (beats his busted hands), so a check is a real option, not just a bet.`
+      ? keepsShowdown
+        ? `Your ~${eqPct}% is near the bottom — a bluff-or-give-up hand. It keeps a little showdown value (beats his busted hands), so a check is a real option, not just a bet.`
+        : `Your ~${eqPct}% is pure air — no showdown value, so it is a bluff or a give-up, nothing in between.`
       : `Your ~${eqPct}% is a bluff-catcher — beats his bluffs, loses to his value, so check and call only at the right price.`;
   // Balance is quoted at the BIGGEST size on offer — the one that needs the most bluffs,
   // and the number the player has to hold to if he takes the polar line.
@@ -152,6 +169,20 @@ function riverReasons(
     `Balance: at ${grid.fracLabels[top]} the mix wants ~${potBluff}% bluffs (≈ ${potRatio}:1 value:bluff) so villain can't profitably fold everything or call everything.`,
   ].filter(Boolean);
   return { notes, why, sizeNote };
+}
+
+/** Hero's exact river showdown equity (win + ½ tie) vs villain's weighted combos. */
+function riverShowdownEquity(hero: [Card, Card], villain: Combo[], board: Card[]): number {
+  const mine = evaluate7([...hero, ...board]).score;
+  let w = 0;
+  let won = 0;
+  for (const v of villain) {
+    if (v.cards.some((c) => sameCard(c, hero[0]) || sameCard(c, hero[1]))) continue;
+    const theirs = evaluate7([...v.cards, ...board]).score;
+    won += v.w * (mine > theirs ? 1 : mine === theirs ? 0.5 : 0);
+    w += v.w;
+  }
+  return w > 0 ? won / w : 0.5;
 }
 
 /** Expand a WeightedRange to concrete combos, drop board/dead conflicts, apply an
@@ -261,7 +292,7 @@ export function solveRiverNode(p: RiverSolveParams): NodeStrategy | null {
         `per-hand estimate). Frequencies are the solved mix.`) +
       HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
-    true,
+    riverShowdownEquity(heroActual, villainCombos, p.board),
   );
 }
 
@@ -287,13 +318,30 @@ function raiseNote(
   return `He raises this ~${Math.round(raise * 100)}% of the time — ${plan} with this hand if he does.`;
 }
 
+/** "If you check he bets ~40% — plan to call with this hand". The check-call / check-fold
+ *  plan, read off villain's solved bet-when-checked-to and THIS combo's answer. */
+function stabNote(
+  res: { villainStabFreq?: number; heroStabResponse?: number[][] },
+  heroIdx: number,
+): string | undefined {
+  const bet = res.villainStabFreq ?? 0;
+  const resp = res.heroStabResponse?.[heroIdx];
+  if (bet < 0.02 || !resp) return undefined;
+  const fold = Math.round(resp[0] * 100);
+  const plan = fold >= 65 ? 'plan to fold' : fold <= 35 ? 'plan to call' : `a fold/call mix (~${fold}% fold)`;
+  return `If you check he bets ~${Math.round(bet * 100)}% of the time — ${plan} with this hand.`;
+}
+
 function heroFirstNodeStrategy(
   res: {
     heroStrategy: { action: string; freq: number }[][];
     heroActionEv: number[][];
     villainCallFreq?: number[];
     villainRaiseFreq?: number[];
+    villainContinueFreq?: number[];
     heroRaiseResponse?: number[][][];
+    villainStabFreq?: number;
+    heroStabResponse?: number[][];
   },
   grid: BetSizeGrid,
   heroCombos: Combo[],
@@ -302,7 +350,7 @@ function heroFirstNodeStrategy(
   pot: number,
   bigBlind: number,
   noteText: string,
-  river = false,
+  riverEquity?: number,
 ): NodeStrategy | null {
   const idx = heroCombos.findIndex(
     (c) => sameCard(c.cards[0], heroActual[0]) && sameCard(c.cards[1], heroActual[1]),
@@ -313,7 +361,7 @@ function heroFirstNodeStrategy(
   const freqOf = (action: string) => row.find((a) => a.action === action)?.freq ?? 0;
 
   const options: ActionOption[] = [
-    { id: 'check', label: 'Check', freq: freqOf('check'), ev: round2(evRow[0] / bigBlind), kind: 'passive' },
+    { id: 'check', label: 'Check', freq: freqOf('check'), ev: round2(evRow[0] / bigBlind), kind: 'passive', sizeNote: stabNote(res, idx) },
   ];
   // `bet:${s}` indices are the grid's own order: betSizeGrid guarantees every size is a
   // distinct positive amount inside the stack, so no solver filtering shifts them.
@@ -338,12 +386,13 @@ function heroFirstNodeStrategy(
 
   // River-only: attach solve-grounded per-line reasons + a bulleted overview so the
   // Explain panel has something to show (the CFR path sets no `why`/`notes` itself).
-  // evRow[0] is the check EV in chips = pot × hero's showdown equity, so it recovers
-  // the equity the reasons key off without a second Monte-Carlo. Skipped on the turn
-  // (river=false): turn reasons would need protection/runout wording this doesn't have.
+  // The equity is computed exactly by the caller — the check EV no longer equals pot ×
+  // equity once villain may bet into a check. Skipped on the turn: turn reasons would need
+  // protection/runout wording this doesn't have.
   let notes: string[] | undefined;
-  if (river && res.villainCallFreq) {
-    const r = riverReasons(grid, evRow[0], res.villainCallFreq, pot, bigBlind, heroActual, board, best.id === 'check');
+  const continueFreq = res.villainContinueFreq ?? res.villainCallFreq;
+  if (riverEquity != null && continueFreq) {
+    const r = riverReasons(grid, riverEquity, continueFreq, pot, bigBlind, heroActual, board, best.id === 'check', res.villainStabFreq);
     for (const o of options) {
       if (r.why[o.id]) o.why = r.why[o.id];
       // keep the bet-fold plan already attached above — append, never overwrite
@@ -412,8 +461,9 @@ export function solveTurnNode(p: RiverSolveParams): NodeStrategy | null {
           (p.villainFoldToBet as number) * 100,
         )}% to a ¾-pot bet (scaled by pot odds across sizes), and your line — bet AND check ` +
         `(the nested river subgames best-respond too) — is the BEST RESPONSE to that read, not an equilibrium.`
-      : `Turn solver — range-vs-range with the river runouts enumerated for showdown ` +
-        `equity. Frequencies are the solved mix.`) +
+      : `Turn solver — range-vs-range. A check plays out a river subgame over every river card; ` +
+        `a called bet or raise plays one too (the heaviest river textures, solved over the betting ` +
+        `and calling ranges — a disclosed abstraction). Frequencies are the solved mix.`) +
       HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
@@ -451,9 +501,9 @@ export function solveFlopNode(p: RiverSolveParams): NodeStrategy | null {
     p.board,
     p.pot,
     p.bigBlind,
-    `Flop solver — range-vs-range with turn+river runouts enumerated for showdown equity; ` +
-      `the check line nests a turn subgame. Turn cards are bucketed by texture (a disclosed ` +
-      `abstraction, not a solver-exact flop solve). Frequencies are the solved mix.` +
+    `Flop solver — range-vs-range. A check AND a called bet each play out a turn subgame ` +
+      `(the river after it is a static showdown — the cost bound), turn cards bucketed by texture: ` +
+      `disclosed abstractions, not a solver-exact flop solve. Frequencies are the solved mix.` +
       HERO_FIRST_TREE_NOTE +
       (p.rangeNote ? ` Villain: ${p.rangeNote}` : ''),
   );
@@ -656,7 +706,8 @@ export interface RiverVsBetNodeParams {
  *  hero then folds or calls the raise (no re-raise — depth stops there). */
 const HERO_FIRST_TREE_NOTE =
   ` Villain may fold, call, or RAISE your bet (one raise size), and you answer by folding or ` +
-  `calling — so a bluff is priced against being raised, not as risk-free.`;
+  `calling — so a bluff is priced against being raised, not as risk-free. If you check, he may ` +
+  `bet ¾ pot and you fold or call (no check-raise) — a check is not a free showdown.`;
 
 const VS_BET_TREE_NOTE =
   ` Hero chooses between two raise sizes and a jam, and villain can re-raise any of them ` +

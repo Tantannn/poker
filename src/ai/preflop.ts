@@ -130,6 +130,18 @@ export const THREEBET_RANGE = resolveRangeSet('threebet', buildRange(THREEBET_TO
  *  net bluff adds are A3s–A2s and the suited gappers. */
 export const BLUFF_THREEBET_TOKENS = ['A5s', 'A4s', 'A3s', 'A2s', 'KJs', 'KTs', 'QTs', 'J9s'];
 export const BLUFF_THREEBET_RANGE = buildRange(BLUFF_THREEBET_TOKENS);
+/** Second rung of 3-bet bluffs for wide 3-bettors, once the blocker hands are used up. */
+export const BLUFF_THREEBET_WIDE = buildRange(['A9s-A6s', 'K9s', 'Q9s', 'T9s', '98s', '87s', '76s', '65s', 'KQo', 'AJo']);
+
+/** What a recreational player "sees" as a raising hand — big pairs and big aces, not the
+ *  small pairs preflopStrength ranks highly for all-in equity. */
+const LOOKS_PREMIUM = buildRange(['TT+', 'AQs+', 'AQo+', 'AJs', 'KQs']);
+export const looksPremium = (code: string): boolean => LOOKS_PREMIUM.has(code);
+
+/** Speculative hands that over-limp behind limpers rather than isolate: they want a cheap
+ *  multiway flop (set-mining, suited connectors), not a heads-up raised pot. */
+const SPECULATIVE = buildRange(['99-22', 'T9s', '98s', '87s', '76s', '65s', '54s', 'A9s-A2s', 'K9s', 'Q9s', 'J9s']);
+export const isSpeculative = (code: string): boolean => SPECULATIVE.has(code);
 
 /** BB defend (call) range vs a button open — wide. */
 export const BB_DEFEND_TOKENS = [

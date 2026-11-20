@@ -51,14 +51,14 @@ describe('3-way river solver — hero + villain CFR, third player on a fixed MDF
   });
 
   it('the near-nuts earns MORE than heads-up — a 3-handed pot pays it off bigger', () => {
-    const hu = solveRiver({ heroRange: hero, villainRange: villain, ...args });
+    const hu = solveRiver({ heroRange: hero, villainRange: villain, ...args, villainMayStab: false }); // the 3-way tree has no stab
     const best3 = Math.max(...r.heroActionEv[0].slice(1));
     const bestHU = Math.max(...hu.heroActionEv[0].slice(1));
     expect(best3).toBeGreaterThan(bestHU);
   });
 
   it('bluffs less multiway than heads-up — a bluff must now get through TWO players', () => {
-    const hu = solveRiver({ heroRange: hero, villainRange: villain, ...args });
+    const hu = solveRiver({ heroRange: hero, villainRange: villain, ...args, villainMayStab: false }); // the 3-way tree has no stab
     const bluffHU = betFreq(hu.heroStrategy[1]);
     const bluff3 = betFreq(r.heroStrategy[1]);
     console.log(`bluff bet: HU=${(bluffHU * 100).toFixed(0)}%  3way=${(bluff3 * 100).toFixed(0)}%`);

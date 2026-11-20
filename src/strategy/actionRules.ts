@@ -44,7 +44,7 @@ export function actionRule(id: ActionId, board: Card[]): string {
     case 'bet150':
       return 'Overbet: your range is POLAR — nuts plus bluffs, nothing between — so villain cannot call wide and a size past pot prints. Needs ~37% bluffs to stay balanced. 💡 Polar range → overbet.';
     case 'check':
-      return 'No value bet and no fold-equity case — check, control the pot, take a free card and realize equity. 💡 No edge → check.';
+      return 'No value bet and no fold-equity case — check and control the pot: a free card if he checks back, a cheap decision if he bets. 💡 No edge → check.';
     case 'fold':
       return 'Not enough equity for the price — folding risks nothing more. 💡 Bad price + weak hand → fold.';
     case 'call':

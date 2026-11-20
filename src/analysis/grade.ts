@@ -253,7 +253,7 @@ export function buildCheckLineCoach(
     );
     bullets.push(
       oop === true
-        ? `Out of position, a bet invites a raise that blows you off a hand with big equity — checking guarantees you see the next card and get to your draw cheaply.`
+        ? `Out of position, a bet invites a raise that blows you off a hand with big equity — checking avoids that raise: if he bets, you call at his price with your outs instead.`
         : `Checking takes a cheap card to your outs and keeps the pot small while your hand still needs to improve.`,
     );
     bullets.push(
