@@ -13,6 +13,7 @@ import { rangeFromSet } from '../engine/range';
 import { depthValueMult } from '../strategy/depth';
 import { multFor, rakeTaxRate } from '../strategy/preflopRake';
 import { marginality } from '../strategy/preflopModel';
+import { getScenario } from '../strategy/preflopChart';
 import { rakeInChips, netPot, rakeMarginal } from '../engine/rake';
 import {
   handCode, handCombos, preflopStrength, RFI_RANGES, BLUFF_THREEBET_RANGE, BLUFF_THREEBET_WIDE, looksPremium, isSpeculative,
@@ -228,7 +229,9 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
 
     // charts are keyed by the 6-max seats-behind equivalent, the same mapping the
     // grader uses — otherwise a 9-max UTG+1 has no chart and the bot folds everything.
-    const rfiChart = RFI_RANGES[sixMaxRfiEquivalent(pos, state.players.length) ?? 'BB'];
+    // Heads-up the button (= SB) opens ~82% (the trainer's `hu-sb-rfi`), not the 6-max button's ~45%.
+    const headsUpTable = state.players.length === 2;
+    const rfiChart = headsUpTable && pos !== 'BB' ? HU_OPEN : RFI_RANGES[sixMaxRfiEquivalent(pos, state.players.length) ?? 'BB'];
 
     // ---- short stack: push/fold (≤15bb) ----
     // Too shallow to play postflop or realise implied odds. Open-jam or 3-bet-jam a
@@ -393,7 +396,7 @@ export function decideAction(state: GameState, opts?: DecideOpts): Action {
     }
     const defendSeat = pos === 'BB' ? 'BB' : pos === 'SB' ? 'SB' : 'cold';
     const openerPos = raiser >= 0 ? sixMaxRfiEquivalent(positionLabel(raiser, state.buttonIndex, nP), nP) : null;
-    const openerChart = RFI_RANGES[openerPos && openerPos !== 'BB' ? openerPos : 'CO'];
+    const openerChart = headsUpTable ? HU_OPEN : RFI_RANGES[openerPos && openerPos !== 'BB' ? openerPos : 'CO'];
     const openerShare = [...openerChart].reduce((n, c) => n + handCombos(c), 0) / 1326;
     // Rake-free price: the rake reaches this node through callKeep/raiseKeep, not twice.
     const plan = vsOpenPlan(profile, defendSeat, openerShare, reqEqRaw(pot, la.callAmount));
@@ -778,6 +781,7 @@ export function inPositionPostflop(state: GameState, seat: number): boolean {
   return state.players.every((q) => q.folded || q.id === seat || orderIdx(q.id) < heroOrder);
 }
 
+const HU_OPEN = getScenario('hu-sb-rfi').open ?? new Set<string>();
 const PREMIUMS = new Set(['AA', 'KK', 'QQ', 'AKs', 'AKo']);
 
 /** Preflop raises made so far this hand (the open counts as the 1st raise), so a

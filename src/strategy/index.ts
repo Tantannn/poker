@@ -142,6 +142,17 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   // pot must still read as an RFI spot rather than sending everyone to 3-bet ranges.
   const facingRaise = state.currentBet > effectiveBigBlind(state);
 
+  // HEADS-UP has its own charts: the button (= SB) opens ~82% and the BB defends ~65%. The
+  // seats-behind rule below would hand both the 6-max button/BB ranges (~45% open).
+  if (n === 2) {
+    if (!facingRaise && heroPos !== 'BB') return { sc: getScenario('hu-sb-rfi'), level: 0 };
+    if (facingRaise && raises === 1 && heroPos === 'BB') return { sc: getScenario('hu-bb-vs-sb'), level: 1 };
+    if (raises === 2 && heroPos !== 'BB') return { sc: getScenario('hu-sb-vs-3bet'), level: 2 };
+  }
+  // Short tables: a seat's RANGE is set by how many act behind it, not by its name — a
+  // 4-handed "UTG" opens like a 6-max CO. Read both openers through the same ladder.
+  const heroOpenSeat = sixMaxRfiEquivalent(heroPos, n) ?? heroChart;
+
   if (!facingRaise) {
     // Open range is a function of SEATS BEHIND, not table size — read one 6-max
     // ladder by behind-count instead of a chart per size (5-max UTG plays like
@@ -154,8 +165,8 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // facing a 4-bet (your re-raise got re-raised). Premium-only continue range,
     // matched to your position. Only UTG/CO/BTN charts exist → MP↦CO, blinds↦BTN.
     const fbId =
-      heroChart === 'UTG' ? 'utg-vs-4bet'
-        : heroChart === 'MP' || heroChart === 'CO' ? 'co-vs-4bet'
+      heroOpenSeat === 'UTG' ? 'utg-vs-4bet'
+        : heroOpenSeat === 'MP' || heroOpenSeat === 'CO' ? 'co-vs-4bet'
           : 'btn-vs-4bet';
     return { sc: getScenario(fbId), level: 3 };
   }
@@ -164,8 +175,8 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
     // the position YOU opened from — not always BTN. Only UTG/CO/BTN vs-3bet
     // charts exist, so MP maps to CO (next-tightest) and the blinds to BTN.
     const tbId =
-      heroChart === 'UTG' ? 'utg-vs-3bet'
-        : heroChart === 'MP' || heroChart === 'CO' ? 'co-vs-3bet'
+      heroOpenSeat === 'UTG' ? 'utg-vs-3bet'
+        : heroOpenSeat === 'MP' || heroOpenSeat === 'CO' ? 'co-vs-3bet'
           : 'btn-vs-3bet';
     return { sc: getScenario(tbId), level: 2 };
   }
@@ -176,7 +187,7 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   // back to the nearest existing one (vs-UTG = tightest baseline).
   const raiser = lastRaiser(state);
   const raiserPos = raiser >= 0 ? positionLabel(raiser, state.buttonIndex, state.players.length) : undefined;
-  const raiserChart = raiserPos ? chartPosition(raiserPos) : undefined;
+  const raiserChart = raiserPos ? (sixMaxRfiEquivalent(raiserPos, n) ?? chartPosition(raiserPos)) : undefined;
   if (heroChart === 'BB') {
     // pick the defense chart matching the ACTUAL opener, not always BTN.
     const bbId =
@@ -191,12 +202,12 @@ function pickPreflopScenario(state: GameState, heroIdx: number): { sc: PreflopSc
   // SB only has a vs-BTN (steal) defence chart — the 3-bet-or-fold shape is right
   // for any steal and far closer than the flat-heavy vs-UTG chart it used before.
   if (heroChart === 'SB') return { sc: getScenario('sb-vs-btn'), level: 1 };
-  if (heroChart === 'BTN')
+  if (heroOpenSeat === 'BTN')
     return {
       sc: getScenario(raiserChart === 'CO' ? 'btn-vs-co' : raiserChart === 'MP' ? 'btn-vs-mp' : 'btn-vs-utg'),
       level: 1,
     };
-  if (heroChart === 'CO') return { sc: getScenario(raiserChart === 'MP' ? 'co-vs-mp' : 'co-vs-utg'), level: 1 };
+  if (heroOpenSeat === 'CO') return { sc: getScenario(raiserChart === 'MP' ? 'co-vs-mp' : 'co-vs-utg'), level: 1 };
   // UTG/MP facing an open ahead of them — rare, and tight: keep the vs-UTG baseline.
   return { sc: getScenario('btn-vs-utg'), level: 1 };
 }
@@ -358,7 +369,8 @@ function preflopStrategy(state: GameState, heroIdx: number, models?: VillainMode
   const heroPos = positionLabel(heroIdx, state.buttonIndex, state.players.length);
   // On a short table the seat name can differ from the 6-max chart we read by
   // seats-behind (e.g. 5-max UTG uses the MP open range). Say so, don't mislabel.
-  const remapped = sc.facing === 'rfi' && sc.heroPos !== heroPos;
+  // (heads-up charts name the button 'SB' — it posts the small blind — so that is no remap)
+  const remapped = sc.facing === 'rfi' && sc.heroPos !== heroPos && !sc.sizes;
   const seatLabel = remapped ? `${heroPos} open (plays like ${sc.short})` : sc.label;
   // "Multiway" means 2+ opponents are ALREADY in the pot for this bet — the opener
   // plus any callers/squeezers. Blinds still to act behind have only posted their

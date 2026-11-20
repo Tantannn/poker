@@ -55,3 +55,13 @@ when flat ranges are built.
 Related: `DEFAULT_MIN_PLAY` in `solverCharts.ts` is **0.6, not 0.5** — a binary set
 admits a hand at full weight, so a ½ cut-off gives a hand opened 55% of the time the
 same presence as one opened always and over-represents the mixed tail.
+
+## Short-handed tables (2–5 seats)
+A seat's range follows **seats behind**, never its name: `sixMaxRfiEquivalent` maps every seat at
+every size onto the 6-max ladder (4-handed UTG opens like CO, 5-handed UTG like MP). That applies
+to the hero's open, to the OPENER the hero defends against (`raiserChart`) and to the seat the
+hero opened from when facing a 3-/4-bet — reading the opener by name defended a 4-handed UTG open
+with the tight vs-UTG chart. **Heads-up has its own charts** (`hu-sb-rfi` ~82%, `hu-bb-vs-sb`,
+`hu-sb-vs-3bet`, `sizes: [2]`): the seats-behind rule would hand the HU button the 6-max button's
+~45%. The bots use the same HU open set (`decide.ts: HU_OPEN`) for their button and as the
+opener width they defend against. `shortHanded.test.ts` drives the engine to each spot.
