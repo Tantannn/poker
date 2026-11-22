@@ -781,7 +781,7 @@ export function inPositionPostflop(state: GameState, seat: number): boolean {
   return state.players.every((q) => q.folded || q.id === seat || orderIdx(q.id) < heroOrder);
 }
 
-const HU_OPEN = getScenario('hu-sb-rfi').open ?? new Set<string>();
+const HU_OPEN = getScenario('hu-sb-rfi').open!;
 const PREMIUMS = new Set(['AA', 'KK', 'QQ', 'AKs', 'AKo']);
 
 /** Preflop raises made so far this hand (the open counts as the 1st raise), so a

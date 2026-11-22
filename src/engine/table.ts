@@ -89,6 +89,8 @@ export interface Player {
   committed: number; // chips this street
   totalCommitted: number; // chips this hand
   hasActed: boolean; // acted since last aggression this street
+  /** A short all-in (under a full raise) does not re-open raising for seats that already acted. */
+  raiseClosed?: boolean;
   lastAction: string;
   startStack: number; // stack at the start of the current hand (for P/L this hand)
   buyIn: number; // standard buy-in (chips) — busted players rebuy to THIS, not to
@@ -353,6 +355,7 @@ export function startHand(state: GameState): GameState {
     p.committed = 0;
     p.totalCommitted = 0;
     p.hasActed = false;
+    p.raiseClosed = false;
     p.lastAction = '';
     p.startStack = p.stack;
   }
@@ -600,7 +603,7 @@ export function legalActions(state: GameState): LegalActions {
   let minRaiseTo = state.currentBet + state.lastRaiseSize;
   if (minRaiseTo > maxRaiseTo) minRaiseTo = maxRaiseTo;
   // can raise only if you have chips beyond a call
-  const canRaise = p.stack > toCall;
+  const canRaise = p.stack > toCall && !p.raiseClosed;
   return {
     canFold: true,
     canCheck,
@@ -648,10 +651,15 @@ export function applyAction(state: GameState, action: Action): GameState {
     const raiseIncrement = target - state.currentBet;
     commit(p, delta);
     // full raise reopens action; short all-in does not
-    if (raiseIncrement >= state.lastRaiseSize) {
-      state.lastRaiseSize = raiseIncrement;
-      for (const other of state.players) {
-        if (other.id !== p.id && canStillAct(other)) other.hasActed = false;
+    const isFullRaise = raiseIncrement >= state.lastRaiseSize;
+    if (isFullRaise) state.lastRaiseSize = raiseIncrement;
+    for (const other of state.players) {
+      if (other.id === p.id || !canStillAct(other)) continue;
+      if (isFullRaise) {
+        other.hasActed = false;
+        other.raiseClosed = false;
+      } else if (other.hasActed) {
+        other.raiseClosed = true;
       }
     }
     state.currentBet = Math.max(state.currentBet, target);
@@ -712,6 +720,7 @@ function advanceStreet(state: GameState) {
     for (const p of state.players) {
       p.committed = 0;
       if (canStillAct(p)) p.hasActed = false;
+      p.raiseClosed = false;
     }
   };
 
@@ -773,6 +782,12 @@ function buildPots(state: GameState): SidePot[] {
   return pots;
 }
 
+/** Odd chips go to the first winner clockwise from the button. */
+function seatsLeftOfButton(state: GameState, id: number): number {
+  const n = state.players.length;
+  return (id - state.buttonIndex - 1 + n) % n;
+}
+
 function sameSet(a: number[], b: number[]): boolean {
   return a.length === b.length && a.every((x) => b.includes(x));
 }
@@ -805,7 +820,9 @@ function doShowdown(state: GameState) {
       if (res.score > bestScore) bestScore = res.score;
       return { id, res };
     });
-    const winners = scored.filter((s) => s.res.score === bestScore);
+    const winners = scored
+      .filter((s) => s.res.score === bestScore)
+      .sort((a, b) => seatsLeftOfButton(state, a.id) - seatsLeftOfButton(state, b.id));
     const share = Math.floor(pot.amount / winners.length);
     let remainder = pot.amount - share * winners.length;
     for (const w of winners) {

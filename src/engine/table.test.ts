@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  applyAction,
+  legalActions,
   biasHoleCards,
   createGame,
   startHand,
@@ -172,5 +174,51 @@ describe('liveSeatCount', () => {
     g.players[3].stack = 0;
     g.players[4].stack = 0;
     expect(liveSeatCount(g)).toBe(4);
+  });
+});
+
+describe('short all-in does not re-open raising', () => {
+  it('seats that already acted may only call or fold; a full raise re-opens', () => {
+    const g = createGame(3, 100, 2, PROFILES.slice(0, 3), false);
+    startHand(g);
+    const bbIdx = g.players.findIndex((p) => p.lastAction === 'Post BB');
+    g.players[bbIdx].stack = 13;
+    const [opener, caller] = [g.toAct, (g.toAct + 1) % 3];
+    applyAction(g, { type: 'raise', amount: 10 });
+    applyAction(g, { type: 'call' });
+    expect(g.toAct).toBe(bbIdx);
+    applyAction(g, { type: 'raise', amount: 15 });
+    expect(g.currentBet).toBe(15);
+    expect(g.toAct).toBe(opener);
+    expect(legalActions(g).canRaise).toBe(false);
+    applyAction(g, { type: 'call' });
+    expect(g.toAct).toBe(caller);
+    expect(legalActions(g).canRaise).toBe(false);
+  });
+
+  it('gives the odd chip to the first winner left of the button', () => {
+    const g = createGame(3, 100, 1, PROFILES.slice(0, 3), false);
+    startHand(g);
+    g.board = ['2c', '3d', '4h', '9s', 'Jd'].map(parseCard);
+    g.players.forEach((p) => (p.holeCards = [parseCard('Ac'), parseCard('Ad')].slice()));
+    g.players[0].holeCards = [parseCard('Kc'), parseCard('Kd')];
+    g.players[1].holeCards = [parseCard('Ks'), parseCard('Kh')];
+    g.players[2].holeCards = [parseCard('7c'), parseCard('8d')];
+    g.buttonIndex = 0;
+    g.players[0].totalCommitted = 5;
+    g.players[1].totalCommitted = 5;
+    g.players[2].totalCommitted = 5;
+    g.players.forEach((p) => (p.folded = false));
+    g.players[2].folded = true;
+    g.players[0].stack = 0;
+    g.players[1].stack = 0;
+    g.street = 'river';
+    g.currentBet = 0;
+    g.players.forEach((p) => ((p.committed = 0), (p.hasActed = true)));
+    g.toAct = 0;
+    applyAction(g, { type: 'check' });
+    applyAction(g, { type: 'check' });
+    expect(g.players[1].stack).toBe(8);
+    expect(g.players[0].stack).toBe(7);
   });
 });
