@@ -193,7 +193,7 @@ function pickExamples(arr: { c: [Card, Card]; w: number }[], n: number): [Card, 
 }
 
 /** Hero's exact equity vs ONE opponent combo over the remaining board. */
-function comboEquity(hero: Card[], board: Card[], opp: [Card, Card], needBoard: number, rng: () => number): number {
+export function comboEquity(hero: Card[], board: Card[], opp: [Card, Card], needBoard: number, rng: () => number): number {
   if (needBoard <= 0) {
     const hs = evaluate7([...hero, ...board]).score;
     const os = evaluate7([opp[0], opp[1], ...board]).score;

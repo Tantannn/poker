@@ -22,6 +22,7 @@ import { playGrade } from '../sound';
 import { PlayingCard } from './PlayingCard';
 import { PositionCheatSheet } from './PositionCheatSheet';
 import { EquityAnchors } from './EquityAnchors';
+import { RangeTally } from './RangeTally';
 import { MADE as MADE_ANCHORS, type MadeRow } from './equityAnchorsData';
 import { loadDrillScore, recordDrillScore, resetDrillScore } from '../store/drillScore';
 
@@ -284,9 +285,10 @@ function anchorRead(
   hero: Card[],
   board: Card[],
   bluffFreq: number,
+  vsThreeBet = false,
 ): string {
   const eq = Math.round(equity);
-  const col = width === 'wide' ? 'WIDE' : 'TIGHT';
+  const col = width === 'wide' ? 'WIDE' : vsThreeBet ? '3-BET' : 'TIGHT';
   const isDrawLabel = /draw|over-ender|open-end|gutshot|overcards/i.test(hc.label);
   const isPureDraw = isDrawLabel && hc.strength < 4 && !/pair/i.test(hc.label);
   const clamp = (x: number) => Math.max(1, Math.min(99, Math.round(x)));
@@ -295,7 +297,7 @@ function anchorRead(
   let step: string;
   const row = madeAnchorRow(hc, isPureDraw);
   if (row) {
-    est = width === 'wide' ? row.wide : row.tight;
+    est = width === 'wide' ? row.wide : vsThreeBet ? row.threeBet : row.tight;
     step = `${row.hero} → vs ${col} ≈ ${est}`;
     // Air and the Weak/2nd-pair row are bluff-catchers — the top two MADE rows.
     const isBluffCatcher = row === MADE_ANCHORS[0] || row === MADE_ANCHORS[1];
@@ -443,6 +445,8 @@ function dealHero(): Card[] {
   return [a, b];
 }
 
+const cardKey = (c: Card) => `${c.rank}${c.suit}`;
+
 interface Spot { hero: Card[]; board: Card[]; hc: HandClass }
 
 function genSpot(): Spot {
@@ -468,6 +472,7 @@ export function RangeDrill() {
   const [locked, setLocked] = useState(false); // answer submitted?
   // lifetime calibration score, persisted across sessions (store/drillScore).
   const [score, setScore] = useState(() => loadDrillScore('rangedrill'));
+  const [peekedKey, setPeekedKey] = useState<string | null>(null); // spot whose answers were revealed
   const [showCheat, setShowCheat] = useState(false);
   const [showAnchors, setShowAnchors] = useState(false);
 
@@ -511,6 +516,8 @@ export function RangeDrill() {
     [locked, opps, spot, ropt, comboWeight],
   );
 
+  const spotKey = `${spot.hero.map(cardKey)}|${spot.board.map(cardKey)}|${effRangeId}|${betId}|${effTypeId}`;
+  const peeked = peekedKey === spotKey;
   const err = Math.abs(guess - equity);
   const correct = locked && err <= GUESS_TOL;
   const pctScore = score.total ? Math.round((100 * score.correct) / score.total) : 0;
@@ -519,6 +526,7 @@ export function RangeDrill() {
     if (locked) return;
     const ok = Math.abs(guess - equity) <= GUESS_TOL;
     setLocked(true);
+    if (peeked) return;
     setScore(recordDrillScore('rangedrill', ok));
     playGrade(ok);
   }
@@ -609,6 +617,25 @@ export function RangeDrill() {
         {opps > 1 && ` · ${opps} of them — you must beat all at once (equity collapses multiway)`}
       </div>
 
+      {opps <= 1 && (
+        <RangeTally
+          key={spotKey}
+          hero={spot.hero}
+          board={spot.board}
+          range={ropt.range}
+          comboWeight={comboWeight}
+          street={street}
+          drawOuts={drawO}
+          locked={locked}
+          trueEquity={equity}
+          rangeLabel={ropt.label}
+          betLabel={betOpt.facing ? betOpt.label : null}
+          typeLabel={typeOpt.label.replace(/^\S+\s/, '')}
+          onUseEstimate={setGuess}
+          onPeek={() => setPeekedKey(spotKey)}
+        />
+      )}
+
       <div className="quiz-score rd-score">
         Score: <b>{score.correct}/{score.total}</b> ({pctScore}%)
         {score.total > 0 && (
@@ -686,7 +713,7 @@ export function RangeDrill() {
             {opps === 1 && (
               <p className="rd-anchor rd-anchor-rough">
                 <i>gut-shortcut (rough, often ±10-15):</i>{' '}
-                {anchorRead(spot.hc, ropt.width, equity, outs, street, betOpt.facing, betOpt.frac, betOpt.label, spot.hero, spot.board, getProfile(effTypeId).bluffFreq)}
+                {anchorRead(spot.hc, ropt.width, equity, outs, street, betOpt.facing, betOpt.frac, betOpt.label, spot.hero, spot.board, getProfile(effTypeId).bluffFreq, effRangeId === '3bet')}
               </p>
             )}
           </div>

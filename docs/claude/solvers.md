@@ -168,3 +168,5 @@ own short-stack logic in `ai/decide.ts`, so the graded answer matches how the ta
 actually plays).
 
 `hudCompute.ts` is the single entry point the worker calls (see `app-layers.md`).
+
+- **Lock vs the called line.** `solveVsBetWithFuture`'s first pass runs WITHOUT the node lock. The lock prices hero's raise only; letting it shape the calling range that sizes the next street emptied that range and scored a call ~1.7bb too low (`solver/lockCallFuture.test.ts`).

@@ -1840,6 +1840,12 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
 .rd-range.active { background: var(--gold); color: #1a1207; border-color: var(--gold); }
 .rd-rangenote { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .rd-score { margin-top: 10px; }
+.rd-tally { border: 1px dashed var(--gold); border-radius: 8px; padding: 10px; margin-top: 10px; display: grid; gap: 8px; }
+.rd-tally-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 13px; }
+.rd-tally-row { display: grid; gap: 4px; font-size: 13px; }
+.rd-tally-steps { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.rd-correct { outline: 2px solid var(--good, #3ecf8e); }
+.rd-tally-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 
 /* ---- vs-Range position cheat sheet (trigger + modal) ---- */
 .rd-cheat {
@@ -2432,3 +2438,4 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
   .ring-8 .slot-3 { left: -2%; }
   .ring-8 .slot-5 { right: -2%; }
 }
+.rd-tally-build { display: grid; gap: 4px; font-size: 13px; padding: 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); }

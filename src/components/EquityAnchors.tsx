@@ -259,8 +259,9 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
             <thead>
               <tr>
                 <th>your hand</th>
-                <th>vs WIDE<span className="cs-width">loose open</span></th>
-                <th>vs TIGHT<span className="cs-width">UTG / 3-bet</span></th>
+                <th>vs WIDE<span className="cs-width">BTN open / BB defend</span></th>
+                <th>vs TIGHT<span className="cs-width">UTG open</span></th>
+                <th>vs 3-BET<span className="cs-width">value range</span></th>
               </tr>
             </thead>
             <tbody>
@@ -269,12 +270,16 @@ export function EquityAnchors({ onClose }: { onClose: () => void }) {
                   <td className="cs-hero">{r.hero}</td>
                   <td className={cell(r.wide)}>{r.wide}</td>
                   <td className={cell(r.tight)}>{r.tight}</td>
+                  <td className={cell(r.threeBet)}>{r.threeBet}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="modal-note">Memorize the <b>WIDE</b> column; a tight range → knock ~15 off.</p>
+        <p className="modal-note">
+          Memorize the <b>WIDE</b> column. UTG open → knock ~5–10 off a pair; a <b>3-bet</b> range → ~15–20 off
+          (top pair 73 → 52) but a set barely moves. Overpair/two pair and sets stay strong against everything.
+        </p>
 
         <h4 className="cs-subhead">Board texture — the made-hand rows assume a DRY board</h4>
         <div className="cs-tablewrap">

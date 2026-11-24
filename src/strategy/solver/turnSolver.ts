@@ -839,7 +839,16 @@ export function solveVsBetWithFuture(
   futureFor: (callW: number[]) => Float64Array[],
 ): VsBetResult {
   const f0 = futureFor(base.heroW.map(() => 1));
-  const first = solveVsBetEquity({ ...base, callFuture: f0, stackAfterCall: behind, iterations: Math.max(300, Math.round((base.iterations ?? 1200) / 3)) });
+  // The lock prices hero's RAISE; the calling range that sizes the next street must not move
+  // with it, or a fold-heavy lock empties that range and the called line is scored against nothing.
+  const first = solveVsBetEquity({
+    ...base,
+    villainFoldToBet: undefined,
+    villainFoldToRaise: undefined,
+    callFuture: f0,
+    stackAfterCall: behind,
+    iterations: Math.max(300, Math.round((base.iterations ?? 1200) / 3)),
+  });
   const f1 = futureFor(first.heroStrategy.map((s) => s.call));
   const callFuture = f0.map((row, i) => row.map((v, j) => 0.5 * (v + f1[i][j])));
   return solveVsBetEquity({ ...base, callFuture, stackAfterCall: behind });

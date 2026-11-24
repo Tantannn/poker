@@ -8,18 +8,20 @@ export interface MadeRow {
   hero: string;
   wide: number;
   tight: number;
+  threeBet: number;
 }
 
-// Made-hand equity heads-up vs a normal opening range. Memorize the WIDE column; a
-// tight range knocks ~15 off. Ballparks, not solver output — anchors to nudge from.
-// Exported so the equity-drill "💡 Why" can reproduce the 3-step anchor read against
-// the true equity (single source — the sheet and the drill can't drift apart).
+// Made-hand equity heads-up on the flop, averaged over 5000 random flops (all textures)
+// vs the app's own ranges: wide = BTN open / BB defend, tight = UTG open, threeBet = the
+// 3-bet value range. Dry boards run a few points higher. Ballparks, not solver output —
+// anchors to nudge from. Exported so the equity-drill "💡 Why" reproduces the anchor read
+// against the true equity (single source — the sheet and the drill can't drift apart).
 export const MADE: MadeRow[] = [
-  { hero: 'Air (no pair, no draw)', wide: 30, tight: 15 },
-  { hero: 'Weak / 2nd pair', wide: 50, tight: 35 },
-  { hero: 'Top pair', wide: 72, tight: 55 },
-  { hero: 'Overpair / two pair', wide: 80, tight: 65 },
-  { hero: 'Set / straight+', wide: 90, tight: 80 },
+  { hero: 'Air (no pair, no draw)', wide: 25, tight: 17, threeBet: 12 },
+  { hero: 'Weak / 2nd pair', wide: 55, tight: 48, threeBet: 37 },
+  { hero: 'Top pair', wide: 73, tight: 66, threeBet: 52 },
+  { hero: 'Overpair / two pair', wide: 81, tight: 78, threeBet: 72 },
+  { hero: 'Set / straight+', wide: 91, tight: 90, threeBet: 89 },
 ];
 
 export interface DrawRow {
