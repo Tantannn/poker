@@ -4,9 +4,11 @@
 // and post the finished numbers back. Requests carry a `seq` so the caller can
 // drop stale replies when the game state advances mid-compute.
 
-import type { GameState } from '../engine/table';
+import type { GameState } from '@/engine/table';
+
 import type { VillainModels } from '../strategy';
-import { computeHudNode } from '../strategy/hudCompute';
+import { computeHudNode } from '@/strategy/core';
+
 
 // `models` (observed villain reads / manual node locks) rides along in the request
 // because the worker has no access to React state — it is a plain object of numbers,

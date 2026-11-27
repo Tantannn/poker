@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { raiseSizeGrid } from './betSizeGrid';
 import { solveRiverVsBet, locked3BetPolicy, type Combo } from './riverSolver';
 import { getNodeStrategy } from '../index';
-import { parseCard, type Card } from '../../engine/cards';
-import type { GameState } from '../../engine/table';
+import { parseCard, type Card } from '@/engine/cards';
+
+import type { GameState } from '@/engine/table';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

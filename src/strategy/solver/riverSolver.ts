@@ -14,9 +14,11 @@
 //
 // Turn/river raises and villain donks are v2 (see docs/range-vs-range-ev-design.md).
 
-import type { Card } from '../../engine/cards';
-import { evaluate7 } from '../../engine/evaluator';
-import { netPot, rakeOn, type Rake } from '../../engine/rake';
+import { type Card, evaluate7 } from '@/engine/cards';
+
+
+import { netPot, rakeOn, type Rake } from '@/engine/table';
+
 
 export interface Combo {
   cards: [Card, Card];

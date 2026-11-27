@@ -3,63 +3,59 @@
 // and feeds analytics + hand history.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Action, GameState, Position } from '../engine/table';
-import {
-  applyAction,
-  biasHoleCards,
-  chartPosition,
-  createGame,
-  handResults,
-  legalActions,
-  liveSeatCount,
-  positionLabel,
-  potTotal,
-  startHand,
-  tablePositions,
-} from '../engine/table';
-import type { RakeProfileId } from '../engine/rake';
-import type { StraddleMode } from '../engine/table';
-import type { TableSize } from '../strategy/preflopChart';
-import { scenariosForSize } from '../strategy/preflopChart';
-import { pickBorderlineCode } from '../strategy/borderline';
-import type { DrillClass } from '../strategy/drillDeal';
-import { pickDrillCode } from '../strategy/drillDeal';
-import { decideAction, inPositionPostflop } from '../ai/decide';
-import type { Difficulty, DifficultyParams, HeroReads } from '../ai/difficulty';
-import { DIFFICULTIES, emptyReads } from '../ai/difficulty';
+import { type Action, type GameState, type Position, applyAction, biasHoleCards, chartPosition, createGame, handResults, legalActions, liveSeatCount, positionLabel, potTotal, startHand, tablePositions, type RakeProfileId, type StraddleMode } from '@/engine/table';
+import { type TableSize, scenariosForSize, pickBorderlineCode } from '@/strategy/preflop';
+
+
+
+import { type DrillClass, pickDrillCode } from '@/strategy/drills';
+
+
+import { decideAction, inPositionPostflop, type Difficulty, type DifficultyParams, type HeroReads, DIFFICULTIES, emptyReads, getProfile } from '@/ai/decide';
+
+
+
 import type { NodeStrategy, VillainModels } from '../strategy';
 import { getNodeStrategy, primaryVillainIdx } from '../strategy';
-import type { VillainLock } from '../strategy/villainModel';
-import { BALANCED, archetypePrior, resolveVillainModel } from '../strategy/villainModel';
-import { getProfile } from '../ai/profiles';
-import { computeHudNode } from '../strategy/hudCompute';
-import type { HudInfo, VillainInfo, HudNodeResult } from '../strategy/hudCompute';
-import type { ActionId } from '../strategy/types';
-import { rngPrescription } from '../strategy/types';
-import type { NodeFeedback } from '../analysis/grade';
-import { gradeNode, idToClass } from '../analysis/grade';
-import { aggressionWarning } from '../analysis/aggression';
-import { assessTilt } from '../analysis/tilt';
-import type { SessionStats, PreflopFacing, DecisionRecord } from '../store/stats';
-import {
-  findLeaks,
-  loadStats,
-  recordDecision,
-  recordHand,
-  resetStats,
-  saveStats,
-} from '../store/stats';
-import { playAction, playDeal, playResult } from '../sound';
-import type { JournalEntry } from '../store/journal';
-import { addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway } from '../store/journal';
-import type { HistoryHand, DecisionSnapshot } from '../store/history';
-import { loadHistory, saveHistory, capHistory } from '../store/history';
-import type { GameMode } from '../store/game';
-import { loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '../store/game';
-import type { ObsCounters } from '../analysis/observed';
-import { accumulateHand, toStats } from '../analysis/observed';
+import { type VillainLock, BALANCED, archetypePrior, resolveVillainModel } from '@/strategy/villain';
 
-export type { HistoryHand } from '../store/history';
+
+
+import { computeHudNode, type HudInfo, type VillainInfo, type HudNodeResult, type ActionId, rngPrescription } from '@/strategy/core';
+
+
+
+
+import { type NodeFeedback, gradeNode, idToClass, type BlockEntry } from '@/analysis/grading';
+
+
+import { aggressionWarning, assessTilt } from '@/analysis/session';
+
+
+import { type SessionStats, type PreflopFacing, type DecisionRecord, findLeaks, loadStats, recordDecision, recordHand, resetStats, saveStats, type HistoryHand, type DecisionSnapshot, loadHistory, saveHistory, capHistory } from '@/store/stats';
+
+
+import { playAction, playDeal, playResult } from '../sound';
+import { type JournalEntry, addEntry, isTagged, loadJournal, removeEntry, saveJournal, setTakeaway, type GameMode, loadGame, saveGame, loadSettings, saveSettings, loadDealt, saveDealt } from '@/store/session';
+
+
+
+
+
+
+import { type ObsCounters, accumulateHand, toStats } from '@/analysis/reads';
+
+
+
+
+export interface BlockState {
+  target: number;
+  hands: number;
+  entries: BlockEntry[];
+  done: boolean;
+}
+
+export type { HistoryHand } from '@/store/stats';
 
 export const BIG_BLIND = 2;
 export const SMALL_BLIND = 1;
@@ -146,6 +142,8 @@ export function useGame(initialProfiles: string[]) {
   // deferred (exam) mode: the per-decision graded answers, revealed as one
   // end-of-hand review only after the hand completes. Empty in immediate mode.
   const [feedbackLog, setFeedbackLog] = useState<NodeFeedback[]>([]);
+  const [block, setBlock] = useState<BlockState | null>(null);
+  const blockActive = !!block && !block.done;
   const [hud, setHud] = useState<HudInfo | null>(null);
   const [strategy, setStrategy] = useState<NodeStrategy | null>(null);
   const [rng, setRng] = useState<RngInfo | null>(null);
@@ -215,7 +213,7 @@ export function useGame(initialProfiles: string[]) {
   // barrels") that the strategy engine solves against. Persisted, because a read on
   // a specific opponent is the thing you want to keep across a session — and it is
   // the exploit workflow the app exists for: spot the leak, lock it, play the
-  // counter-strategy. See strategy/villainModel.ts.
+  // counter-strategy. See strategy/villain/villainModel.ts.
   const [villainLocks, setVillainLocks] = useState<Record<number, VillainLock>>(SAVED?.villainLocks ?? {});
   // When on (default), the engine models each villain from OBSERVED behaviour rather
   // than the bot's hidden archetype params. Off restores the old archetype-driven
@@ -514,7 +512,19 @@ export function useGame(initialProfiles: string[]) {
     // buffer for the end-of-hand review and keep the live box empty so the grade
     // can't leak into the reads you make on later streets (+ a neutral click, no
     // verdict tone — that would leak the answer the mode is meant to withhold).
-    if (feedbackMode === 'immediate') setFeedback(fb);
+    // block session: every grade is withheld until the whole block is played
+    if (blockActive) {
+      const entry: BlockEntry = {
+        handNumber: prev.handNumber,
+        street: prev.street,
+        heroCards: prev.players[0].holeCards,
+        board: prev.board,
+        actions: prev.log.filter((l) => l.handNumber === prev.handNumber),
+        fb,
+      };
+      setBlock((b) => (b ? { ...b, entries: [...b.entries, entry] } : b));
+      playAction();
+    } else if (feedbackMode === 'immediate') setFeedback(fb);
     else { pendingFbRef.current.push(fb); playAction(); }
 
     const pos = positionLabel(0, prev.buttonIndex, prev.players.length);
@@ -636,7 +646,7 @@ export function useGame(initialProfiles: string[]) {
       }
       return next;
     });
-  }, [game, watchAfterFold, diffFor, feedbackMode]);
+  }, [game, watchAfterFold, diffFor, feedbackMode, blockActive]);
 
   // instantly finish the current hand (bots play to the end) — used by the
   // "skip to end" button while watching a folded hand run out.
@@ -756,6 +766,12 @@ export function useGame(initialProfiles: string[]) {
     // hero busted this hand if the stack is empty at hand end (cash → rebuy/reset
     // next deal; tournament → eliminated). Counted once per hand via the guard above.
     const busted = game.players[0].stack <= 0;
+    setBlock((b) => (b && !b.done ? {
+      ...b,
+      hands: b.hands + 1,
+      done: b.hands + 1 >= b.target,
+      entries: b.entries.map((e) => (e.handNumber === game.handNumber ? { ...e, resultBB: delta } : e)),
+    } : b));
     setStats((s) => {
       const updated = recordHand(s, delta, busted);
       saveStats(updated);
@@ -967,6 +983,11 @@ export function useGame(initialProfiles: string[]) {
     feedbackMode,
     setFeedbackMode,
     feedbackLog,
+    block,
+    blockActive,
+    startBlock: (target: number) => { setFeedback(null); setBlock({ target, hands: 0, entries: [], done: false }); },
+    endBlockEarly: () => setBlock((b) => (b ? { ...b, done: true } : b)),
+    closeBlock: () => setBlock(null),
     hud,
     strategy,
     rng,

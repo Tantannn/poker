@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { rangeFromSet } from '../../engine/range';
-import { BB_DEFEND_RANGE, RFI_RANGES } from '../../ai/preflop';
+import { rangeFromSet } from '@/engine/cards';
+
+import { BB_DEFEND_RANGE, RFI_RANGES } from '@/ai/preflop';
+
 import { betConditionedWeight } from '../index';
 import { solveFlopVsBetNode } from './riverAdapter';
 

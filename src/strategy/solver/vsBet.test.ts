@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { solveTurnVsBet } from './turnSolver';
 import { solveFlopVsBet } from './flopSolver';
 import type { Combo } from './riverSolver';
-import { parseCard, type Card } from '../../engine/cards';
+import { parseCard, type Card } from '@/engine/cards';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

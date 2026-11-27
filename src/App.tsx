@@ -1,44 +1,44 @@
 import { useState, useEffect, lazy, Suspense, Fragment } from 'react';
 import { useGame } from './hooks/useGame';
 // Eager: the landing tab (Play/Tournament) and the always-mounted equity widget.
-import { PokerTable } from './components/PokerTable';
+import { PokerTable } from '@/components/table';
 
 // Every other tab is code-split — its chunk loads only when first opened, so the
 // initial bundle carries just the table you land on. These are named exports, so
 // each remaps to the `{ default }` shape `lazy` expects (props stay fully typed).
-const RangeGrid = lazy(() => import('./components/RangeGrid').then((m) => ({ default: m.RangeGrid })));
-const PreflopTrainer = lazy(() => import('./components/PreflopTrainer').then((m) => ({ default: m.PreflopTrainer })));
-const PostflopLab = lazy(() => import('./components/PostflopLab').then((m) => ({ default: m.PostflopLab })));
-const SpotDebugger = lazy(() => import('./components/SpotDebugger').then((m) => ({ default: m.SpotDebugger })));
-const PotOddsCalc = lazy(() => import('./components/PotOddsCalc').then((m) => ({ default: m.PotOddsCalc })));
-const Analytics = lazy(() => import('./components/Analytics').then((m) => ({ default: m.Analytics })));
-const Reference = lazy(() => import('./components/Reference').then((m) => ({ default: m.Reference })));
-const LeakQuiz = lazy(() => import('./components/LeakQuiz').then((m) => ({ default: m.LeakQuiz })));
-const ExploitTrainer = lazy(() => import('./components/ExploitTrainer').then((m) => ({ default: m.ExploitTrainer })));
-const Replay = lazy(() => import('./components/Replay').then((m) => ({ default: m.Replay })));
-const EquityDrill = lazy(() => import('./components/EquityDrill').then((m) => ({ default: m.EquityDrill })));
-const BetSizingDrill = lazy(() => import('./components/BetSizingDrill').then((m) => ({ default: m.BetSizingDrill })));
-const MathDrill = lazy(() => import('./components/MathDrill').then((m) => ({ default: m.MathDrill })));
-const MentalGame = lazy(() => import('./components/MentalGame').then((m) => ({ default: m.MentalGame })));
-const FlopHeatmap = lazy(() => import('./components/FlopHeatmap').then((m) => ({ default: m.FlopHeatmap })));
-const Curriculum = lazy(() => import('./components/Curriculum').then((m) => ({ default: m.Curriculum })));
-const Gameplan = lazy(() => import('./components/Gameplan').then((m) => ({ default: m.Gameplan })));
-const Review = lazy(() => import('./components/Review').then((m) => ({ default: m.Review })));
-const BankrollSim = lazy(() => import('./components/BankrollSim').then((m) => ({ default: m.BankrollSim })));
-const Settings = lazy(() => import('./components/Settings').then((m) => ({ default: m.Settings })));
-const PrinciplesPanel = lazy(() => import('./components/PrinciplesPanel').then((m) => ({ default: m.PrinciplesPanel })));
-const HandReadingDrill = lazy(() => import('./components/HandReadingDrill').then((m) => ({ default: m.HandReadingDrill })));
-const PlanCommitDrill = lazy(() => import('./components/PlanCommitDrill').then((m) => ({ default: m.PlanCommitDrill })));
-const BlockerDrill = lazy(() => import('./components/BlockerDrill').then((m) => ({ default: m.BlockerDrill })));
-const TellsTrainer = lazy(() => import('./components/TellsTrainer').then((m) => ({ default: m.TellsTrainer })));
-const StoryTrainer = lazy(() => import('./components/StoryTrainer').then((m) => ({ default: m.StoryTrainer })));
-const SizingTellDrill = lazy(() => import('./components/SizingTellDrill').then((m) => ({ default: m.SizingTellDrill })));
-const TournamentDrill = lazy(() => import('./components/TournamentDrill').then((m) => ({ default: m.TournamentDrill })));
-const DisciplineDrill = lazy(() => import('./components/DisciplineDrill').then((m) => ({ default: m.DisciplineDrill })));
-const BluffCatcherDrill = lazy(() => import('./components/BluffCatcherDrill').then((m) => ({ default: m.BluffCatcherDrill })));
-const ValueRaiseDrill = lazy(() => import('./components/ValueRaiseDrill').then((m) => ({ default: m.ValueRaiseDrill })));
-const LevelingDrill = lazy(() => import('./components/LevelingDrill').then((m) => ({ default: m.LevelingDrill })));
-const LiveHand = lazy(() => import('./components/LiveHand').then((m) => ({ default: m.LiveHand })));
+const RangeGrid = lazy(() => import('@/components/ranges').then(({ RangeGrid }) => ({ default: RangeGrid })));
+const PreflopTrainer = lazy(() => import('@/components/ranges').then(({ PreflopTrainer }) => ({ default: PreflopTrainer })));
+const PostflopLab = lazy(() => import('@/components/tools').then(({ PostflopLab }) => ({ default: PostflopLab })));
+const SpotDebugger = lazy(() => import('@/components/tools').then(({ SpotDebugger }) => ({ default: SpotDebugger })));
+const PotOddsCalc = lazy(() => import('@/components/tools').then(({ PotOddsCalc }) => ({ default: PotOddsCalc })));
+const Analytics = lazy(() => import('@/components/review').then(({ Analytics }) => ({ default: Analytics })));
+const Reference = lazy(() => import('@/components/reference').then(({ Reference }) => ({ default: Reference })));
+const LeakQuiz = lazy(() => import('@/components/drills/discipline').then(({ LeakQuiz }) => ({ default: LeakQuiz })));
+const ExploitTrainer = lazy(() => import('@/components/drills/reads').then(({ ExploitTrainer }) => ({ default: ExploitTrainer })));
+const Replay = lazy(() => import('@/components/review').then(({ Replay }) => ({ default: Replay })));
+const EquityDrill = lazy(() => import('@/components/drills/math').then(({ EquityDrill }) => ({ default: EquityDrill })));
+const BetSizingDrill = lazy(() => import('@/components/drills/betting').then(({ BetSizingDrill }) => ({ default: BetSizingDrill })));
+const MathDrill = lazy(() => import('@/components/drills/math').then(({ MathDrill }) => ({ default: MathDrill })));
+const MentalGame = lazy(() => import('@/components/study').then(({ MentalGame }) => ({ default: MentalGame })));
+const FlopHeatmap = lazy(() => import('@/components/ranges').then(({ FlopHeatmap }) => ({ default: FlopHeatmap })));
+const Curriculum = lazy(() => import('@/components/study').then(({ Curriculum }) => ({ default: Curriculum })));
+const Gameplan = lazy(() => import('@/components/study').then(({ Gameplan }) => ({ default: Gameplan })));
+const Review = lazy(() => import('@/components/drills/math').then(({ Review }) => ({ default: Review })));
+const BankrollSim = lazy(() => import('@/components/tools').then(({ BankrollSim }) => ({ default: BankrollSim })));
+const Settings = lazy(() => import('@/components/settings').then(({ Settings }) => ({ default: Settings })));
+const PrinciplesPanel = lazy(() => import('@/components/study').then(({ PrinciplesPanel }) => ({ default: PrinciplesPanel })));
+const HandReadingDrill = lazy(() => import('@/components/drills/story').then(({ HandReadingDrill }) => ({ default: HandReadingDrill })));
+const PlanCommitDrill = lazy(() => import('@/components/drills/discipline').then(({ PlanCommitDrill }) => ({ default: PlanCommitDrill })));
+const BlockerDrill = lazy(() => import('@/components/drills/betting').then(({ BlockerDrill }) => ({ default: BlockerDrill })));
+const TellsTrainer = lazy(() => import('@/components/drills/reads').then(({ TellsTrainer }) => ({ default: TellsTrainer })));
+const StoryTrainer = lazy(() => import('@/components/drills/story').then(({ StoryTrainer }) => ({ default: StoryTrainer })));
+const SizingTellDrill = lazy(() => import('@/components/drills/reads').then(({ SizingTellDrill }) => ({ default: SizingTellDrill })));
+const TournamentDrill = lazy(() => import('@/components/drills/discipline').then(({ TournamentDrill }) => ({ default: TournamentDrill })));
+const DisciplineDrill = lazy(() => import('@/components/drills/discipline').then(({ DisciplineDrill }) => ({ default: DisciplineDrill })));
+const BluffCatcherDrill = lazy(() => import('@/components/drills/betting').then(({ BluffCatcherDrill }) => ({ default: BluffCatcherDrill })));
+const ValueRaiseDrill = lazy(() => import('@/components/drills/betting').then(({ ValueRaiseDrill }) => ({ default: ValueRaiseDrill })));
+const LevelingDrill = lazy(() => import('@/components/drills/leveling').then(({ LevelingDrill }) => ({ default: LevelingDrill })));
+const LiveHand = lazy(() => import('@/components/review').then(({ LiveHand }) => ({ default: LiveHand })));
 
 // one per bot seat at the largest table (9-max = 8 bots); createGame pads with
 // 'tag' for anyone whose saved list is shorter.

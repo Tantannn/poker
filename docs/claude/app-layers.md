@@ -11,7 +11,7 @@ is played more often in the mix. `buildSizingCoach` / `buildCheckLineCoach` prod
 the prose. `observed.ts` derives live villain stats; `tilt.ts` and `aggression.ts`
 produce session warnings.
 
-## Live capture — `src/analysis/liveHand.ts` + `components/LiveHand.tsx`
+## Live capture — `src/analysis/offline/liveHand.ts` + `components/LiveHand.tsx`
 The one path into the app from outside it: a hand played at a casino, entered, graded, and
 folded into the **same** `HistoryHand` + `DecisionRecord` stream as in-app play — so Hand
 Review, `findLeaks`, bb/100 and the SRS weighting need no changes and a live hand is

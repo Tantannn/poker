@@ -4,8 +4,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { getNodeStrategy } from './index';
-import { createGame, startHand, applyAction, type GameState, type StraddleMode } from '../engine/table';
-import { biasHoleCards } from '../engine/table';
+import { createGame, startHand, applyAction, type GameState, type StraddleMode, biasHoleCards } from '@/engine/table';
+
+
 
 const BB = 2;
 

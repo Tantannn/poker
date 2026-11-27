@@ -2,38 +2,25 @@
 // NodeStrategy via the preflop charts or the postflop EV model, and provides
 // helpers for EV-loss scoring and RNG prescriptions.
 
-import type { Action, GameState } from '../engine/table';
-import { chartPosition, effectiveBigBlind, legalActions, positionLabel, potTotal, sixMaxRfiEquivalent } from '../engine/table';
-import { rakeInChips } from '../engine/rake';
-import type { Card } from '../engine/cards';
-import { makeRng, sameCard } from '../engine/cards';
-import { equityVsField, equityVsRange } from '../engine/equity';
-import type { WeightedRange, ComboWeight } from '../engine/range';
-import { rangeFromSet, codeToCombos } from '../engine/range';
-import { evaluate7 } from '../engine/evaluator';
-import { countOuts } from '../engine/equity';
-import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, LIMP_RANGE, BB_OPTION_RANGE, handCode, preflopStrength } from '../ai/preflop';
-import { getProfile } from '../ai/profiles';
-import type { VillainModel } from './villainModel';
-import { BALANCED, archetypePrior, balancedModel, isExploitable } from './villainModel';
-import type { PreflopLevel, PreflopRead } from './preflopModel';
-import {
-  NO_PREFLOP_ADJUST,
-  applyPreflopRead,
-  balancedPreflopRead,
-  isPreflopExploitable,
-  preflopAdjust,
-  preflopMoveWhy,
-  preflopReadCaution,
-  preflopReadStats,
-  rangeMultForRole,
-  resizeRangeByStrength,
-} from './preflopModel';
-import type { ActionId, ActionOption, BaselineMix, ExploitDelta, NodeStrategy, ReadDetail } from './types';
-import { cellStrategy, getScenario, facingRaiseWord } from './preflopChart';
-import type { PreflopScenario } from './preflopChart';
-import { depthValueMult, depthNote, shadeForDepth } from './depth';
-import { rakeNote, shadeForRake } from './preflopRake';
+import { type Action, type GameState, chartPosition, effectiveBigBlind, legalActions, positionLabel, potTotal, sixMaxRfiEquivalent, rakeInChips } from '@/engine/table';
+import { type Card, makeRng, sameCard, type WeightedRange, type ComboWeight, rangeFromSet, codeToCombos, evaluate7 } from '@/engine/cards';
+import { equityVsField, equityVsRange, countOuts } from '@/engine/equity';
+import { RFI_RANGES, BB_DEFEND_RANGE, THREEBET_RANGE, BLUFF_THREEBET_RANGE, LIMP_RANGE, BB_OPTION_RANGE, handCode, preflopStrength } from '@/ai/preflop';
+
+import { getProfile } from '@/ai/decide';
+
+import { type VillainModel, BALANCED, archetypePrior, balancedModel, isExploitable } from '@/strategy/villain';
+
+
+import { type PreflopLevel, type PreflopRead, NO_PREFLOP_ADJUST, applyPreflopRead, balancedPreflopRead, isPreflopExploitable, preflopAdjust, preflopMoveWhy, preflopReadCaution, preflopReadStats, rangeMultForRole, resizeRangeByStrength, cellStrategy, getScenario, facingRaiseWord, type PreflopScenario, rakeNote, shadeForRake } from '@/strategy/preflop';
+
+
+import { type ActionId, type ActionOption, type BaselineMix, type ExploitDelta, type NodeStrategy, type ReadDetail, depthValueMult, depthNote, shadeForDepth } from '@/strategy/core';
+
+
+
+
+
 import { solveRiverNode, solveRiverVsBetNode, solveTurnVsBetNode, solveFlopVsBetNode, solveTurnNode, solveFlopNode, solveRiver3wayNode, solveTurn3wayNode, solveFlop3wayNode } from './solver/riverAdapter';
 import type { RiverVsBetNodeParams } from './solver/riverAdapter';
 
@@ -61,10 +48,11 @@ export const MULTIWAY_SOLVER_ENABLED = true;
 // linearly (a few extra ThirdAgg builds) per added opponent. See multiwayFlop.test.ts for
 // the 9-way wall-clock budget.
 export const MAX_MULTIWAY_OPPONENTS = 8;
-import { solvePostflop } from './postflopModel';
+import { solvePostflop } from '@/strategy/postflop';
 
-export type { NodeStrategy, BaselineMix, ReadDetail, ReadStat } from './types';
-export { evLoss, rngPrescription } from './types';
+
+export type { NodeStrategy, BaselineMix, ReadDetail, ReadStat } from '@/strategy/core';
+export { evLoss, rngPrescription } from '@/strategy/core';
 
 const BASE_EV: Record<NonNullable<ActionOption['kind']>, number> = {
   value: 0.8,

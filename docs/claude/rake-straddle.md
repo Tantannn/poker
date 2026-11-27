@@ -2,7 +2,7 @@
 
 Deep reference split out of CLAUDE.md — read it before changing this area.
 
-## Rake — `src/engine/rake.ts`
+## Rake — `src/engine/table/rake.ts`
 `RAKE_PROFILES` (none / online / live 1-2 / 2-5 / 5-10) → `rakeInChips(id, bb)` →
 a chip-denominated `Rake { pct, cap, drop }`, consumed by **both** `rakeOn`/`netPot`
 (pot collected) and `rakeMarginal` (the tax on the *next* chip won — zero past the cap).
@@ -56,7 +56,7 @@ every depth-sensitive consumer reads it instead of `bigBlind` — `effectiveStac
 100bb table is 50 bets deep, which is what shifts the chart depth notes and the ≤15bb
 push/fold gate), the bots' `effStackBB`, their open sizing (`openToBB × effectiveBigBlind` —
 size off the blind instead and every open is a min-raise), their 3-bet/4-bet multiples, and
-the `facingRaise` test in both `index.ts` and `ai/decide.ts`.
+the `facingRaise` test in both `index.ts` and `ai/decide/decide.ts`.
 
 That last one is the subtle invariant: **a straddle is a blind, not a raise.** Compare
 `currentBet` to `bigBlind` anywhere and an unopened straddled pot reads as "facing a raise",

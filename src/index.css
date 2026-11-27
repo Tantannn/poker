@@ -2439,3 +2439,27 @@ button.gp-row.no-why.is-best:hover { background: rgba(46,194,126,0.08); }
   .ring-8 .slot-5 { right: -2%; }
 }
 .rd-tally-build { display: grid; gap: 4px; font-size: 13px; padding: 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); }
+
+/* block session */
+.block-start { margin: 10px 0; padding: 12px 14px; background: var(--chip); border: 1px solid var(--line); border-radius: 9px; }
+.block-start-head { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+.block-sizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 12px; }
+.btn.block-size.primary { border: 1px solid var(--raise2); }
+.block-size { min-width: 0; padding: 6px 0; font-size: 13px; font-weight: 700; border-radius: 7px; }
+.block-go { width: 100%; min-width: 0; padding: 9px 14px; font-size: 14px; border-radius: 8px; }
+.block-progress { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--gold); border-radius: 9px; font-size: 12.5px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.block-review h4 { margin: 10px 0 4px; }
+.block-review ul, .block-review ol { margin: 0; padding-left: 20px; }
+.block-marry { margin-top: 6px; }
+.block-worst .link-btn { text-align: left; }
+.block-worst-list { padding-left: 0 !important; list-style: none; }
+.block-worst { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 12px; background: var(--chip); border: 1px solid var(--line); border-radius: 9px; }
+.block-worst .dr-actions { margin: 0; }
+.block-hand-label { margin-left: 8px; font-size: 12.5px; font-weight: 700; color: var(--gold); }
+.block-verdict { font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.block-verdict .bad, .block-result.bad { color: var(--red); }
+.block-verdict .good, .block-result.good { color: var(--raise, #2ec27e); }
+.block-result { margin-left: auto; font-size: 12.5px; font-weight: 700; }
+.block-worst-meta { font-size: 12px; color: var(--muted); }
+.block-cards { display: flex; gap: 4px; align-items: center; }
+.block-cards-sep { width: 10px; }

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
@@ -29,6 +30,7 @@ export default defineConfig({
   // GitHub Pages serves the app under /poker/ — CI sets BASE_PATH (see
   // .github/workflows/deploy.yml). Local dev/preview stay at /.
   base: process.env.BASE_PATH ?? '/',
+  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   plugins: [
     react(),
     // Installable, offline-capable PWA. The app is already 100% local, so caching

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { solveRiver3way, solveTurn3way } from './multiwaySolver';
 import { solveRiver, type Combo } from './riverSolver';
-import { parseCard, type Card } from '../../engine/cards';
+import { parseCard, type Card } from '@/engine/cards';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

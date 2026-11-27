@@ -2,7 +2,7 @@
 
 Deep reference split out of CLAUDE.md — read it before changing this area.
 
-## Node lock — `src/strategy/villainModel.ts`
+## Node lock — `src/strategy/villain/villainModel.ts`
 The postflop engine has exactly **two** knobs that move the recommended line, and
 this module is the only place that decides their values:
 
@@ -13,7 +13,7 @@ this module is the only place that decides their values:
 
 Both used to be read straight off `getProfile(profileId)`, i.e. the bot's *hidden*
 archetype. `resolveVillainModel(prior, obs, lock)` replaces the source without
-touching the math: observed reads (`analysis/observed.ts` counts fold-to-bet and
+touching the math: observed reads (`analysis/reads/observed.ts` counts fold-to-bet and
 bet-when-checked-to per seat) shrunk toward a prior by **that read's own** decision
 count, with a manual lock overriding outright. Two of those counters are
 **conditional** rather than pooled, because the pooled version answers the wrong
@@ -120,7 +120,7 @@ passes it as `thirdFoldToBet` and `mdfCallProbs` re-anchors his continue share t
 parameter-free MDF. The *solved* primary's read still routes through the per-hand fallback
 (the `primaryHasRead` carve-out); only the fixed player's read lands in the CFR.
 
-## Recognising an anonymous seat — `analysis/archetypeSignature.ts`
+## Recognising an anonymous seat — `analysis/reads/archetypeSignature.ts`
 Anonymous mode hides the tag *and* forces the engine's prior to `BALANCED`, so the hero's own
 read is the only read — which made the guess buttons a 1-in-7 shot with nothing connecting the
 VPIP/PFR/AF bars to them. `rankArchetypes(observed)` closes that: three axes (VPIP, postflop AF,
@@ -162,7 +162,7 @@ hero: drift, advice is "he stopped respecting your aggression". Aggressive hero:
 advice is "change gears FIRST — make his adjustment the wrong one". `OpponentPanel`'s
 `ShiftAlerts` renders the two differently.
 
-The sparring partner for it is the `reg` archetype (`ai/profiles.ts`), whose defining trait is
+The sparring partner for it is the `reg` archetype (`ai/decide/profiles.ts`), whose defining trait is
 `adapt: 0.6` — `decide.ts` takes `effAdapt = max(diff.adapt, profile.adapt)`, so a reg
 counter-adjusts on **every** difficulty while the slider still makes all bots adapt at
 hard/extreme.
@@ -175,14 +175,14 @@ real `toStats` → `readShifts`, and takes the correct answer from the resulting
 apply. Half of `KINDS` is deliberately thin-sample or sub-threshold noise, because the
 expensive leveling mistake is inventing an adjustment out of four hands.
 
-## Preflop read layer — `src/strategy/preflopModel.ts`
+## Preflop read layer — `src/strategy/preflop/preflopModel.ts`
 The node lock's analogue for the one street it never reached. Before it, the preflop
 path was a static chart for everyone: the recommended 5-bet-bluff / flat / fold mix
 facing a maniac's 4-bet was **byte-identical** to the mix facing a nit's, and the
 villain range the postflop engines inherited was the chart's regardless of what he had
 actually been doing.
 
-Three observed rates drive it, counted in `analysis/observed.ts` alongside the postflop
+Three observed rates drive it, counted in `analysis/reads/observed.ts` alongside the postflop
 ones but keyed on **raise level**, not "is there a bet ahead" (preflop there is always a
 blind in front of everyone): `pfOpenChances/Taken` → **RFI%** (blinds excluded — they
 have no unopened pot to open into), `pfThreeBetChances/Taken` → **3-bet%**, and
@@ -242,7 +242,7 @@ do, and the ticks merge into a `VillainLock`. Tell values are deliberately coars
 "wide", one "tight" per knob): a tell is evidence a rate is far from balanced, not a
 measurement of it, and opposite ticks average back to balanced on purpose.
 
-Disclosed gap: **the bots don't consume THIS layer.** `ai/decide.ts` does now adapt to the
+Disclosed gap: **the bots don't consume THIS layer.** `ai/decide/decide.ts` does now adapt to the
 hero preflop — it reads the hero's fold-to-3-bet and blind-fold rates off `HeroReads` and
 3-bets / 4-bet-bluffs / steals wider vs an over-folder (hard/extreme only, sample-gated, same
 confidence ramp as the postflop `HeroReads` block — see `decide.ts` preflop adaptation and

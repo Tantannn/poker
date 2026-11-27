@@ -3,7 +3,7 @@
 // live, so cards that play alike are grouped and one representative per bucket is solved,
 // weighted by the bucket's size. This is the disclosed texture abstraction (design doc §5).
 
-import type { Card } from '../../engine/cards';
+import type { Card } from '@/engine/cards';
 
 const id = (c: Card) => c.rank * 4 + c.suit;
 

@@ -9,9 +9,12 @@
 import { describe, it, expect } from 'vitest';
 import { solveRiverVsBet, lockedContinueVsRaise, type Combo } from './riverSolver';
 import { solveTurnVsBet } from './turnSolver';
-import { foldToRaiseFromFoldToBet, resolveVillainModel } from '../villainModel';
-import { parseCard, type Card } from '../../engine/cards';
-import type { ObservedStats } from '../../analysis/observed';
+import { foldToRaiseFromFoldToBet, resolveVillainModel } from '@/strategy/villain';
+
+import { parseCard, type Card } from '@/engine/cards';
+
+import type { ObservedStats } from '@/analysis/reads';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

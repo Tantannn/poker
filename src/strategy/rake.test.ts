@@ -5,13 +5,17 @@
 
 import { describe, it, expect } from 'vitest';
 import { getNodeStrategy } from './index';
-import { solvePostflop, type PostflopInput } from './postflopModel';
+import { solvePostflop, type PostflopInput } from '@/strategy/postflop';
+
 import { solveRiver, type Combo } from './solver/riverSolver';
-import { parseCard } from '../engine/cards';
-import { rangeFromSet } from '../engine/range';
-import { rakeInChips } from '../engine/rake';
-import type { GameState } from '../engine/table';
-import { BB_DEFEND_RANGE } from '../ai/preflop';
+import { parseCard, rangeFromSet } from '@/engine/cards';
+
+
+import { rakeInChips, type GameState } from '@/engine/table';
+
+
+import { BB_DEFEND_RANGE } from '@/ai/preflop';
+
 
 const cards = (s: string) => s.split(' ').map(parseCard);
 const combo = (s: string, w = 1): Combo => {

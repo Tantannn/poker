@@ -15,8 +15,10 @@ import { solveTurn } from './turnSolver';
 import { solveFlop } from './flopSolver';
 import { riverExploitability } from './exploitability';
 import { getNodeStrategy } from '../index';
-import { parseCard, type Card } from '../../engine/cards';
-import type { GameState } from '../../engine/table';
+import { parseCard, type Card } from '@/engine/cards';
+
+import type { GameState } from '@/engine/table';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

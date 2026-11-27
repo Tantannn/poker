@@ -4,21 +4,17 @@
 // grader already consume. Pure — imports nothing from strategy/index.ts, so no
 // import cycle. Applies to a hero-FIRST heads-up river node only (v1 tree).
 
-import type { Card } from '../../engine/cards';
-import { sameCard, SUIT_SYMBOLS } from '../../engine/cards';
-import { evaluate7, HAND_CATEGORIES } from '../../engine/evaluator';
-import { countOuts } from '../../engine/equity';
-import type { WeightedRange } from '../../engine/range';
-import { codeToCombos } from '../../engine/range';
-import type { NodeStrategy, ActionOption } from '../types';
+import { type Card, sameCard, SUIT_SYMBOLS, evaluate7, HAND_CATEGORIES, type WeightedRange, codeToCombos } from '@/engine/cards';
+import { countOuts, requiredEquityForBet } from '@/engine/equity';
+import type { NodeStrategy, ActionOption } from '@/strategy/core';
+
 import { solveRiver, solveRiverVsBet, type Combo } from './riverSolver';
 import { solveTurn, solveTurnVsBet } from './turnSolver';
 import { solveFlop, solveFlopVsBet } from './flopSolver';
 import { solveRiver3way, solveTurn3way, solveFlop3way } from './multiwaySolver';
 import type { VsBetResult } from './vsBet';
 import { betSizeGrid, raiseSizeGrid, type BetSizeGrid, type RaiseSizeGrid } from './betSizeGrid';
-import { requiredEquityForBet } from '../../engine/potOdds';
-import type { Rake } from '../../engine/rake';
+import type { Rake } from '@/engine/table';
 
 // Size grids are built per node (betSizeGrid) — the sizes on offer depend on the stack.
 // The polar overbet slot is offered on the hero-first TURN and RIVER only: it pays off a

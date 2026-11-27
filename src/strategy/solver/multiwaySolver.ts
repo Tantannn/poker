@@ -21,11 +21,14 @@
 // O(hero × villain × third). The independence is the one modelling approximation; on the
 // river (fixed board) it is exact except for third-vs-villain card removal.
 
-import type { Card } from '../../engine/cards';
-import { evaluate7 } from '../../engine/evaluator';
-import { mdf } from '../../engine/potOdds';
+import { type Card, evaluate7 } from '@/engine/cards';
+
+
+import { mdf } from '@/engine/equity';
+
 import { lockedContinueBySize, STAB_FRAC, type Combo, type RiverResult } from './riverSolver';
-import { netPot, type Rake } from '../../engine/rake';
+import { netPot, type Rake } from '@/engine/table';
+
 import { textureBuckets } from './cardTexture';
 
 export interface Multiway3Input {

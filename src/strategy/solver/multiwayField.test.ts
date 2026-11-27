@@ -3,8 +3,10 @@ import { solveRiver3way, solveTurn3way } from './multiwaySolver';
 import type { Combo } from './riverSolver';
 import { getNodeStrategy } from '../index';
 import { MAX_MULTIWAY_OPPONENTS } from '../index';
-import { parseCard, type Card } from '../../engine/cards';
-import type { GameState } from '../../engine/table';
+import { parseCard, type Card } from '@/engine/cards';
+
+import type { GameState } from '@/engine/table';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

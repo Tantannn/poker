@@ -43,11 +43,11 @@ at ~16% VPIP on hard.
 **Measured signature.** `botSim.ts` plays a bots-only table (callback `onHand` lets analysis/ run
 its own counters over it). `profiles.ts` `hud` stores what `observed.ts` measures on each archetype
 at hard (VPIP, postflop AF, fold-to-bet) — the coach's prior (`archetypePrior`) and the archetype
-guide read it. `analysis/archetypeCalibration.test.ts` runs ONE 900-hand sim (cheap equity reads)
+guide read it. `analysis/reads/archetypeCalibration.test.ts` runs ONE 900-hand sim (cheap equity reads)
 and checks `hud` is still true, the postflop bands (station/maniac vs the solid pool) and the
 guide's hit rate. After a retune, re-measure at full hard-tier iterations:
-`SIM=1 npx vitest run src/analysis/archetypeCalibration.test.ts --silent=false --reporter=verbose`
-(prints `HUD …` lines, ~10 min). `SIM=1 … src/ai/_sim.test.ts` prints the full HUD table.
+`SIM=1 npx vitest run src/analysis/reads/archetypeCalibration.test.ts --silent=false --reporter=verbose`
+(prints `HUD …` lines, ~10 min). `SIM=1 … src/ai/sim/_sim.test.ts` prints the full HUD table.
 
 `DifficultyParams.jam` is the same knob for the **all-in**, and it exists because the
 commitment guard in `sizeTo` only ever upgrades a bet *already worth stacking off*

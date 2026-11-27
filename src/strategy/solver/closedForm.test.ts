@@ -13,7 +13,8 @@ import { solveRiver, type Combo } from './riverSolver';
 import { solveTurn } from './turnSolver';
 import { solveFlop } from './flopSolver';
 import { riverExploitability } from './exploitability';
-import { parseCard, type Card } from '../../engine/cards';
+import { parseCard, type Card } from '@/engine/cards';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

@@ -19,13 +19,15 @@
 // a DISCLOSED abstraction, not a solver-exact flop solve — matching the app's teaching
 // intent; the adapter surfaces it in the node note.
 
-import type { Card } from '../../engine/cards';
-import { evaluate7 } from '../../engine/evaluator';
+import { type Card, evaluate7 } from '@/engine/cards';
+
+
 import { solveTurn, interpolateFuture, dampFuture, normalized, CALLED_NEST_ROUNDS, REACH_FLOOR, solveVsBetWithFuture, VS_BET_NEXT_SIZES } from './turnSolver';
 import { solveVsBetEquity, type VsBetResult } from './vsBet';
 import { textureBuckets } from './cardTexture';
 import { villainRaiseSizes, STAB_FRAC, type Combo } from './riverSolver';
-import { netPot, rakeOn, type Rake } from '../../engine/rake';
+import { netPot, rakeOn, type Rake } from '@/engine/table';
+
 
 export interface FlopInput {
   heroRange: Combo[];

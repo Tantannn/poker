@@ -6,7 +6,7 @@ Status: **proposed** · Owner: TBD · Prereq: Tier-1 range realism (shipped, `4f
 
 ## 1. Problem
 
-The postflop engine (`strategy/postflopModel.ts` → `solvePostflop`) computes EV for
+The postflop engine (`strategy/postflop/postflopModel.ts` → `solvePostflop`) computes EV for
 **hero's specific hand vs the villain range**. It is *not* range-vs-range. Villain's
 fold/continue is a heuristic (`feMult` / MDF-style), not a best response to hero's
 **range**, and the action mix is a softmax over per-hand EVs (`mixFromEv`), not an
@@ -33,11 +33,11 @@ with a range-vs-range solver.
 - Unlock the three things per-hand can't do: real mixed frequencies, polar sizing
   (incl. overbets), and capped-range exploits.
 - Keep the existing UX. The new engine emits the same `NodeStrategy` shape
-  (`strategy/types.ts`); HUD, grader, coach, tooltips all keep working unchanged.
+  (`strategy/core/types.ts`); HUD, grader, coach, tooltips all keep working unchanged.
 - Ship value incrementally; each stage independently testable.
 
 **Non-Goals**
-- Preflop solving — charts stay (`ai/preflop.ts`, `strategy/preflopChart.ts`).
+- Preflop solving — charts stay (`ai/preflop/preflop.ts`, `strategy/preflop/preflopChart.ts`).
 - PioSOLVER parity or sub-0.5%-exploitability guarantees.
 - Real-time deep flop solves on every keystroke — latency is budgeted; hot spots
   may be cached/precomputed.
@@ -46,13 +46,13 @@ with a range-vs-range solver.
 
 | Component | File | Fate |
 |---|---|---|
-| Monte-Carlo equity | `engine/equity.ts` | **keep** — leaf/showdown evaluation |
-| Hand evaluator | `engine/evaluator.ts` (`evaluate7`) | **keep** |
-| Weighted range + card removal | `engine/range.ts` | **keep** — range representation |
+| Monte-Carlo equity | `engine/equity/equity.ts` | **keep** — leaf/showdown evaluation |
+| Hand evaluator | `engine/cards/evaluator.ts` (`evaluate7`) | **keep** |
+| Weighted range + card removal | `engine/cards/range.ts` | **keep** — range representation |
 | Villain range by role + board conditioning | `strategy/index.ts` (`buildVillainRange`, `betConditionedWeight`) | **keep** — feeds the villain range input |
-| Per-hand EV candidates + softmax mix | `strategy/postflopModel.ts` (`solvePostflop`, `computeAggro`, `mixFromEv`) | **replace** as the strategy source; **retain** as a fallback behind a flag |
-| Strategy interface | `strategy/types.ts` (`NodeStrategy`) | **keep** — output contract |
-| Off-thread compute | `workers/hudWorker.ts`, `strategy/hudCompute.ts` | **keep/extend** — solves run here with a time budget |
+| Per-hand EV candidates + softmax mix | `strategy/postflop/postflopModel.ts` (`solvePostflop`, `computeAggro`, `mixFromEv`) | **replace** as the strategy source; **retain** as a fallback behind a flag |
+| Strategy interface | `strategy/core/types.ts` (`NodeStrategy`) | **keep** — output contract |
+| Off-thread compute | `workers/hudWorker.ts`, `strategy/core/hudCompute.ts` | **keep/extend** — solves run here with a time budget |
 | Dispatch | `strategy/index.ts` (`getNodeStrategy`) | **modify** — route to solver when flag on |
 
 The important structural win: `buildVillainRange` already produces a realistic
@@ -174,7 +174,7 @@ before committing to turn/flop.
   with a chance layer the gap measures convergence to the *abstracted* game, not true
   exploitability.
 - **Reference cross-check**: a few known solver outputs → assert within tolerance.
-- **Regression**: existing invariants in `strategy/crossCheck.test.ts` /
+- **Regression**: existing invariants in `strategy/postflop/crossCheck.test.ts` /
   `spotRecheck.test.ts` (bluff-catchers don't overbet, etc.) still hold.
 - **A/B**: EV-loss distribution vs the current model over a hand sample.
 

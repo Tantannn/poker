@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { getNodeStrategy } from '../index';
-import { parseCard } from '../../engine/cards';
-import type { GameState } from '../../engine/table';
+import { parseCard } from '@/engine/cards';
+
+import type { GameState } from '@/engine/table';
+
 
 const cards = (s: string) => s.split(' ').map(parseCard);
 

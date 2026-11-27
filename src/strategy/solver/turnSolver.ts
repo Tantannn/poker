@@ -6,8 +6,9 @@
 // muddles: value-betting, protection (charging draws), and semi-bluffing air that
 // has outs. Full river-subgame nesting (river betting) is a later increment.
 
-import type { Card } from '../../engine/cards';
-import { evaluate7 } from '../../engine/evaluator';
+import { type Card, evaluate7 } from '@/engine/cards';
+
+
 import {
   solveRiver,
   STAB_FRAC,
@@ -19,7 +20,8 @@ import {
   type VillainNodeLock,
 } from './riverSolver';
 import { solveVsBetEquity, type VsBetResult } from './vsBet';
-import { netPot, rakeOn, type Rake } from '../../engine/rake';
+import { netPot, rakeOn, type Rake } from '@/engine/table';
+
 import { textureBuckets } from './cardTexture';
 
 export interface TurnInput {

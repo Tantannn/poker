@@ -1,0 +1,213 @@
+// Live "situation read" for the Play tab: on the hero's turn it explains the
+// spot in words BEFORE you act — street, position vs the villain, board texture,
+// and your hand class — using the same helpers the post-action feedback uses.
+
+import { useState } from 'react';
+import { type Card, describeTexture, boardWetness } from '@/engine/cards';
+
+import type { VillainInfo } from '@/hooks/useGame';
+
+import { classifyHandClass } from '@/strategy/reading';
+
+import { SizingCheatSheet } from '@/components/quickref';
+import { ReasonList } from '@/components/shared';
+
+
+
+const BOARD_TYPE: Record<'dry' | 'semi' | 'wet', string> = { dry: 'Dry', semi: 'Semi-wet', wet: 'Wet' };
+
+interface Props {
+  board: Card[];
+  heroCards: Card[];
+  street: string;
+  active: boolean;
+  villain: VillainInfo | null;
+  /** live opponents still in the hand (excludes hero). */
+  opponents?: number;
+  /** effective-stack-to-pot ratio (0 = unknown). */
+  spr?: number;
+}
+
+// Map the current spot to the usual play, straight from the cheat sheet rules:
+// commitment (SPR) first, then hand strength × board wetness × field size.
+function usualPlay(
+  street: string,
+  wet: 'dry' | 'semi' | 'wet',
+  strength: number,
+  spr: number,
+  opponents: number,
+  ip: boolean,
+): { action: string; why: string } {
+  const size = wet === 'wet' ? '66–75%' : wet === 'semi' ? '~50%' : '25–33%';
+  const mw = opponents >= 2;
+
+  // 1) committed — stacks go in regardless of size
+  if (spr > 0 && spr < 1) {
+    if (strength >= 4) return { action: 'Get it in — jam or bet ≥ 75%.', why: `SPR ${spr.toFixed(1)} < 1: committed with a strong hand, stacks go in anyway.` };
+    if (strength <= 1) return { action: 'Check / fold — no token bets.', why: `SPR ${spr.toFixed(1)} < 1 but the hand is weak; committing burns chips.` };
+    return { action: 'Small bet or check.', why: `SPR ${spr.toFixed(1)} < 1 with a medium hand — keep the pot manageable.` };
+  }
+
+  // 2) river — no protection, no draws
+  if (street === 'river') {
+    if (strength >= 4) return { action: `Bet thin value (${size}).`, why: 'River: worse hands still call; nothing to protect from.' };
+    return { action: 'Check / bluff-catch.', why: 'River: ask “how often is he bluffing?”, not “am I ahead?”' };
+  }
+
+  // 3) flop / turn — strength × texture
+  if (strength >= 4) return { action: `Bet for value${mw ? ' (size up)' : ''} — ${size}.`, why: mw ? `${opponents + 1}-way: size up, need more equity to value-bet, protect vs the field.` : ip ? 'In position — you may also check back to trap.' : 'Out of position — bet now, you realize less equity.' };
+  if (strength === 3)
+    return {
+      action: wet === 'wet' ? `Semi-bluff (${size}) or check-call.` : ip ? `Bet ${size} or check back for a free card.` : `Bet ${size} or check-call.`,
+      why:
+        `Strong draw — bet as a SEMI-BLUFF, not for showdown:` +
+        ` • Two ways to win — fold equity now (worse hands / air give up), plus real equity when called (your outs; rarely drawing dead).` +
+        ` • Builds the pot for when you hit.` +
+        ` • Denies a free card to his overcards/draws.` +
+        (ip ? ` • In position you can also check back to realize cheaply and keep his range wide.` : ` • Out of position, betting seizes initiative — check and he controls the pot, sees free cards, and barrels the scary runouts.`),
+    };
+  if (strength === 2) return { action: 'Check — pot control / bluff-catch.', why: 'Medium made hand; keep the pot small.' };
+  return { action: 'Check or give up.', why: 'Weak / air — bluff only with blockers + a plan.' };
+}
+
+// "Can a bet here actually make hands FOLD?" — the bluff-suitability read the
+// value-side `usualPlay` ignores. Only meaningful when hero ISN'T already value
+// betting (strength < 4: a value hand WANTS calls, so fold equity is irrelevant).
+// Multiway is the dominant killer — someone almost always holds a piece — so it
+// caps fold equity LOW no matter the board. Heads-up, street + position set the
+// rest. This is the leak behind "the model shows a thin 3-way bluff": there's ~no
+// fold equity into a field, so that edge is noise.
+type FeLevel = 'low' | 'ok' | 'good';
+function foldEquityRead(
+  strength: number,
+  opponents: number,
+  ip: boolean,
+  street: string,
+): { level: FeLevel; text: string } | null {
+  if (strength >= 4) return null; // value hand — you want calls, not folds
+  if (opponents >= 2)
+    return {
+      level: 'low',
+      text: `${opponents + 1}-way — someone usually has a piece, so a bluff rarely gets through. Bluff heads-up, not into a field: check, or bet only real value.`,
+    };
+  const pos = ip
+    ? 'In position you pick up extra fold equity'
+    : 'Out of position you realise less and get floated more, so bluff more selectively';
+  if (street === 'river')
+    return {
+      level: 'ok',
+      text: `Heads-up river — a bluff needs blockers to his value AND a credible story (a line that reps a hand you can actually hold). ${pos}. Match your value size so it isn't a tell.`,
+    };
+  if (strength === 3)
+    return {
+      level: 'good',
+      text: `Heads-up with a draw — a semi-bluff has real fold equity plus outs as backup. ${pos}. Keep barrelling the cards that complete your draw.`,
+    };
+  if (strength === 2)
+    return {
+      level: 'ok',
+      text: `Heads-up medium made hand — mostly a check / pot-control spot. If you bet it's thin value or protection (deny draws), NOT a bluff — you don't need folds. Real bluffs come from air and draws. ${pos}.`,
+    };
+  return {
+    level: 'ok',
+    text: `Heads-up with air — bluff only on boards that hit YOUR range (so you can rep the nuts) and with good blockers. ${pos}.`,
+  };
+}
+const FE_WORD: Record<FeLevel, string> = { low: 'LOW', ok: 'OK', good: 'GOOD' };
+const FE_CLASS: Record<FeLevel, string> = { low: 'bad', ok: 'okv', good: 'good' };
+
+export function SituationPanel({ board, heroCards, street, active, villain, opponents = 1, spr = 0 }: Props) {
+  const [showCheat, setShowCheat] = useState(false);
+  const [showPlay, setShowPlay] = useState(false);
+  if (!active) {
+    return (
+      <div className="sit-panel">
+        <div className="hud-head"><span>🧭 Situation</span></div>
+        <div className="hud-hidden">Reads the spot in plain English on your turn.</div>
+      </div>
+    );
+  }
+  const preflop = board.length < 3;
+  const tex = describeTexture(board);
+  const boardType = preflop ? '' : BOARD_TYPE[boardWetness(board)];
+  const hand = classifyHandClass(heroCards, board);
+  const ip = villain?.heroInPosition;
+  const play = preflop ? null : usualPlay(street, boardWetness(board), hand.strength, spr, opponents, !!ip);
+  const fe = preflop ? null : foldEquityRead(hand.strength, opponents, !!ip, street);
+
+  return (
+    <div className="sit-panel">
+      <div className="hud-head">
+        <span>🧭 Situation</span>
+        <div className="sit-head-btns">
+          {play && (
+            <button
+              type="button"
+              className={`toggle ${showPlay ? 'on' : ''}`}
+              onClick={() => setShowPlay((v) => !v)}
+              title="What to usually do in this exact spot"
+            >
+              💡 Play
+            </button>
+          )}
+          <button
+            type="button"
+            className={`toggle ${showCheat ? 'on' : ''}`}
+            onClick={() => setShowCheat((v) => !v)}
+            title="Postflop sizing cheat sheet — what to do in each spot"
+          >
+            📐 Cheat sheet
+          </button>
+        </div>
+      </div>
+
+      {showPlay && play && (
+        <div className="sit-block sit-play">
+          <div className="sit-h">💡 Usual play</div>
+          <p className="sit-play-action">{play.action}</p>
+          <div className="sit-muted"><ReasonList text={play.why} /></div>
+        </div>
+      )}
+
+      {showCheat && <div className="sit-cheat"><SizingCheatSheet /></div>}
+
+      <div className="sit-line">
+        <span className="sit-k">Street</span>
+        <span className="sit-v">{street.toUpperCase()}</span>
+      </div>
+      {villain && (
+        <div className="sit-line">
+          <span className="sit-k">Position</span>
+          <span className={`sit-v ${ip ? 'good' : 'bad'}`}>
+            {ip ? 'In position (act after villain)' : 'Out of position (act first)'}
+          </span>
+        </div>
+      )}
+
+      {!preflop && (
+        <div className="sit-block">
+          <div className="sit-h">
+            Board: {tex.label}
+            {boardType && <span className={`board-type ${boardType.toLowerCase().replace('-', '')}`}>{boardType}</span>}
+          </div>
+          <p>{tex.sentence}</p>
+          {tex.favours && <p className="sit-muted">{tex.favours}</p>}
+        </div>
+      )}
+
+      <div className="sit-block">
+        <div className="sit-h">Your hand: {hand.label}</div>
+        <div className="sit-blurb"><ReasonList text={hand.blurb} /></div>
+      </div>
+
+      {fe && (
+        <div className="sit-block">
+          <div className="sit-h">
+            Fold equity: <span className={`sit-v ${FE_CLASS[fe.level]}`}>{FE_WORD[fe.level]}</span>
+          </div>
+          <p className="sit-muted">{fe.text}</p>
+        </div>
+      )}
+    </div>
+  );
+}

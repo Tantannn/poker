@@ -164,7 +164,7 @@ can play back).
 
 Preflop never uses either: `preflopChart.ts` holds mixed-frequency charts per
 scenario id, and `pushFold.ts` takes over at ≤15bb effective (mirroring the bot's
-own short-stack logic in `ai/decide.ts`, so the graded answer matches how the table
+own short-stack logic in `ai/decide/decide.ts`, so the graded answer matches how the table
 actually plays).
 
 `hudCompute.ts` is the single entry point the worker calls (see `app-layers.md`).

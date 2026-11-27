@@ -9,7 +9,8 @@
 // discovers and a per-hand EV model cannot. Without the slot the solver's biggest size
 // is pot, so hero is never taught the line villains under-defend most.
 
-import type { ActionId } from '../types';
+import type { ActionId } from '@/strategy/core';
+
 
 export interface BetSizeGrid {
   /** fractions of pot, ascending — feed straight to a solver's `betSizes` */

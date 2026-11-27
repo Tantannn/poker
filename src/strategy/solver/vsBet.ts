@@ -16,7 +16,8 @@
 // its only import is the shared node-lock policy.
 
 import { locked3BetPolicy, lockedContinueVsRaise, lockedThresholdPolicy } from './riverSolver';
-import { netPot, rakeOn, type Rake } from '../../engine/rake';
+import { netPot, rakeOn, type Rake } from '@/engine/table';
+
 
 export interface VsBetEquityInput {
   eq: Float64Array[]; // [heroI][villJ] hero equity over remaining runouts, 0..1

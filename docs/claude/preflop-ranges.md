@@ -14,7 +14,7 @@ and a limp-call (`LIMP_CALL_TIGHTEN`).
 premiums are excluded for the same reason `DEFAULT_MIN_PLAY` is 0.6: a binary set admits a
 hand at full weight, so a player who limps AA one time in ten would read as always holding
 it. `BB_OPTION_RANGE` (BB checked its option in an unraised pot) is wider still — it never
-chose to be in the hand. Both live in `ai/preflop.ts`; neither is a chart id, so neither
+chose to be in the hand. Both live in `ai/preflop/preflop.ts`; neither is a chart id, so neither
 feeds the bots' preflop ranges.
 
 Two invariants. **An empty preflop log is a synthesised spot** (Postflop Lab, drills, most

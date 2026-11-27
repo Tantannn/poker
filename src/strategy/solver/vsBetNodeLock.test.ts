@@ -3,9 +3,12 @@ import { solveRiverVsBet, lockedContinueVsRaise, type Combo } from './riverSolve
 import { solveTurnVsBet } from './turnSolver';
 import { getNodeStrategy } from '../index';
 import type { VillainModels } from '../index';
-import { resolveVillainModel } from '../villainModel';
-import { parseCard, type Card } from '../../engine/cards';
-import type { GameState } from '../../engine/table';
+import { resolveVillainModel } from '@/strategy/villain';
+
+import { parseCard, type Card } from '@/engine/cards';
+
+import type { GameState } from '@/engine/table';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

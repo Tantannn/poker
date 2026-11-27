@@ -3,10 +3,13 @@ import { betSizeGrid, OVERBET_FRAC } from './betSizeGrid';
 import { solveRiver, type Combo } from './riverSolver';
 import { solveRiverNode } from './riverAdapter';
 import { getNodeStrategy } from '../index';
-import { rangeFromSet } from '../../engine/range';
-import { RFI_RANGES } from '../../ai/preflop';
-import { parseCard, type Card } from '../../engine/cards';
-import type { GameState } from '../../engine/table';
+import { rangeFromSet, parseCard, type Card } from '@/engine/cards';
+
+import { RFI_RANGES } from '@/ai/preflop';
+
+
+import type { GameState } from '@/engine/table';
+
 
 const C = (s: string): [Card, Card] => {
   const [a, b] = s.split(' ').map(parseCard);

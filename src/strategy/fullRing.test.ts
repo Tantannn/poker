@@ -6,21 +6,14 @@
 
 import { describe, it, expect } from 'vitest';
 import { getNodeStrategy, roleBaseRange } from './index';
-import { cardId } from '../engine/cards';
-import { RFI_RANGES, handCode } from '../ai/preflop';
-import { decideAction } from '../ai/decide';
-import {
-  applyAction,
-  biasHoleCards,
-  chartPosition,
-  createGame,
-  positionLabel,
-  sixMaxRfiEquivalent,
-  startHand,
-  tablePositions,
-  type GameState,
-  type Position,
-} from '../engine/table';
+import { cardId } from '@/engine/cards';
+
+import { RFI_RANGES, handCode } from '@/ai/preflop';
+
+import { decideAction } from '@/ai/decide';
+
+import { applyAction, biasHoleCards, chartPosition, createGame, positionLabel, sixMaxRfiEquivalent, startHand, tablePositions, type GameState, type Position } from '@/engine/table';
+
 
 const BB = 2;
 const bots = (n: number) => Array.from({ length: n - 1 }, () => 'tag');
